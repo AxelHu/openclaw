@@ -4,8 +4,10 @@ import { createAttachedChannelResultAdapter } from "openclaw/plugin-sdk/channel-
 import { resolveFeishuAccount } from "./accounts.js";
 import { createFeishuClient } from "./client.js";
 import { parseFeishuCommentTarget } from "./comment-target.js";
+import { relayOutboundToOtherBots } from "./cross-bot-relay.js";
 import { replyComment } from "./drive.js";
 import { sendMediaFeishu } from "./media.js";
+import { botOpenIds, botNames } from "./monitor.state.js";
 import { chunkTextForOutbound, type ChannelOutboundAdapter } from "./outbound-runtime-api.js";
 import { getFeishuRuntime } from "./runtime.js";
 import { sendMarkdownCardFeishu, sendMessageFeishu, sendStructuredCardFeishu } from "./send.js";
@@ -166,6 +168,25 @@ export const feishuOutbound: ChannelOutboundAdapter = {
       const account = resolveFeishuAccount({ cfg, accountId: accountId ?? undefined });
       const renderMode = account.config?.renderMode ?? "auto";
       const useCard = renderMode === "card" || (renderMode === "auto" && shouldUseCard(text));
+      // Cross-bot relay helper — extracted to avoid duplication between card and text paths
+      const triggerRelay = (result: { messageId?: string }) => {
+        const feishuCfg = resolveFeishuAccount({ cfg, accountId: accountId ?? undefined }).config;
+        const effectiveAccountId = accountId ?? undefined;
+        if (feishuCfg?.crossBotRelay && to.startsWith("oc_") && text?.trim()) {
+          void relayOutboundToOtherBots({
+            senderAccountId: effectiveAccountId ?? "default",
+            chatId: to,
+            text,
+            messageId: result.messageId,
+            threadId: threadId != null ? String(threadId) : undefined,
+            senderBotOpenId: botOpenIds.get(effectiveAccountId ?? "default"),
+            senderBotName: botNames.get(effectiveAccountId ?? "default"),
+          }).catch((err) => {
+            console.error(`[feishu] cross-bot relay failed:`, err);
+          });
+        }
+      };
+
       if (useCard) {
         const header = identity
           ? {
@@ -175,7 +196,7 @@ export const feishuOutbound: ChannelOutboundAdapter = {
               template: "blue" as const,
             }
           : undefined;
-        return await sendStructuredCardFeishu({
+        const cardResult = await sendStructuredCardFeishu({
           cfg,
           to,
           text,
@@ -184,14 +205,21 @@ export const feishuOutbound: ChannelOutboundAdapter = {
           accountId: accountId ?? undefined,
           header: header?.title ? header : undefined,
         });
+        // Relay card messages too — previously skipped by early return
+        triggerRelay(cardResult);
+        return cardResult;
       }
-      return await sendOutboundText({
+      const result = await sendOutboundText({
         cfg,
         to,
         text,
         accountId: accountId ?? undefined,
         replyToMessageId,
       });
+
+      triggerRelay(result);
+
+      return result;
     },
     sendMedia: async ({
       cfg,
