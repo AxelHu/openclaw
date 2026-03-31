@@ -51,6 +51,7 @@ import {
   parseFeishuDirectConversationId,
   parseFeishuTargetId,
 } from "./conversation-id.js";
+import { relayOutboundToOtherBots } from "./cross-bot-relay.js";
 import { listFeishuDirectoryPeers, listFeishuDirectoryGroups } from "./directory.static.js";
 import { resolveFeishuGroupToolPolicy } from "./policy.js";
 import { getFeishuRuntime } from "./runtime.js";
@@ -687,6 +688,23 @@ export const feishuPlugin: ChannelPlugin<ResolvedFeishuAccount, FeishuProbeResul
                 replyToMessageId,
                 replyInThread: ctx.action === "thread-reply",
               });
+            }
+            if (result?.messageId && to.startsWith("oc_")) {
+              const effectiveAccountId = ctx.accountId ?? "default";
+              const feishuCfg = { config: { crossBotRelay: true } }; // TODO: get from ctx
+              if (feishuCfg?.config?.crossBotRelay) {
+                relayOutboundToOtherBots({
+                  senderAccountId: effectiveAccountId,
+                  chatId: to,
+                  text: text ?? "",
+                  messageId: result.messageId,
+                  threadId: replyToMessageId ? String(replyToMessageId) : void 0,
+                  senderBotOpenId: void 0,
+                  senderBotName: void 0,
+                }).catch(() => {
+                  /* swallow relay errors */
+                });
+              }
             }
             return jsonActionResult({
               ok: true,
