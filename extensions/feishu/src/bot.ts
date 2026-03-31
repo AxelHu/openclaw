@@ -3,6 +3,7 @@ import {
   resolveConfiguredBindingRoute,
 } from "openclaw/plugin-sdk/conversation-runtime";
 import { getSessionBindingService } from "openclaw/plugin-sdk/conversation-runtime";
+import type { OpenClawConfig } from "openclaw/plugin-sdk/core";
 import { deriveLastRoutePolicy } from "openclaw/plugin-sdk/routing";
 import { resolveAgentIdFromSessionKey } from "openclaw/plugin-sdk/routing";
 import type { ClawdbotConfig, RuntimeEnv } from "../runtime-api.js";
@@ -20,7 +21,7 @@ import {
   resolveDefaultGroupPolicy,
   warnMissingProviderGroupPolicyFallbackOnce,
 } from "../runtime-api.js";
-import { resolveFeishuRuntimeAccount } from "./accounts.js";
+import { resolveFeishuAccount } from "./accounts.js";
 import {
   checkBotMentioned,
   normalizeFeishuCommandProbeBody,
@@ -160,6 +161,7 @@ export function parseFeishuMessageEvent(
     threadId: event.message.thread_id || undefined,
     content,
     contentType: event.message.message_type,
+    senderType: event.sender.sender_type,
   };
 
   // Detect mention forward request: message mentions bot + at least one other user
@@ -240,7 +242,7 @@ export async function handleFeishuMessage(params: {
   } = params;
 
   // Resolve account with merged config
-  const account = resolveFeishuRuntimeAccount({ cfg, accountId });
+  const account = resolveFeishuAccount({ cfg, accountId });
   const feishuCfg = account.config;
 
   const log = runtime?.log ?? console.log;
@@ -357,14 +359,6 @@ export async function handleFeishuMessage(params: {
     ? [...new Set(rawBroadcastAgents.map((id) => normalizeAgentId(id)))]
     : null;
 
-  // Parse message create_time early so every downstream consumer (pending
-  // history, inbound payload, etc.) uses the original authoring timestamp
-  // instead of the delivery/processing time.  Feishu uses a millisecond
-  // epoch string; fall back to Date.now() only when the field is absent.
-  const messageCreateTimeMs = event.message.create_time
-    ? parseInt(event.message.create_time, 10)
-    : Date.now();
-
   let requireMention = false; // DMs never require mention; groups may override below
   if (isGroup) {
     if (groupConfig?.enabled === false) {
@@ -422,10 +416,9 @@ export async function handleFeishuMessage(params: {
 
     ({ requireMention } = resolveFeishuReplyPolicy({
       isDirectMessage: false,
-      cfg,
-      accountId: account.accountId,
+      cfg: feishuCfg as OpenClawConfig,
       groupId: ctx.chatId,
-      groupPolicy,
+      groupPolicy: !groupConfig?.enabled ? "disabled" : feishuCfg?.groupPolicy,
     }));
 
     if (requireMention && !ctx.mentionedBot) {
@@ -442,7 +435,7 @@ export async function handleFeishuMessage(params: {
           entry: {
             sender: ctx.senderOpenId,
             body: `${ctx.senderName ?? ctx.senderOpenId}: ${ctx.content}`,
-            timestamp: messageCreateTimeMs,
+            timestamp: Date.now(),
             messageId: ctx.messageId,
           },
         });
@@ -927,7 +920,7 @@ export async function handleFeishuMessage(params: {
         // Only use rootId (om_* message anchor) — threadId (omt_*) is a container
         // ID and would produce invalid reply targets downstream.
         MessageThreadId: ctx.rootId && isTopicSessionForThread ? ctx.rootId : undefined,
-        Timestamp: messageCreateTimeMs,
+        Timestamp: Date.now(),
         WasMentioned: wasMentioned,
         CommandAuthorized: commandAuthorized,
         OriginatingChannel: "feishu" as const,
@@ -937,6 +930,10 @@ export async function handleFeishuMessage(params: {
       });
     };
 
+    // Parse message create_time (Feishu uses millisecond epoch string).
+    const messageCreateTimeMs = event.message.create_time
+      ? parseInt(event.message.create_time, 10)
+      : undefined;
     // Determine reply target based on group session mode:
     // - Topic-mode groups (group_topic / group_topic_sender): reply to the topic
     //   root so the bot stays in the same thread.
@@ -1119,20 +1116,46 @@ export async function handleFeishuMessage(params: {
         messageCreateTimeMs,
       });
 
-      log(`feishu[${account.accountId}]: dispatching to agent (session=${route.sessionKey})`);
-      const { queuedFinal, counts } = await core.channel.reply.withReplyDispatcher({
-        dispatcher,
-        onSettled: () => {
-          markDispatchIdle();
-        },
-        run: () =>
-          core.channel.reply.dispatchReplyFromConfig({
-            ctx: ctxPayload,
-            cfg,
+      // Fire-and-forget for cross-bot relay messages: relay messages don't need to
+      // block the dispatcher queue since the relay bot's reply is sent independently.
+      if (ctx.senderType === "bot") {
+        log(
+          `feishu[${account.accountId}]: relay dispatch (non-blocking) session=${route.sessionKey}`,
+        );
+        core.channel.reply
+          .withReplyDispatcher({
             dispatcher,
-            replyOptions,
-          }),
-      });
+            onSettled: () => markDispatchIdle(),
+            run: () =>
+              core.channel.reply.dispatchReplyFromConfig({
+                ctx: ctxPayload,
+                cfg,
+                dispatcher,
+                replyOptions,
+              }),
+          })
+          .catch((err) => {
+            error(`feishu[${account.accountId}]: relay dispatch failed: ${String(err)}`);
+          });
+      } else {
+        log(`feishu[${account.accountId}]: dispatching to agent (session=${route.sessionKey})`);
+        const { queuedFinal, counts } = await core.channel.reply.withReplyDispatcher({
+          dispatcher,
+          onSettled: () => {
+            markDispatchIdle();
+          },
+          run: () =>
+            core.channel.reply.dispatchReplyFromConfig({
+              ctx: ctxPayload,
+              cfg,
+              dispatcher,
+              replyOptions,
+            }),
+        });
+        log(
+          `feishu[${account.accountId}]: dispatch complete (queuedFinal=${queuedFinal}, replies=${counts.final})`,
+        );
+      }
 
       if (isGroup && historyKey && chatHistories) {
         clearHistoryEntriesIfEnabled({
@@ -1141,10 +1164,6 @@ export async function handleFeishuMessage(params: {
           limit: historyLimit,
         });
       }
-
-      log(
-        `feishu[${account.accountId}]: dispatch complete (queuedFinal=${queuedFinal}, replies=${counts.final})`,
-      );
     }
   } catch (err) {
     error(`feishu[${account.accountId}]: failed to dispatch message: ${String(err)}`);

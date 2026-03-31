@@ -14,7 +14,6 @@ import {
   createAllowlistProviderGroupPolicyWarningCollector,
   projectConfigAccountIdWarningCollector,
 } from "openclaw/plugin-sdk/channel-policy";
-import { getSessionBindingService } from "openclaw/plugin-sdk/conversation-runtime";
 import { createChatChannelPlugin } from "openclaw/plugin-sdk/core";
 import {
   createChannelDirectoryAdapter,
@@ -27,7 +26,6 @@ import type { ChannelMeta, ChannelPlugin, ClawdbotConfig } from "../runtime-api.
 import {
   buildChannelConfigSchema,
   buildProbeChannelStatusSummary,
-  chunkTextForOutbound,
   createActionGate,
   createDefaultChannelRuntimeState,
   DEFAULT_ACCOUNT_ID,
@@ -35,23 +33,18 @@ import {
 } from "../runtime-api.js";
 import type { ChannelMessageActionName } from "../runtime-api.js";
 import {
-  inspectFeishuCredentials,
   resolveFeishuAccount,
-  resolveFeishuRuntimeAccount,
+  resolveFeishuCredentials,
   listFeishuAccountIds,
   listEnabledFeishuAccounts,
   resolveDefaultFeishuAccountId,
 } from "./accounts.js";
-import { FEISHU_CARD_INTERACTION_VERSION } from "./card-interaction.js";
 import { createFeishuClient } from "./client.js";
 import { FeishuConfigSchema } from "./config-schema.js";
-import {
-  buildFeishuConversationId,
-  parseFeishuConversationId,
-  parseFeishuDirectConversationId,
-  parseFeishuTargetId,
-} from "./conversation-id.js";
+import { parseFeishuConversationId } from "./conversation-id.js";
+import { relayOutboundToOtherBots } from "./cross-bot-relay.js";
 import { listFeishuDirectoryPeers, listFeishuDirectoryGroups } from "./directory.static.js";
+import { botOpenIds, botNames } from "./monitor.state.js";
 import { resolveFeishuGroupToolPolicy } from "./policy.js";
 import { getFeishuRuntime } from "./runtime.js";
 import { resolveFeishuOutboundSessionRoute } from "./session-route.js";
@@ -66,34 +59,6 @@ function readFeishuMediaParam(params: Record<string, unknown>): string | undefin
     return undefined;
   }
   return media.trim() ? media : undefined;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
-
-function hasLegacyFeishuCardCommandValue(actionValue: unknown): boolean {
-  return (
-    isRecord(actionValue) &&
-    actionValue.oc !== FEISHU_CARD_INTERACTION_VERSION &&
-    (Boolean(typeof actionValue.command === "string" && actionValue.command.trim()) ||
-      Boolean(typeof actionValue.text === "string" && actionValue.text.trim()))
-  );
-}
-
-function containsLegacyFeishuCardCommandValue(node: unknown): boolean {
-  if (Array.isArray(node)) {
-    return node.some((item) => containsLegacyFeishuCardCommandValue(item));
-  }
-  if (!isRecord(node)) {
-    return false;
-  }
-
-  if (node.tag === "button" && hasLegacyFeishuCardCommandValue(node.value)) {
-    return true;
-  }
-
-  return Object.values(node).some((value) => containsLegacyFeishuCardCommandValue(value));
 }
 
 const meta: ChannelMeta = {
@@ -137,7 +102,7 @@ function describeFeishuMessageTool({
 >[0]): ChannelMessageToolDiscovery {
   const enabled =
     cfg.channels?.feishu?.enabled !== false &&
-    Boolean(inspectFeishuCredentials(cfg.channels?.feishu as FeishuConfig | undefined));
+    Boolean(resolveFeishuCredentials(cfg.channels?.feishu as FeishuConfig | undefined));
   if (listEnabledFeishuAccounts(cfg).length === 0) {
     return {
       actions: [],
@@ -313,99 +278,6 @@ function matchFeishuAcpConversation(params: {
         : undefined,
     matchPriority: matchesCanonicalConversation ? 2 : 1,
   };
-}
-
-function resolveFeishuSenderScopedCommandConversation(params: {
-  accountId: string;
-  parentConversationId?: string;
-  threadId?: string;
-  senderId?: string;
-  sessionKey?: string;
-  parentSessionKey?: string;
-}): string | undefined {
-  const parentConversationId = params.parentConversationId?.trim();
-  const threadId = params.threadId?.trim();
-  const senderId = params.senderId?.trim();
-  if (!parentConversationId || !threadId || !senderId) {
-    return undefined;
-  }
-  const expectedScopePrefix = `feishu:group:${parentConversationId.toLowerCase()}:topic:${threadId.toLowerCase()}:sender:`;
-  const isSenderScopedSession = [params.sessionKey, params.parentSessionKey].some((candidate) => {
-    const normalized = typeof candidate === "string" ? candidate.trim().toLowerCase() : "";
-    if (!normalized) {
-      return false;
-    }
-    const scopedRest = normalized.replace(/^agent:[^:]+:/, "");
-    return scopedRest.startsWith(expectedScopePrefix);
-  });
-  const senderScopedConversationId = buildFeishuConversationId({
-    chatId: parentConversationId,
-    scope: "group_topic_sender",
-    topicId: threadId,
-    senderOpenId: senderId,
-  });
-  if (isSenderScopedSession) {
-    return senderScopedConversationId;
-  }
-  if (!params.sessionKey?.trim()) {
-    return undefined;
-  }
-  const boundConversation = getSessionBindingService()
-    .listBySession(params.sessionKey)
-    .find((binding) => {
-      if (
-        binding.conversation.channel !== "feishu" ||
-        binding.conversation.accountId !== params.accountId
-      ) {
-        return false;
-      }
-      return binding.conversation.conversationId === senderScopedConversationId;
-    });
-  return boundConversation?.conversation.conversationId;
-}
-
-function resolveFeishuCommandConversation(params: {
-  accountId: string;
-  threadId?: string;
-  senderId?: string;
-  sessionKey?: string;
-  parentSessionKey?: string;
-  originatingTo?: string;
-  commandTo?: string;
-  fallbackTo?: string;
-}) {
-  if (params.threadId) {
-    const parentConversationId =
-      parseFeishuTargetId(params.originatingTo) ??
-      parseFeishuTargetId(params.commandTo) ??
-      parseFeishuTargetId(params.fallbackTo);
-    if (!parentConversationId) {
-      return null;
-    }
-    const senderScopedConversationId = resolveFeishuSenderScopedCommandConversation({
-      accountId: params.accountId,
-      parentConversationId,
-      threadId: params.threadId,
-      senderId: params.senderId,
-      sessionKey: params.sessionKey,
-      parentSessionKey: params.parentSessionKey,
-    });
-    return {
-      conversationId:
-        senderScopedConversationId ??
-        buildFeishuConversationId({
-          chatId: parentConversationId,
-          scope: "group_topic",
-          topicId: params.threadId,
-        }),
-      parentConversationId,
-    };
-  }
-  const conversationId =
-    parseFeishuDirectConversationId(params.originatingTo) ??
-    parseFeishuDirectConversationId(params.commandTo) ??
-    parseFeishuDirectConversationId(params.fallbackTo);
-  return conversationId ? { conversationId } : null;
 }
 
 function jsonActionResult(details: Record<string, unknown>) {
@@ -655,11 +527,6 @@ export const feishuPlugin: ChannelPlugin<ResolvedFeishuAccount, FeishuProbeResul
             const sendMedia = maybeSendMedia;
             let result;
             if (card) {
-              if (containsLegacyFeishuCardCommandValue(card)) {
-                throw new Error(
-                  "Feishu card buttons that trigger text or commands must use structured interaction envelopes.",
-                );
-              }
               result = await runtime.sendCardFeishu({
                 cfg: ctx.cfg,
                 to,
@@ -668,6 +535,27 @@ export const feishuPlugin: ChannelPlugin<ResolvedFeishuAccount, FeishuProbeResul
                 replyToMessageId,
                 replyInThread: ctx.action === "thread-reply",
               });
+              // Trigger cross-bot relay for card sends
+              if (result?.messageId) {
+                const feishuCfg = resolveFeishuAccount({
+                  cfg: ctx.cfg,
+                  accountId: ctx.accountId ?? undefined,
+                }).config;
+                const effectiveAccountId = ctx.accountId ?? "default";
+                if (feishuCfg?.crossBotRelay && to.startsWith("oc_")) {
+                  relayOutboundToOtherBots({
+                    senderAccountId: effectiveAccountId,
+                    chatId: to,
+                    text: "",
+                    messageId: result.messageId,
+                    threadId: replyToMessageId ? String(replyToMessageId) : void 0,
+                    senderBotOpenId: botOpenIds.get(effectiveAccountId),
+                    senderBotName: botNames.get(effectiveAccountId),
+                  }).catch(() => {
+                    /* swallow relay errors */
+                  });
+                }
+              }
             } else if (mediaUrl) {
               result = await sendMedia!({
                 cfg: ctx.cfg,
@@ -679,13 +567,18 @@ export const feishuPlugin: ChannelPlugin<ResolvedFeishuAccount, FeishuProbeResul
                 replyToId: replyToMessageId,
               });
             } else {
-              result = await runtime.sendMessageFeishu({
+              // Use feishuOutbound.sendText which has relay logic built-in
+              const sendText = runtime.feishuOutbound.sendText;
+              if (!sendText) throw new Error("Feishu text sending is not available.");
+              result = await sendText({
                 cfg: ctx.cfg,
                 to,
                 text: text!,
                 accountId: ctx.accountId ?? undefined,
-                replyToMessageId,
-                replyInThread: ctx.action === "thread-reply",
+                replyToId: replyToMessageId,
+                threadId: void 0,
+                mediaLocalRoots: ctx.mediaLocalRoots,
+                identity: void 0,
               });
             }
             return jsonActionResult({
@@ -1041,26 +934,6 @@ export const feishuPlugin: ChannelPlugin<ResolvedFeishuAccount, FeishuProbeResul
             conversationId,
             parentConversationId,
           }),
-        resolveCommandConversation: ({
-          accountId,
-          threadId,
-          senderId,
-          sessionKey,
-          parentSessionKey,
-          originatingTo,
-          commandTo,
-          fallbackTo,
-        }) =>
-          resolveFeishuCommandConversation({
-            accountId,
-            threadId,
-            senderId,
-            sessionKey,
-            parentSessionKey,
-            originatingTo,
-            commandTo,
-            fallbackTo,
-          }),
       },
       setup: feishuSetupAdapter,
       setupWizard: feishuSetupWizard,
@@ -1132,10 +1005,7 @@ export const feishuPlugin: ChannelPlugin<ResolvedFeishuAccount, FeishuProbeResul
       gateway: {
         startAccount: async (ctx) => {
           const { monitorFeishuProvider } = await import("./monitor.js");
-          const account = resolveFeishuRuntimeAccount(
-            { cfg: ctx.cfg, accountId: ctx.accountId },
-            { requireEventSecrets: true },
-          );
+          const account = resolveFeishuAccount({ cfg: ctx.cfg, accountId: ctx.accountId });
           const port = account.config?.webhookPort ?? null;
           ctx.setStatus({ accountId: ctx.accountId, port });
           ctx.log?.info(
@@ -1161,20 +1031,19 @@ export const feishuPlugin: ChannelPlugin<ResolvedFeishuAccount, FeishuProbeResul
         idLabel: "feishuUserId",
         message: PAIRING_APPROVED_MESSAGE,
         normalizeAllowEntry: createPairingPrefixStripper(/^(feishu|user|open_id):/i),
-        notify: async ({ cfg, id, message, accountId }) => {
+        notify: async ({ cfg, id, message }) => {
           const { sendMessageFeishu } = await loadFeishuChannelRuntime();
           await sendMessageFeishu({
             cfg,
             to: id,
             text: message,
-            accountId,
           });
         },
       },
     },
     outbound: {
       deliveryMode: "direct",
-      chunker: chunkTextForOutbound,
+      chunker: (text, limit) => getFeishuRuntime().channel.text.chunkMarkdownText(text, limit),
       chunkerMode: "markdown",
       textChunkLimit: 4000,
       ...createRuntimeOutboundDelegates({
