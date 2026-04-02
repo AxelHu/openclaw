@@ -181,6 +181,7 @@ export const feishuOutbound: ChannelOutboundAdapter = {
             threadId: threadId != null ? String(threadId) : undefined,
             senderBotOpenId: botOpenIds.get(effectiveAccountId ?? "default"),
             senderBotName: botNames.get(effectiveAccountId ?? "default"),
+            cfg,
           }).catch((err) => {
             console.error(`[feishu] cross-bot relay failed:`, err);
           });

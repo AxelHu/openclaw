@@ -7,7 +7,9 @@
  * do not trigger im.message.receive_v1 events for other bots.
  */
 import type { ClawdbotConfig, RuntimeEnv, HistoryEntry } from "../runtime-api.js";
+import { listEnabledFeishuAccounts } from "./accounts.js";
 import { handleFeishuMessage, type FeishuMessageEvent } from "./bot.js";
+import { botOpenIds, botNames } from "./monitor.state.js";
 
 // --- Account registry ---
 // Each monitoring account registers itself so the relay can dispatch to it.
@@ -54,11 +56,21 @@ export type RelayOutboundParams = {
   senderBotOpenId?: string;
   /** Bot's display name */
   senderBotName?: string;
+  /** Config for hot-loading lookup (optional) */
+  cfg?: ClawdbotConfig;
 };
 
 export async function relayOutboundToOtherBots(params: RelayOutboundParams): Promise<void> {
-  const { senderAccountId, chatId, text, messageId, threadId, senderBotOpenId, senderBotName } =
-    params;
+  const {
+    senderAccountId,
+    chatId,
+    text,
+    messageId,
+    threadId,
+    senderBotOpenId,
+    senderBotName,
+    cfg,
+  } = params;
 
   // Only relay to group chats
   if (!chatId) return;
@@ -73,24 +85,90 @@ export async function relayOutboundToOtherBots(params: RelayOutboundParams): Pro
   // Prevent re-entry: if this message is already being relayed, skip
   if (activeRelayMessageIds.has(syntheticMessageId)) return;
 
-  // Extract mentioned names from <at user_id="xxx">name</at> tags in the text
-  const mentionedNames = new Set<string>();
-  const atPattern = /<at\s+user_id="[^"]+">([^<]+)<\/at>/g;
+  // Parse each <at> tag into {openId, name} pairs (case-insensitive)
+  const mentionPairs: Array<{ openId: string; name: string }> = [];
+  const mentionedOpenIds = new Set<string>();
+  const atPattern = /<at\s+user_id="([^"]+)">([^<]+)<\/at>/g;
   let match: RegExpExecArray | null;
   while ((match = atPattern.exec(text)) !== null) {
-    mentionedNames.add(match[1].trim().toLowerCase());
+    const openId = match[1].trim().toLowerCase();
+    const name = match[2].trim().toLowerCase();
+    mentionPairs.push({ openId, name });
+    mentionedOpenIds.add(openId);
   }
 
-  // Filter targets: match mentioned names against registered bot names (case-insensitive)
+  // Only relay to explicitly mentioned bots — no fallback broadcast
+  if (mentionPairs.length === 0) return;
+
   const allOtherAccounts = Array.from(registeredAccounts.values()).filter(
     (account) => account.accountId !== senderAccountId,
   );
-  // Only relay to explicitly mentioned bots — no fallback broadcast
-  if (mentionedNames.size === 0) return;
-  const targets = allOtherAccounts.filter((account) => {
-    const name = account.botName?.trim()?.toLowerCase();
-    return name ? mentionedNames.has(name) : false;
+
+  // Phase 1 (strict): account matches only when BOTH openId AND name from the same <at> tag match.
+  const phase1Targets = allOtherAccounts.filter((account) => {
+    const botOpenId = account.botOpenId?.trim()?.toLowerCase();
+    const botName = account.botName?.trim()?.toLowerCase();
+    if (!botOpenId || !botName) return false;
+    return mentionPairs.some((p) => p.openId === botOpenId && p.name === botName);
   });
+
+  // Phase 2 (fallback): if strict phase found nothing, try openId-only match.
+  // Collect openIds already matched in phase 1 to avoid duplicates.
+  const phase1MatchedOpenIds = new Set(
+    phase1Targets.map((t) => t.botOpenId?.trim()?.toLowerCase()),
+  );
+  const phase2Accounts = allOtherAccounts.filter(
+    (account) => !phase1MatchedOpenIds.has(account.botOpenId?.trim()?.toLowerCase()),
+  );
+  const phase2Targets = phase2Accounts.filter((account) => {
+    const botOpenId = account.botOpenId?.trim()?.toLowerCase();
+    if (!botOpenId) return false;
+    return mentionedOpenIds.has(botOpenId);
+  });
+
+  const targets = [...phase1Targets, ...phase2Targets];
+
+  // Hot-loading fallback: check all enabled accounts with crossBotRelay even if not yet registered.
+  if (targets.length === 0 && cfg) {
+    const registeredOpenIds = new Set([
+      ...allOtherAccounts.map((a) => a.botOpenId?.trim()?.toLowerCase()),
+      ...phase1MatchedOpenIds,
+    ]);
+    const hotTargets = listEnabledFeishuAccounts(cfg)
+      .filter((acc) => {
+        if (acc.accountId === senderAccountId) return false;
+        if (registeredOpenIds.has(botOpenIds.get(acc.accountId)?.trim()?.toLowerCase()))
+          return false;
+        const feishuCfg = acc.config;
+        if (!feishuCfg?.crossBotRelay) return false;
+        const botOpenId = (botOpenIds.get(acc.accountId) ?? "").trim().toLowerCase();
+        const botName = (botNames.get(acc.accountId) ?? acc.name ?? "").trim().toLowerCase();
+        // Phase 1 strict: openId+name pair match
+        if (
+          botOpenId &&
+          botName &&
+          mentionPairs.some((p) => p.openId === botOpenId && p.name === botName)
+        ) {
+          return true;
+        }
+        // Phase 2 fallback: openId-only match (only if no phase1 matches were found via registered accounts)
+        if (botOpenId && mentionedOpenIds.has(botOpenId)) {
+          return true;
+        }
+        return false;
+      })
+      .map((acc) => ({
+        accountId: acc.accountId,
+        cfg,
+        runtime: undefined as RuntimeEnv | undefined,
+        chatHistories: new Map() as Map<string, HistoryEntry[]>,
+        botOpenId: botOpenIds.get(acc.accountId) ?? undefined,
+        botName: botNames.get(acc.accountId) ?? acc.name,
+      }));
+    if (hotTargets.length > 0) {
+      targets.push(...hotTargets);
+    }
+  }
 
   if (targets.length === 0) return;
 

@@ -1,5 +1,6 @@
 import type { ClawdbotConfig, RuntimeEnv } from "../runtime-api.js";
 import { listEnabledFeishuAccounts, resolveFeishuRuntimeAccount } from "./accounts.js";
+import { registerRelayAccount } from "./cross-bot-relay.js";
 import {
   monitorSingleAccount,
   resolveReactionSyntheticEvent,
@@ -77,6 +78,18 @@ export async function monitorFeishuProvider(opts: MonitorFeishuOpts = {}): Promi
     if (opts.abortSignal?.aborted) {
       log("feishu: abort signal received during startup preflight; stopping startup");
       break;
+    }
+
+    // Pre-register for cross-bot relay so the account is discoverable before the first message.
+    if (account.config.crossBotRelay) {
+      registerRelayAccount({
+        accountId: account.accountId,
+        cfg,
+        runtime: opts.runtime,
+        chatHistories: new Map(),
+        botOpenId: botOpenId ?? undefined,
+        botName: botName ?? account.name ?? undefined,
+      });
     }
 
     monitorPromises.push(
