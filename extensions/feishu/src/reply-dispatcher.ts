@@ -347,6 +347,7 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
             threadId: rootId,
             senderBotOpenId: botOpenIds.get(accountId ?? "default"),
             senderBotName: botNames.get(accountId ?? "default"),
+            cfg,
           });
         } catch (err) {
           console.error(`[feishu] cross-bot relay (reply-dispatcher) failed:`, err);
@@ -443,6 +444,7 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
                     threadId: rootId,
                     senderBotOpenId: botOpenIds.get(accountId ?? "default"),
                     senderBotName: botNames.get(accountId ?? "default"),
+                    cfg,
                   });
                 } catch (err) {
                   console.error(`[feishu] cross-bot relay (streaming final) failed:`, err);

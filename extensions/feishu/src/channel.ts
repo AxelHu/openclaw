@@ -552,6 +552,7 @@ export const feishuPlugin: ChannelPlugin<ResolvedFeishuAccount, FeishuProbeResul
                     threadId: replyToMessageId ? String(replyToMessageId) : void 0,
                     senderBotOpenId: botOpenIds.get(effectiveAccountId),
                     senderBotName: botNames.get(effectiveAccountId),
+                    cfg: ctx.cfg,
                   }).catch(() => {
                     /* swallow relay errors */
                   });
