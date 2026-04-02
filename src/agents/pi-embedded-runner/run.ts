@@ -790,9 +790,13 @@ export async function runEmbeddedPiAgent(
       const resolveAuthProfileFailureReason = (
         failoverReason: FailoverReason | null,
       ): AuthProfileFailureReason | null => {
-        // Timeouts are transport/model-path failures, not auth health signals,
+        // Timeouts and empty responses are transport/model-path failures, not auth health signals,
         // so they should not persist auth-profile failure state.
-        if (!failoverReason || failoverReason === "timeout") {
+        if (
+          !failoverReason ||
+          failoverReason === "timeout" ||
+          failoverReason === "empty_response"
+        ) {
           return null;
         }
         return failoverReason;

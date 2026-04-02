@@ -18,6 +18,7 @@ import {
   describeFailoverError,
   isFailoverError,
   isTimeoutError,
+  FailoverError,
 } from "./failover-error.js";
 import {
   shouldAllowCooldownProbeForReason,
@@ -140,6 +141,21 @@ async function runFallbackCandidate<T>(params: {
     const result = params.options
       ? await params.run(params.provider, params.model, params.options)
       : await params.run(params.provider, params.model);
+    // Detect empty responses (e.g. MiniMax returning {usage:0, content:[]}) which
+    // come back as successful HTTP responses but have no meaningful content.
+    // Treat as a retryable error so the fallback loop can try the next candidate.
+    if (
+      result !== null &&
+      typeof result === "object" &&
+      (result as Record<string, unknown>).payloads === undefined &&
+      !(result as Record<string, unknown>).aborted
+    ) {
+      const err = new FailoverError(
+        `Empty response from ${params.provider}/${params.model} (no payloads). Retrying with next fallback.`,
+        { reason: "empty_response", provider: params.provider, model: params.model },
+      );
+      throw err;
+    }
     return {
       ok: true,
       result,
@@ -655,12 +671,38 @@ export async function runWithModelFallback<T>(params: {
       }
     }
 
-    const attemptRun = await runFallbackAttempt({
-      run: params.run,
-      ...candidate,
-      attempts,
-      options: runOptions,
-    });
+    // Retry up to MAX_EMPTY_RESPONSE_RETRIES times on the same candidate for
+    // transient empty-response errors (e.g. MiniMax network hiccups), before
+    // falling back to the next model in the list.
+    const MAX_EMPTY_RESPONSE_RETRIES = 2;
+    let emptyRetries = 0;
+    let attemptRun;
+    while (true) {
+      attemptRun = await runFallbackAttempt({
+        run: params.run,
+        ...candidate,
+        attempts,
+        options: runOptions,
+      });
+      if ("success" in attemptRun) {
+        break;
+      }
+      const described = describeFailoverError(attemptRun.error);
+      if (described.reason === "empty_response" && emptyRetries < MAX_EMPTY_RESPONSE_RETRIES) {
+        emptyRetries += 1;
+        attempts.push({
+          provider: candidate.provider,
+          model: candidate.model,
+          error: `Empty response (retry ${emptyRetries}/${MAX_EMPTY_RESPONSE_RETRIES}): ${described.message ?? described.reason ?? String(attemptRun.error)}`,
+          reason: "unknown",
+        });
+        continue;
+      }
+      break; // proceed to next candidate (known failover error, or retries exhausted)
+    }
+    if (!attemptRun) {
+      break;
+    } // safety; should never happen
     if ("success" in attemptRun) {
       if (i > 0 || attempts.length > 0 || attemptedDuringCooldown) {
         logModelFallbackDecision({

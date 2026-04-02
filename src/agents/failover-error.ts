@@ -259,6 +259,12 @@ export function resolveFailoverReasonFromError(err: unknown): FailoverReason | n
   // Walk into error cause chain *before* timeout heuristics so that a specific
   // cause (e.g. RESOURCE_EXHAUSTED wrapped in AbortError) overrides a parent
   // message-based "timeout" guess from isTimeoutError.
+  // Detect empty-response errors from model providers (e.g. MiniMax returning
+  // {usage:0, content:[]}) before walking into the cause chain.
+  if (typeof message === "string" && message.includes("no payloads")) {
+    return "empty_response";
+  }
+
   const cause = getErrorCause(err);
   if (cause && cause !== err) {
     const causeReason = resolveFailoverReasonFromError(cause);
