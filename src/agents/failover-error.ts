@@ -235,55 +235,15 @@ function resolveFailoverClassificationFromError(err: unknown): FailoverClassific
     };
   }
 
-  // Check symbolic error codes (e.g. RESOURCE_EXHAUSTED from Google APIs)
-  const symbolicCodeReason = classifyFailoverReasonFromSymbolicCode(getErrorCode(err));
-  if (symbolicCodeReason) {
-    return symbolicCodeReason;
-  }
-
-  const code = (getErrorCode(err) ?? "").toUpperCase();
-  if (
-    [
-      "ETIMEDOUT",
-      "ESOCKETTIMEDOUT",
-      "ECONNRESET",
-      "ECONNABORTED",
-      "ECONNREFUSED",
-      "ENETUNREACH",
-      "EHOSTUNREACH",
-      "EHOSTDOWN",
-      "ENETRESET",
-      "EPIPE",
-      "EAI_AGAIN",
-    ].includes(code)
-  ) {
-    return "timeout";
-  }
-  // Walk into error cause chain *before* timeout heuristics so that a specific
-  // cause (e.g. RESOURCE_EXHAUSTED wrapped in AbortError) overrides a parent
-  // message-based "timeout" guess from isTimeoutError.
-  // Detect empty-response errors from model providers (e.g. MiniMax returning
-  // {usage:0, content:[]}) before walking into the cause chain.
-  if (typeof message === "string" && message.includes("no payloads")) {
-    return "empty_response";
-  }
-
-  const cause = getErrorCause(err);
-  if (cause && cause !== err) {
-    const causeReason = resolveFailoverReasonFromError(cause);
-    if (causeReason) {
-      return causeReason;
-    }
-  }
-
   const classification = classifyFailoverSignal(normalizeErrorSignal(err));
   if (!classification || classification.kind === "context_overflow") {
     // Let wrapped causes override parent timeout/overflow guesses.
-    const causeClassification = resolveFailoverClassificationFromError(err);
-    if (causeClassification) {
-      return causeClassification;
-    }
-  } (fix(model-fallback): add empty response retry for MiniMax transient network errors)
+    const cause = getErrorCause(err);
+    if (cause && cause !== err) {
+      const causeClassification = resolveFailoverClassificationFromError(cause);
+      if (causeClassification) {
+        return causeClassification;
+      }
     }
   }
 
@@ -301,6 +261,15 @@ function resolveFailoverClassificationFromError(err: unknown): FailoverClassific
 }
 
 export function resolveFailoverReasonFromError(err: unknown): FailoverReason | null {
+  // Detect empty-response errors from model providers (e.g. MiniMax returning
+  // {usage:0, content:[]}) before walking into the cause chain.
+  if (isFailoverError(err) && err.reason === "empty_response") {
+    return "empty_response";
+  }
+  const message = (err instanceof Error ? err.message : String(err));
+  if (typeof message === "string" && message.includes("no payloads")) {
+    return "empty_response";
+  }
   return failoverReasonFromClassification(resolveFailoverClassificationFromError(err));
 }
 
