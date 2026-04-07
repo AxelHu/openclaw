@@ -12,7 +12,11 @@ import {
   type ReplyPayload,
   type RuntimeEnv,
 } from "../runtime-api.js";
-import { resolveFeishuRuntimeAccount, resolveFeishuAccount } from "./accounts.js";
+import {
+  resolveFeishuRuntimeAccount,
+  resolveFeishuAccount,
+  listEnabledFeishuAccounts,
+} from "./accounts.js";
 import { createFeishuClient } from "./client.js";
 import { relayOutboundToOtherBots } from "./cross-bot-relay.js";
 import { sendMediaFeishu } from "./media.js";
@@ -24,6 +28,72 @@ import { sendMessageFeishu, sendStructuredCardFeishu, type CardHeaderConfig } fr
 import { FeishuStreamingSession, mergeStreamingText } from "./streaming-card.js";
 import { resolveReceiveIdType } from "./targets.js";
 import { addTypingIndicator, removeTypingIndicator, type TypingIndicatorState } from "./typing.js";
+
+function fixMentionTagsForRelay(
+  text: string,
+  mentionTargets: MentionTarget[] | undefined,
+  cfg: ClawdbotConfig,
+): string {
+  if (!mentionTargets || mentionTargets.length === 0) return text;
+
+  // Build userId → botOpenId map from all enabled crossBotRelay accounts
+  // We need to match mentionTargets.openId (which may be user_id) against known bot identities
+  const accounts = listEnabledFeishuAccounts(cfg);
+  const userIdToBotOpenId = new Map<string, string>();
+  for (const acc of accounts) {
+    if (!acc.config.crossBotRelay) continue;
+    const botOpenId = botOpenIds.get(acc.accountId);
+    const botName = botNames.get(acc.accountId);
+    if (!botOpenId) continue;
+    // Match by botName: if mentionTarget.name matches a known botName, use that botOpenId
+    // This handles the case where Feishu gives us user_id but we know the bot by name
+  }
+
+  // Simple approach: for each mentionTarget, check if its openId matches a known botOpenId.
+  // If not, look it up by name match against known botNames.
+  const knownBotOpenIds = new Set<string>();
+  const knownBotNames = new Map<string, string>(); // nameLower → botOpenId
+  for (const acc of accounts) {
+    if (!acc.config.crossBotRelay) continue;
+    const botOpenId = botOpenIds.get(acc.accountId);
+    const botName = botNames.get(acc.accountId);
+    if (botOpenId) knownBotOpenIds.add(botOpenId);
+    if (botName) knownBotNames.set(botName.toLowerCase(), botOpenId ?? "");
+  }
+
+  // If any mentionTarget.openId is already a known botOpenId, keep it
+  // If not, check if the name matches a known botName → use that botOpenId
+  let modified = false;
+  let result = text;
+  for (const target of mentionTargets) {
+    const openId = target.openId;
+    const name = target.name;
+    let correctedOpenId: string | undefined;
+
+    if (knownBotOpenIds.has(openId)) {
+      // Already a valid bot_open_id, keep as-is
+      correctedOpenId = openId;
+    } else {
+      // Try name lookup
+      const nameLower = name.toLowerCase();
+      if (knownBotNames.has(nameLower)) {
+        correctedOpenId = knownBotNames.get(nameLower);
+      }
+    }
+
+    if (correctedOpenId && correctedOpenId !== openId) {
+      // Replace <at user_id="OLD"> with correct bot_open_id
+      const oldTag = `<at user_id="${openId}">${name}</at>`;
+      const newTag = `<at user_id="${correctedOpenId}">${name}</at>`;
+      if (result.includes(oldTag)) {
+        result = result.split(oldTag).join(newTag);
+        modified = true;
+      }
+    }
+  }
+
+  return result;
+}
 
 /** Detect if text contains markdown elements that benefit from card rendering */
 function shouldUseCard(text: string): boolean {
@@ -342,7 +412,7 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
           await relayOutboundToOtherBots({
             senderAccountId: accountId ?? "default",
             chatId,
-            text: params.text,
+            text: fixMentionTagsForRelay(params.text, mentionTargets, cfg),
             messageId: lastMessageId,
             threadId: rootId,
             senderBotOpenId: botOpenIds.get(accountId ?? "default"),
@@ -439,7 +509,7 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
                   await relayOutboundToOtherBots({
                     senderAccountId: accountId ?? "default",
                     chatId,
-                    text,
+                    text: fixMentionTagsForRelay(text, mentionTargets, cfg),
                     messageId: streamingMsgId,
                     threadId: rootId,
                     senderBotOpenId: botOpenIds.get(accountId ?? "default"),

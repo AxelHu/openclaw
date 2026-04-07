@@ -203,10 +203,10 @@ export function buildFeishuAgentBody(params: {
     }
   }
 
-  if (ctx.mentionTargets && ctx.mentionTargets.length > 0) {
-    const targetNames = ctx.mentionTargets.map((t) => t.name).join(", ");
-    messageBody += `\n\n[System: Your reply will automatically @mention: ${targetNames}. Do not write @xxx yourself.]`;
-  }
+  // NOTE: Do NOT add "Your reply will automatically @mention" system message here.
+  // Previously removed: it confused agents about whether to @mention targets,
+  // and the mentionTargets used user_id instead of bot_open_id making @ tags wrong.
+  // Relay handles bot-to-bot notification separately via cross-bot-relay.
 
   // Keep message_id on its own line so shared message-id hint stripping can parse it reliably.
   messageBody = `[message_id: ${ctx.messageId}]\n${messageBody}`;
