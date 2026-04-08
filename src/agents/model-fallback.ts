@@ -19,7 +19,6 @@ import {
   describeFailoverError,
   isFailoverError,
   isTimeoutError,
-  FailoverError,
 } from "./failover-error.js";
 import {
   shouldAllowCooldownProbeForReason,
