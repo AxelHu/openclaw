@@ -269,6 +269,15 @@ function resolveFailoverClassificationFromError(err: unknown): FailoverClassific
 }
 
 export function resolveFailoverReasonFromError(err: unknown): FailoverReason | null {
+  // Detect empty-response errors from model providers (e.g. MiniMax returning
+  // {usage:0, content:[]}) before walking into the cause chain.
+  if (isFailoverError(err) && err.reason === "empty_response") {
+    return "empty_response";
+  }
+  const message = (err instanceof Error ? err.message : String(err));
+  if (typeof message === "string" && message.includes("no payloads")) {
+    return "empty_response";
+  }
   return failoverReasonFromClassification(resolveFailoverClassificationFromError(err));
 }
 

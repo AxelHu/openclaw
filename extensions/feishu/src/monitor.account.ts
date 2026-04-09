@@ -14,6 +14,7 @@ import { maybeHandleFeishuQuickActionMenu } from "./card-ux-launcher.js";
 import { createEventDispatcher } from "./client.js";
 import { handleFeishuCommentEvent } from "./comment-handler.js";
 import { isRecord, readString } from "./comment-shared.js";
+import { registerRelayAccount, unregisterRelayAccount } from "./cross-bot-relay.js";
 import {
   hasProcessedFeishuMessage,
   recordProcessedFeishuMessage,
@@ -863,6 +864,19 @@ export async function monitorSingleAccount(params: MonitorSingleAccountParams): 
     const chatHistories = new Map<string, HistoryEntry[]>();
     threadBindingManager = createFeishuThreadBindingManager({ accountId, cfg });
 
+    // Cross-bot relay: register this account if enabled
+    const feishuCfg = account.config;
+    if (feishuCfg.crossBotRelay) {
+      registerRelayAccount({
+        accountId,
+        cfg,
+        runtime,
+        chatHistories,
+        botOpenId: botOpenId ?? undefined,
+        botName: botNames.get(accountId) ?? undefined,
+      });
+    }
+
     registerEventHandlers(eventDispatcher, {
       cfg,
       accountId,
@@ -877,5 +891,6 @@ export async function monitorSingleAccount(params: MonitorSingleAccountParams): 
     return await monitorWebSocket({ account, accountId, runtime, abortSignal, eventDispatcher });
   } finally {
     threadBindingManager?.stop();
+    unregisterRelayAccount(accountId);
   }
 }

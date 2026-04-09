@@ -59,8 +59,10 @@ import {
   parseFeishuDirectConversationId,
   parseFeishuTargetId,
 } from "./conversation-id.js";
+import { relayOutboundToOtherBots } from "./cross-bot-relay.js";
 import { listFeishuDirectoryGroups, listFeishuDirectoryPeers } from "./directory.static.js";
 import { messageActionTargetAliases } from "./message-action-contract.js";
+import { botOpenIds, botNames } from "./monitor.state.js";
 import { resolveFeishuGroupToolPolicy } from "./policy.js";
 import { collectRuntimeConfigAssignments, secretTargetRegistryEntries } from "./secret-contract.js";
 import { collectFeishuSecurityAuditFindings } from "./security-audit.js";
@@ -697,6 +699,28 @@ export const feishuPlugin: ChannelPlugin<ResolvedFeishuAccount, FeishuProbeResul
                 replyToMessageId,
                 replyInThread: ctx.action === "thread-reply",
               });
+              // Trigger cross-bot relay for card sends
+              if (result?.messageId) {
+                const feishuCfg = resolveFeishuAccount({
+                  cfg: ctx.cfg,
+                  accountId: ctx.accountId ?? undefined,
+                }).config;
+                const effectiveAccountId = ctx.accountId ?? "default";
+                if (feishuCfg?.crossBotRelay && to.startsWith("oc_")) {
+                  relayOutboundToOtherBots({
+                    senderAccountId: effectiveAccountId,
+                    chatId: to,
+                    text: "",
+                    messageId: result.messageId,
+                    threadId: replyToMessageId ? String(replyToMessageId) : void 0,
+                    senderBotOpenId: botOpenIds.get(effectiveAccountId),
+                    senderBotName: botNames.get(effectiveAccountId),
+                    cfg: ctx.cfg,
+                  }).catch(() => {
+                    /* swallow relay errors */
+                  });
+                }
+              }
             } else if (mediaUrl) {
               result = await sendMedia!({
                 cfg: ctx.cfg,
@@ -708,13 +732,18 @@ export const feishuPlugin: ChannelPlugin<ResolvedFeishuAccount, FeishuProbeResul
                 replyToId: replyToMessageId,
               });
             } else {
-              result = await runtime.sendMessageFeishu({
+              // Use feishuOutbound.sendText which has relay logic built-in
+              const sendText = runtime.feishuOutbound.sendText;
+              if (!sendText) throw new Error("Feishu text sending is not available.");
+              result = await sendText({
                 cfg: ctx.cfg,
                 to,
                 text: text!,
                 accountId: ctx.accountId ?? undefined,
-                replyToMessageId,
-                replyInThread: ctx.action === "thread-reply",
+                replyToId: replyToMessageId,
+                threadId: void 0,
+                mediaLocalRoots: ctx.mediaLocalRoots,
+                identity: void 0,
               });
             }
             return jsonActionResult({
