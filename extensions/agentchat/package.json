@@ -1,0 +1,48 @@
+{
+  "name": "@agentchat/openclaw-plugin",
+  "version": "0.1.0",
+  "description": "OpenClaw AgentChat channel plugin",
+  "type": "module",
+  "main": "src/index.ts",
+  "dependencies": {
+    "ws": "^8.20.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "openclaw": "*",
+    "typescript": "^5.7.0"
+  },
+  "peerDependencies": {
+    "openclaw": ">=2026.3.24"
+  },
+  "peerDependenciesMeta": {
+    "openclaw": {
+      "optional": true
+    }
+  },
+  "openclaw": {
+    "extensions": [
+      "./src/index.ts"
+    ],
+    "channel": {
+      "id": "agentchat",
+      "label": "AgentChat",
+      "selectionLabel": "AgentChat",
+      "docsPath": "/channels/agentchat",
+      "docsLabel": "agentchat",
+      "blurb": "AgentChat messaging platform channel plugin.",
+      "aliases": [],
+      "order": 90,
+      "quickstartAllowFrom": false
+    },
+    "install": {
+      "npmSpec": "@agentchat/openclaw-plugin",
+      "localPath": "extensions/agentchat",
+      "defaultChoice": "npm",
+      "minHostVersion": ">=2026.3.24"
+    },
+    "bundle": {
+      "stageRuntimeDependencies": true
+    }
+  }
+}

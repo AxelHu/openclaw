@@ -1,0 +1,30 @@
+{
+  "id": "agentchat",
+  "version": "0.1.0",
+  "channels": ["agentchat"],
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "enabled": {
+        "type": "boolean",
+        "default": true
+      },
+      "serverUrl": {
+        "type": "string",
+        "description": "WebSocket server URL (e.g. wss://your-server.com/ws)"
+      },
+      "restUrl": {
+        "type": "string",
+        "description": "REST API base URL (e.g. https://your-server.com/api)"
+      },
+      "account": {
+        "type": "object",
+        "properties": {
+          "username": { "type": "string" },
+          "password": { "type": "string" }
+        }
+      }
+    }
+  }
+}
