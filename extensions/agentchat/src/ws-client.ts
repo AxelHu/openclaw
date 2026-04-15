@@ -36,6 +36,14 @@ export class AgentChatWSClientImpl implements WSClient {
   private connected = false;
 
   async connect(config: AgentChatConfig): Promise<void> {
+    // If already connected with the same config, skip
+    if (this.connected && this.ws?.readyState === WebSocket.OPEN) {
+      return;
+    }
+    // Close any existing stale connection before reconnecting
+    if (this.ws) {
+      this.ws.close(1001, "Reconnecting");
+    }
     this.config = config;
     this.intentionalClose = false;
     this.reconnectAttempt = 0;
