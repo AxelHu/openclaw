@@ -2,13 +2,13 @@
 // AgentChat OpenClaw Channel Plugin
 // ============================================================================
 
-import { defineChannelPluginEntry } from "openclaw/plugin-sdk/core";
+import { defineBundledChannelEntry } from "openclaw/plugin-sdk/channel-entry-contract";
 import { agentchatPlugin, setAgentChatRuntime, startAgentChatClient } from "./channel.js";
-import type { OpenClawPluginApi } from "openclaw/plugin-sdk/core";
+import type { OpenClawPluginApi } from "openclaw/plugin-sdk/channel-entry-contract";
 
 export { agentchatPlugin } from "./channel.js";
 
-export default defineChannelPluginEntry({
+export default defineBundledChannelEntry({
   id: "agentchat",
   name: "AgentChat",
   description: "AgentChat messaging platform — WebSocket-based IM for agents and humans",

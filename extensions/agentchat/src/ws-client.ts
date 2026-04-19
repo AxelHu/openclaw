@@ -35,10 +35,18 @@ export class AgentChatWSClientImpl implements WSClient {
   private intentionalClose = false;
   private connected = false;
 
+  private pendingConnect: Promise<void> | null = null;
+
   async connect(config: AgentChatConfig): Promise<void> {
-    // If already connected with the same config, skip
+    // If already connected, skip
     if (this.connected && this.ws?.readyState === WebSocket.OPEN) {
+      console.error("[AgentChat] connect: already connected, skipping");
       return;
+    }
+    // If a connect is already in progress, wait for it instead of starting another
+    if (this.pendingConnect) {
+      console.error("[AgentChat] connect: pending connect exists, waiting...");
+      return this.pendingConnect;
     }
     // Close any existing stale connection before reconnecting
     if (this.ws) {
@@ -47,7 +55,13 @@ export class AgentChatWSClientImpl implements WSClient {
     this.config = config;
     this.intentionalClose = false;
     this.reconnectAttempt = 0;
-    return this.doConnect();
+    this.pendingConnect = this.doConnect()
+      .catch((err) => {
+        console.error("[AgentChat] doConnect failed t="+Date.now()+": " + err.message);
+        throw err;
+      })
+      .finally(() => { this.pendingConnect = null; });
+    return this.pendingConnect;
   }
 
   private async doConnect(): Promise<void> {
@@ -66,6 +80,7 @@ export class AgentChatWSClientImpl implements WSClient {
         new Promise((_, reject) => setTimeout(() => reject(new Error("fetch timeout 10s")), 10000)),
       ]);
     } catch (err) {
+      console.error("[AgentChat] REST FAILED t="+Date.now()+": " + String(err));
       this.errorHandler?.(new Error(`Login request failed: ${String(err)}`));
       this.scheduleReconnect();
       return;
@@ -107,11 +122,13 @@ export class AgentChatWSClientImpl implements WSClient {
 
     this.ws.on("open", () => {
       this.connected = true;
+      console.error("[AgentChat] WS OPEN t="+Date.now()+", readyState=" + this.ws?.readyState);
       this.reconnectAttempt = 0;
       this.startPing();
     });
 
     this.ws.on("message", (data) => {
+      console.error("[AgentChat] MSG IN t="+Date.now()+" raw=" + String(data).slice(0,100));
       try {
         const msg = JSON.parse(String(data)) as ServerMessage;
         if (msg.type === "connected") {return;} // Server confirmed connection
@@ -122,6 +139,7 @@ export class AgentChatWSClientImpl implements WSClient {
     });
 
     this.ws.on("close", (code, _reason) => {
+      console.error("[AgentChat] WS CLOSE t="+Date.now()+" code=" + code + " reason=" + String(_reason).slice(0,50) + " wsState=" + this.ws?.readyState + " connected=" + this.connected);
       this.connected = false;
       this.stopPing();
       if (!this.intentionalClose) {
@@ -131,12 +149,19 @@ export class AgentChatWSClientImpl implements WSClient {
     });
 
     this.ws.on("error", (err) => {
+      console.error("[AgentChat] WS ERROR:", err.message);
       this.errorHandler?.(new Error(`WS error: ${err}`));
     });
   }
 
   private scheduleReconnect(): void {
-    if (this.intentionalClose || this.reconnectTimer) {return;}
+    if (this.intentionalClose) {return;}
+    if (this.reconnectTimer) {return;}
+    // Don't reconnect if already connected
+    if (this.connected && this.ws?.readyState === WebSocket.OPEN) {
+      console.error("[AgentChat] scheduleReconnect: already connected, skipping");
+      return;
+    }
     const delay = Math.min(
       RECONNECT_BASE_MS * 2 ** this.reconnectAttempt,
       RECONNECT_MAX_MS,
@@ -150,9 +175,12 @@ export class AgentChatWSClientImpl implements WSClient {
 
   private startPing(): void {
     this.stopPing();
+    console.error("[AgentChat] startPing t="+Date.now()+" ws.readyState=" + this.ws?.readyState);
     this.pingTimer = setInterval(() => {
       if (this.ws?.readyState === WebSocket.OPEN) {
-        this.ws.ping();
+        this.ws.send(JSON.stringify({ type: "ping" }));
+      } else {
+        console.error("[AgentChat] ping tick t="+Date.now()+" ws not OPEN, readyState=" + this.ws?.readyState);
       }
     }, PING_INTERVAL_MS);
   }
@@ -193,7 +221,10 @@ export class AgentChatWSClientImpl implements WSClient {
   }
 
   isConnected(): boolean {
-    return this.connected;
+    const state = this.ws?.readyState;
+    const conn = this.connected;
+    console.error("[AgentChat] isConnected() check: readyState=" + state + " connected=" + conn + " ws=" + !!this.ws);
+    return conn;
   }
 
   async close(): Promise<void> {

@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "description": "OpenClaw AgentChat channel plugin",
   "type": "module",
-  "main": "src/index.ts",
+  "main": "dist/index.js",
   "dependencies": {
     "ws": "^8.20.0"
   },
@@ -22,7 +22,7 @@
   },
   "openclaw": {
     "extensions": [
-      "./src/index.ts"
+      "./dist/index.js"
     ],
     "channel": {
       "id": "agentchat",
