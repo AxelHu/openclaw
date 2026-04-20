@@ -7,7 +7,6 @@ import type {
   AgentChatConfig,
   ServerMessage,
 } from "./types.js";
-import type { ChannelGatewayContext } from "openclaw/plugin-sdk/core";
 import { createWSClient } from "./ws-client.js";
 import type { WSClient } from "./types.js";
 import { URL } from "url";
@@ -104,13 +103,10 @@ function getWsClient(): WSClient {
 
 function makeOnMessageHandler(runtime: unknown, accountId: string) {
   return (msg: ServerMessage) => {
-    // Server sends flat messages: { type: "message", eventId, groupId, ... }
-    // The payload IS the message object itself
-    const payload = (msg as any).payload ?? msg;
     if (msg.type === "message") {
-      void handleIncomingMessage(runtime, accountId, payload as unknown);
+      void handleIncomingMessage(runtime, accountId, msg.payload as unknown);
     } else if (msg.type === "invite_notification") {
-      void handleInviteNotification(runtime, accountId, payload as unknown);
+      void handleInviteNotification(runtime, accountId, msg.payload as unknown);
     }
   };
 }
@@ -125,45 +121,18 @@ async function handleIncomingMessage(
   const groupId = String(payload.group_id ?? payload.groupId ?? "");
   const userId = String(payload.sender_id ?? payload.userId ?? "");
   const username = payload.sender_name ?? payload.username ?? "";
-  const receiverId = String(payload.receiver_id ?? payload.receiverId ?? "");
-  const receiverName = String(payload.receiver_name ?? payload.receiverName ?? "");
-  const groupName = String(payload.group_name ?? payload.groupName ?? "");
   const content = payload.content ?? "";
   const _createdAt = payload.created_at ?? payload.createdAt ?? "";
 
-  // Detect chat type: private chat has no groupId but has receiverId
-  const isPrivate = !groupId && receiverId;
+  // Build session key: group-based routing
+  const sessionKey = groupId
+    ? `agentchat:group:${groupId}`
+    : `agentchat:user:${userId}`;
 
-  // Build session key: private = agentchat:user:<receiverId>, group = agentchat:group:<groupId>
-  // For private chat, use receiverId as session key so each recipient routes to their own session
-  const sessionKey = isPrivate
-    ? `agentchat:user:${receiverId}`
-    : `agentchat:group:${groupId}`;
-
-  // Extract mentions from <at user_id="..."> tags (Feishu structured format)
-  // and @username plain text (backward compatibility)
-  const mentionUserIds = extractMentionUserIds(content);
-  const mentionNames = extractMentionNames(content);
-  const hasAtTags = mentionUserIds.length > 0;
-  const hasAtNames = mentionNames.length > 0;
-  const wasMentioned = hasAtTags || hasAtNames;
-
-  // Preserve <at> tags in text so OpenClaw agent can see them.
-  // Only strip plain @username patterns (when no <at> tags present).
-  let text = hasAtTags ? content : (hasAtNames ? stripAtNames(content, mentionNames) : content);
-
-  // Prepend message header for context (group name / private chat indicator)
-  // Use ac_ prefix for sender/receiver IDs (similar to Feishu's ou_ format)
-  if (isPrivate) {
-    const acSenderId = `ac_${userId}`;
-    const acReceiverId = `ac_${receiverId}`;
-    const senderLabel = username ? `${username}(${acSenderId})` : acSenderId;
-    const receiverLabel = receiverName || acReceiverId;
-    text = `[私聊 | ${senderLabel} → ${receiverLabel}]: ${text}`;
-  } else if (groupId) {
-    const groupLabel = groupName || groupId;
-    text = `[群聊 | ${groupLabel}]: ${text}`;
-  }
+  // Extract and strip @mentions for clean text
+  const mentions = extractMentions(content);
+  const wasMentioned = mentions.length > 0;
+  const text = stripMentions(content, mentions);
 
   // Deliver to agent session
   try {
@@ -192,50 +161,20 @@ async function handleInviteNotification(
   runtime.log?.(`[agentchat] invite_notification: group=${payload.group_name ?? payload.groupId}`);
 }
 
-/**
- * Extract mention userIds from content.
- * Supports two formats:
- * 1. <at user_id="...">name</at> (Feishu structured format)
- * 2. @username (plain text fallback)
- */
-function extractMentionUserIds(content: string): string[] {
-  const userIds: string[] = [];
-  // Format 1: <at user_id="...">name</at>
-  const atTagRegex = /<at user_id="([^"]+)">/g;
-  let match;
-  while ((match = atTagRegex.exec(content)) !== null) {
-    userIds.push(match[1]);
-  }
-  return [...new Set(userIds)];
-}
-
-/**
- * Extract plain @usernames from content (fallback for non-tag formats).
- */
-function extractMentionNames(content: string): string[] {
-  const names: string[] = [];
+function extractMentions(content: string): string[] {
+  const mentions: string[] = [];
   const regex = /@([\w\u4e00-\u9fa5]{1,32})/g;
   let match;
   while ((match = regex.exec(content)) !== null) {
-    names.push(match[1]);
+    mentions.push(match[1]);
   }
-  return [...new Set(names)];
+  return [...new Set(mentions)];
 }
 
-/**
- * Strip <at user_id="...">name</at> tags from content, returning plain text.
- */
-function stripAtTags(content: string): string {
-  return content.replace(/<at user_id="[^"]+">[^<]*<\/at>/g, "").trim();
-}
-
-/**
- * Strip @username patterns from content (fallback).
- */
-function stripAtNames(content: string, names: string[]): string {
+function stripMentions(content: string, mentions: string[]): string {
   let text = content;
-  for (const name of names) {
-    text = text.replace(new RegExp(`@${name}\\b`, "g"), "").trim();
+  for (const mention of mentions) {
+    text = text.replace(new RegExp(`@${mention}\\b`, "g"), "").trim();
   }
   return text;
 }
@@ -350,76 +289,6 @@ export const agentchatPlugin = createChatChannelPlugin({
     resolveDmAllowFrom: () => undefined,
     resolveGroupPolicy: () => "open",
   },
-
-  // ── Gateway adapter (keeps channel "running" while WS is connected) ─────────
-  gateway: {
-    startAccount: async (ctx: ChannelGatewayContext<ResolvedAgentChatAccount>) => {
-      const cfg = ctx.cfg as OpenClawConfig;
-      const accountId = ctx.accountId ?? DEFAULT_ACCOUNT_ID;
-      const account = resolveAgentChatAccount(cfg, accountId);
-      if (!account.enabled) return;
-
-      const startTime = Date.now();
-      console.error("[AgentChat] gateway.startAccount ENTRY at", startTime, "signal.aborted=", ctx.abortSignal.aborted);
-
-      // Report running (not yet connected)
-      ctx.setStatus({
-        accountId,
-        enabled: true,
-        configured: true,
-        running: true,
-        connected: false,
-        restartPending: false,
-        lastStartAt: Date.now(),
-        lastError: null,
-      });
-
-      const client = getWsClient();
-      client.onMessage(makeOnMessageHandler(ctx.runtime, accountId));
-      client.onError((err) => {
-        ctx.runtime.error?.(`[agentchat] WS error: ${err.message}`);
-        ctx.setStatus({ accountId, lastError: err.message });
-      });
-
-      // If already connected, just update status
-      if (client.isConnected()) {
-        console.error("[AgentChat] startAccount: already connected at", Date.now(), "diff="+(Date.now()-startTime)+"ms");
-        ctx.setStatus({ accountId, connected: true });
-        // Wait for abort without reconnecting
-        await new Promise((resolve) => {
-          ctx.abortSignal.addEventListener("abort", () => {
-            console.error("[AgentChat] startAccount ABORTED at", Date.now(), "diff="+(Date.now()-startTime)+"ms");
-            resolve(undefined);
-          }, { once: true });
-        });
-        console.error("[AgentChat] startAccount EXIT (abort) at", Date.now(), "diff="+(Date.now()-startTime)+"ms");
-        return;
-      }
-
-      // Connect and stay alive
-      try {
-        console.error("[AgentChat] startAccount: connecting at", Date.now(), "diff="+(Date.now()-startTime)+"ms");
-        await client.connect(account.config);
-        ctx.setStatus({ accountId, connected: true });
-        console.error("[AgentChat] startAccount: connected at", Date.now(), "diff="+(Date.now()-startTime)+"ms, waiting for abort...");
-
-        // Keep running until abort
-        await new Promise((resolve) => {
-          ctx.abortSignal.addEventListener("abort", () => {
-            console.error("[AgentChat] startAccount ABORTED at", Date.now(), "diff="+(Date.now()-startTime)+"ms");
-            resolve(undefined);
-          }, { once: true });
-        });
-      } catch (err: any) {
-        console.error("[AgentChat] startAccount ERROR:", err?.message ?? String(err));
-        ctx.setStatus({ accountId, lastError: err?.message ?? String(err), connected: false });
-        throw err;
-      } finally {
-        console.error("[AgentChat] startAccount FINALLY at", Date.now(), "diff="+(Date.now()-startTime)+"ms");
-        ctx.setStatus({ accountId, running: false, connected: false });
-      }
-    },
-  },
 });
 
 // ── Runtime injection ────────────────────────────────────────────────────────
@@ -437,18 +306,13 @@ export function setAgentChatRuntime(runtime: unknown): void {
 // ── Bootstrap: connect WS when plugin starts ─────────────────────────────────
 
 export function startAgentChatClient(cfg: OpenClawConfig): void {
-  if (getWsClient().isConnected()) {
-    console.error("[AgentChat] startAgentChatClient SKIPPED (already connected)");
-    return;
-  }
-  console.error("[AgentChat] startAgentChatClient called, accounts:", JSON.stringify(Object.keys(cfg?.channels ?? {})));
   const accountIds = listAgentChatAccountIds(cfg);
   for (const accountId of accountIds) {
     const account = resolveAgentChatAccount(cfg, accountId);
     if (!account.enabled) {continue;}
 
     const client = getWsClient();
-    client.onMessage((msg) => makeOnMessageHandler(globalRuntime, accountId)(msg));
+    client.onMessage(makeOnMessageHandler(globalRuntime, accountId));
     client.onError((err) => {
       globalRuntime?.error?.(`[agentchat] WS error: ${err.message}`);
     });
