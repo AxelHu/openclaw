@@ -12,19 +12,37 @@
       },
       "serverUrl": {
         "type": "string",
-        "description": "WebSocket server URL (e.g. wss://your-server.com/ws)"
+        "description": "WebSocket server URL (e.g. ws://localhost:20203)"
       },
       "restUrl": {
         "type": "string",
-        "description": "REST API base URL (e.g. https://your-server.com/api)"
+        "description": "REST API base URL (e.g. http://localhost:20202)"
       },
-      "account": {
+      "healthMonitor": {
         "type": "object",
-        "properties": {
-          "username": { "type": "string" },
-          "password": { "type": "string" }
+        "description": "Health monitor settings"
+      },
+      "accounts": {
+        "type": "object",
+        "additionalProperties": {
+          "type": "object",
+          "properties": {
+            "username": { "type": "string" },
+            "password": { "type": "string" },
+            "agentId": { "type": "string" },
+            "agentName": { "type": "string" },
+            "requireMention": { "type": "boolean" },
+            "botName": { "type": "string" }
+          },
+          "required": ["username", "password", "agentId"],
+          "additionalProperties": false
         }
+      },
+      "requireMention": {
+        "type": "boolean",
+        "default": true
       }
-    }
+    },
+    "required": ["serverUrl", "restUrl", "accounts"]
   }
 }

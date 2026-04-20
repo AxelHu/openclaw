@@ -148,7 +148,7 @@ async function handleIncomingMessage(
   const mentions: any[] = (payload as any).mentions ?? [];
   const wasMentioned = mentions.some((m) => m.userId === myUserId);
   // Preserve <at> tags in text so OpenClaw agent can see them
-  const text = content;
+  let text = content;
 
   // Prepend message header for context (group name / private chat indicator)
   // Use ac_ prefix for sender/receiver IDs (similar to Feishu's ou_ format)
@@ -252,7 +252,7 @@ export const agentchatPlugin = createChatChannelPlugin({
         if (!to) {return { ok: false, error: new Error("No target specified") };}
         return { ok: true, to };
       },
-      sendText: async ({ cfg, accountId, to, text, replyToId, identity }: { cfg: OpenClawConfig, accountId: string, to: string, text: string, replyToId?: string, identity?: unknown }) => {
+      sendText: async ({ cfg, accountId, to, text, replyToId }: { cfg: OpenClawConfig, accountId: string, to: string, text: string, replyToId?: string }) => {
         const account = resolveAgentChatAccount(cfg, accountId);
         const client = getWsClient();
 
@@ -362,8 +362,8 @@ export const agentchatPlugin = createChatChannelPlugin({
             resolve(undefined);
           }, { once: true });
         });
-      } catch (err: any) {
-        console.error("[AgentChat] startAccount ERROR:", err?.message ?? String(err));
+      } catch (err: unknown) {
+        console.error("[AgentChat] startAccount ERROR:", (err as Error)?.message ?? String(err));
         ctx.setStatus({ accountId, lastError: err?.message ?? String(err), connected: false });
         throw err;
       } finally {
