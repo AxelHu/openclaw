@@ -103,14 +103,12 @@ function getWsClient(): WSClient {
 // ── Inbound: route WS messages to agent sessions ─────────────────────────────
 
 function makeOnMessageHandler(runtime: unknown, accountId: string) {
-  const client = getWsClient();
-  const myUserId = client.getUserId();
   return (msg: ServerMessage) => {
     // Server sends flat messages: { type: "message", eventId, groupId, ... }
     // The payload IS the message object itself
     const payload = (msg as any).payload ?? msg;
     if (msg.type === "message") {
-      void handleIncomingMessage(runtime, accountId, myUserId, payload as unknown);
+      void handleIncomingMessage(runtime, accountId, payload as unknown);
     } else if (msg.type === "invite_notification") {
       void handleInviteNotification(runtime, accountId, payload as unknown);
     }
@@ -120,7 +118,6 @@ function makeOnMessageHandler(runtime: unknown, accountId: string) {
 async function handleIncomingMessage(
   runtime: unknown,
   accountId: string,
-  myUserId: string,
   payload: unknown
 ) {
   // Payload IS the MessageObject (no extra "event" wrapper at this level)
@@ -143,12 +140,17 @@ async function handleIncomingMessage(
     ? `agentchat:user:${receiverId}`
     : `agentchat:group:${groupId}`;
 
-  // Use Feishu's structured mentions array [{userId, offset, length, name}]
-  // wasMentioned = true only if this agent's own userId appears in the mentions list
-  const mentions: any[] = (payload as any).mentions ?? [];
-  const wasMentioned = mentions.some((m) => m.userId === myUserId);
-  // Preserve <at> tags in text so OpenClaw agent can see them
-  let text = content;
+  // Extract mentions from <at user_id="..."> tags (Feishu structured format)
+  // and @username plain text (backward compatibility)
+  const mentionUserIds = extractMentionUserIds(content);
+  const mentionNames = extractMentionNames(content);
+  const hasAtTags = mentionUserIds.length > 0;
+  const hasAtNames = mentionNames.length > 0;
+  const wasMentioned = hasAtTags || hasAtNames;
+
+  // Preserve <at> tags in text so OpenClaw agent can see them.
+  // Only strip plain @username patterns (when no <at> tags present).
+  let text = hasAtTags ? content : (hasAtNames ? stripAtNames(content, mentionNames) : content);
 
   // Prepend message header for context (group name / private chat indicator)
   // Use ac_ prefix for sender/receiver IDs (similar to Feishu's ou_ format)
@@ -190,7 +192,53 @@ async function handleInviteNotification(
   runtime.log?.(`[agentchat] invite_notification: group=${payload.group_name ?? payload.groupId}`);
 }
 
+/**
+ * Extract mention userIds from content.
+ * Supports two formats:
+ * 1. <at user_id="...">name</at> (Feishu structured format)
+ * 2. @username (plain text fallback)
+ */
+function extractMentionUserIds(content: string): string[] {
+  const userIds: string[] = [];
+  // Format 1: <at user_id="...">name</at>
+  const atTagRegex = /<at user_id="([^"]+)">/g;
+  let match;
+  while ((match = atTagRegex.exec(content)) !== null) {
+    userIds.push(match[1]);
+  }
+  return [...new Set(userIds)];
+}
 
+/**
+ * Extract plain @usernames from content (fallback for non-tag formats).
+ */
+function extractMentionNames(content: string): string[] {
+  const names: string[] = [];
+  const regex = /@([\w\u4e00-\u9fa5]{1,32})/g;
+  let match;
+  while ((match = regex.exec(content)) !== null) {
+    names.push(match[1]);
+  }
+  return [...new Set(names)];
+}
+
+/**
+ * Strip <at user_id="...">name</at> tags from content, returning plain text.
+ */
+function stripAtTags(content: string): string {
+  return content.replace(/<at user_id="[^"]+">[^<]*<\/at>/g, "").trim();
+}
+
+/**
+ * Strip @username patterns from content (fallback).
+ */
+function stripAtNames(content: string, names: string[]): string {
+  let text = content;
+  for (const name of names) {
+    text = text.replace(new RegExp(`@${name}\\b`, "g"), "").trim();
+  }
+  return text;
+}
 
 // ── Plugin definition ────────────────────────────────────────────────────────
 
@@ -252,7 +300,7 @@ export const agentchatPlugin = createChatChannelPlugin({
         if (!to) {return { ok: false, error: new Error("No target specified") };}
         return { ok: true, to };
       },
-      sendText: async ({ cfg, accountId, to, text, replyToId }: { cfg: OpenClawConfig, accountId: string, to: string, text: string, replyToId?: string }) => {
+      sendText: async ({ cfg, accountId, to, text, replyToId, identity }: { cfg: OpenClawConfig, accountId: string, to: string, text: string, replyToId?: string, identity?: unknown }) => {
         const account = resolveAgentChatAccount(cfg, accountId);
         const client = getWsClient();
 
@@ -309,7 +357,7 @@ export const agentchatPlugin = createChatChannelPlugin({
       const cfg = ctx.cfg as OpenClawConfig;
       const accountId = ctx.accountId ?? DEFAULT_ACCOUNT_ID;
       const account = resolveAgentChatAccount(cfg, accountId);
-      if (!account.enabled) {return;}
+      if (!account.enabled) return;
 
       const startTime = Date.now();
       console.error("[AgentChat] gateway.startAccount ENTRY at", startTime, "signal.aborted=", ctx.abortSignal.aborted);
@@ -362,8 +410,8 @@ export const agentchatPlugin = createChatChannelPlugin({
             resolve(undefined);
           }, { once: true });
         });
-      } catch (err: unknown) {
-        console.error("[AgentChat] startAccount ERROR:", (err as Error)?.message ?? String(err));
+      } catch (err: any) {
+        console.error("[AgentChat] startAccount ERROR:", err?.message ?? String(err));
         ctx.setStatus({ accountId, lastError: err?.message ?? String(err), connected: false });
         throw err;
       } finally {

@@ -34,7 +34,6 @@ export class AgentChatWSClientImpl implements WSClient {
   private pingTimer: ReturnType<typeof setInterval> | null = null;
   private intentionalClose = false;
   private connected = false;
-  private userId = "";
 
   private pendingConnect: Promise<void> | null = null;
 
@@ -132,10 +131,7 @@ export class AgentChatWSClientImpl implements WSClient {
       console.error("[AgentChat] MSG IN t="+Date.now()+" raw=" + String(data).slice(0,100));
       try {
         const msg = JSON.parse(String(data)) as ServerMessage;
-        if (msg.type === "connected") {
-          this.userId = (msg as any).userId ?? "";
-          return;
-        }
+        if (msg.type === "connected") {return;} // Server confirmed connection
         this.messageHandler?.(msg);
       } catch (err) {
         this.errorHandler?.(new Error(`Failed to parse WS message: ${String(err)}`));
@@ -229,10 +225,6 @@ export class AgentChatWSClientImpl implements WSClient {
     const conn = this.connected;
     console.error("[AgentChat] isConnected() check: readyState=" + state + " connected=" + conn + " ws=" + !!this.ws);
     return conn;
-  }
-
-  getUserId(): string {
-    return this.userId;
   }
 
   async close(): Promise<void> {

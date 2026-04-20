@@ -169,7 +169,6 @@ export interface WSClient {
   onMessage(handler: (msg: ServerMessage) => void): void;
   onError(handler: (err: Error) => void): void;
   isConnected(): boolean;
-  getUserId(): string;
 }
 
 // ---------------------------------------------------------------------------
