@@ -12,6 +12,7 @@ export default defineChannelPluginEntry({
   id: "agentchat",
   name: "AgentChat",
   description: "AgentChat messaging platform — WebSocket-based IM for agents and humans",
+  importMetaUrl: import.meta.url,
   plugin: agentchatPlugin,
   setRuntime: setAgentChatRuntime,
   registerFull(api: OpenClawPluginApi) {
