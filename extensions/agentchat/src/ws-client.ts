@@ -41,7 +41,7 @@ export class AgentChatWSClientImpl implements WSClient {
     this.config = config;
     this.intentionalClose = false;
     this.reconnectAttempt = 0;
-    if (this.connecting) return;
+    if (this.connecting) {return;}
     this.connecting = true;
     try {
       await this.doConnect();
@@ -51,7 +51,7 @@ export class AgentChatWSClientImpl implements WSClient {
   }
 
   private async doConnect(): Promise<void> {
-    if (!this.config) throw new Error("No config");
+    if (!this.config) {throw new Error("No config");}
     // If a WS already exists and is alive, clean it up first before creating a new one
     if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) {
       const oldWs = this.ws;
@@ -127,7 +127,7 @@ export class AgentChatWSClientImpl implements WSClient {
       const rawStr = String(data);
       console.log("[AgentChat] MSG IN raw_len="+rawStr.length+",state="+this.ws.readyState+", t="+Date.now()+" raw=" + rawStr.slice(0,100));
       // Skip new messages when we're being replaced (only handle graceful shutdown messages)
-      if ((this as any).isReplacing) return;
+      if ((this as any).isReplacing) {return;}
       try {
         const msg = JSON.parse(rawStr) as ServerMessage;
         if (msg.type === "connected") {
@@ -173,7 +173,7 @@ export class AgentChatWSClientImpl implements WSClient {
       this.connected = false;
       this.stopPing();
       // Ignore if a newer connection has been established
-      if (myConnId !== this.connId) return;
+      if (myConnId !== this.connId) {return;}
       if (!this.intentionalClose) {
         this.errorHandler?.(new Error(`WS closed (code=${code})`));
         this.scheduleReconnect();
@@ -182,13 +182,13 @@ export class AgentChatWSClientImpl implements WSClient {
 
     this.ws.on("error", (err) => {
       // Ignore errors from stale connections
-      if (myConnId !== this.connId) return;
+      if (myConnId !== this.connId) {return;}
       this.errorHandler?.(new Error(`WS error: ${err}`));
     });
   }
 
   private scheduleReconnect(): void {
-    if (this.intentionalClose || this.reconnectTimer) return;
+    if (this.intentionalClose || this.reconnectTimer) {return;}
     const delay = Math.min(
       RECONNECT_BASE_MS * 2 ** this.reconnectAttempt,
       RECONNECT_MAX_MS,

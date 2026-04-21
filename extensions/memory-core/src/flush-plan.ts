@@ -72,7 +72,7 @@ function ensureNoReplyHint(text: string): string {
 }
 
 function ensureMemoryFlushSafetyHints(text: string, skip = false): string {
-  if (skip) return text;
+  if (skip) {return text;}
   let next = text.trim();
   for (const hint of MEMORY_FLUSH_REQUIRED_HINTS) {
     if (!next.includes(hint)) {

@@ -68,7 +68,7 @@ export const AgentChatConfigSchema = buildChannelConfigSchema({
 
 function listAgentChatAccountIds(cfg: OpenClawConfig): string[] {
   return Object.keys(cfg.channels?.agentchat?.accounts ?? {}).length > 0
-    ? Object.keys(cfg.channels!.agentchat!.accounts!)
+    ? Object.keys(cfg.channels!.agentchat!.accounts)
     : [DEFAULT_ACCOUNT_ID];
 }
 
@@ -203,7 +203,7 @@ async function handleIncomingMessage(
     const deliver = async (payload: any) => {
       console.log("[agentchat] agent reply received, text=", payload.text?.slice(0,100));
       const replyContent = payload.text ?? "";
-      if (!replyContent) return;
+      if (!replyContent) {return;}
       
       // Send the reply back via the agentchat WS client
       const client = getWsClient(accountId);
@@ -313,7 +313,7 @@ async function handleAgentMessage(
     // Then dispatch the reply
     const deliver = async (payload: any) => {
       const replyContent = payload.text ?? "";
-      if (!replyContent) return;
+      if (!replyContent) {return;}
       
       const client = getWsClient(accountId);
       if (!client || !client.isConnected()) {
@@ -458,7 +458,7 @@ export const agentchatPlugin = createChatChannelPlugin({
     outbound: {
       deliveryMode: "direct",
       resolveTarget: ({ to }: { to?: string }) => {
-        if (!to) return { ok: false, error: new Error("No target specified") };
+        if (!to) {return { ok: false, error: new Error("No target specified") };}
         return { ok: true, to };
       },
       sendText: async ({ cfg, accountId, to, text, replyToId, identity }: { cfg: OpenClawConfig, accountId: string, to: string, text: string, replyToId?: string, identity?: any }) => {
@@ -504,7 +504,7 @@ export const agentchatPlugin = createChatChannelPlugin({
     messaging: {
       normalizeTarget: (raw: string) => {
         const trimmed = raw.trim();
-        if (!trimmed) return undefined;
+        if (!trimmed) {return undefined;}
         return trimmed.replace(/^agentchat:/i, "");
       },
       targetResolver: {
@@ -617,7 +617,7 @@ export function startAgentChatClient(cfg: OpenClawConfig): void {
   const accountIds = listAgentChatAccountIds(cfg);
   for (const accountId of accountIds) {
     const account = resolveAgentChatAccount(cfg, accountId);
-    if (!account.enabled) continue;
+    if (!account.enabled) {continue;}
 
     const client = getWsClient(accountId);
     setAgentName(accountId, account.config.agentName ?? accountId);

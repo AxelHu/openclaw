@@ -10,13 +10,13 @@ export { agentchatPlugin } from "./channel.js";
 
 // Bridge: read config from plugins.entries.agentchat.config if channels.agentchat is absent
 function bridgeConfig(cfg: any): any {
-  if (cfg?.channels?.agentchat) return cfg;
+  if (cfg?.channels?.agentchat) {return cfg;}
   const pluginCfg = cfg?.plugins?.entries?.agentchat?.config;
   if (pluginCfg) {
     return {
       ...cfg,
       channels: {
-        ...(cfg?.channels || {}),
+        ...cfg?.channels,
         agentchat: {
           serverUrl: pluginCfg.serverUrl,
           restUrl: pluginCfg.restUrl,
