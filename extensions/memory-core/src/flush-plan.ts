@@ -11,9 +11,9 @@ export const DEFAULT_MEMORY_FLUSH_SOFT_TOKENS = 4000;
 export const DEFAULT_MEMORY_FLUSH_FORCE_TRANSCRIPT_BYTES = 2 * 1024 * 1024;
 
 const MEMORY_FLUSH_TARGET_HINT =
-  "Store durable memories only in memory/YYYY-MM-DD.md (create memory/ if needed).";
+  "Store durable memories only in memory/daily/YYYY-MM-DD.md (create memory/ if needed).";
 const MEMORY_FLUSH_APPEND_ONLY_HINT =
-  "If memory/YYYY-MM-DD.md already exists, APPEND new content only and do not overwrite existing entries.";
+  "If memory/daily/YYYY-MM-DD.md already exists, APPEND new content only and do not overwrite existing entries.";
 const MEMORY_FLUSH_READ_ONLY_HINT =
   "Treat workspace bootstrap/reference files such as MEMORY.md, DREAMS.md, SOUL.md, TOOLS.md, and AGENTS.md as read-only during this flush; never overwrite, replace, or edit them.";
 const MEMORY_FLUSH_REQUIRED_HINTS = [
@@ -71,7 +71,8 @@ function ensureNoReplyHint(text: string): string {
   return `${text}\n\nIf no user-visible reply is needed, start with ${SILENT_REPLY_TOKEN}.`;
 }
 
-function ensureMemoryFlushSafetyHints(text: string): string {
+function ensureMemoryFlushSafetyHints(text: string, skip = false): string {
+  if (skip) return text;
   let next = text.trim();
   for (const hint of MEMORY_FLUSH_REQUIRED_HINTS) {
     if (!next.includes(hint)) {
@@ -120,11 +121,12 @@ export function buildMemoryFlushPlan(
   const relativePath = `memory/${dateStamp}.md`;
 
   const promptBase = ensureNoReplyHint(
-    ensureMemoryFlushSafetyHints(defaults?.prompt?.trim() || DEFAULT_MEMORY_FLUSH_PROMPT),
+    ensureMemoryFlushSafetyHints(defaults?.prompt?.trim() || DEFAULT_MEMORY_FLUSH_PROMPT, !!defaults?.prompt?.trim()),
   );
   const systemPrompt = ensureNoReplyHint(
     ensureMemoryFlushSafetyHints(
       defaults?.systemPrompt?.trim() || DEFAULT_MEMORY_FLUSH_SYSTEM_PROMPT,
+      !!defaults?.systemPrompt?.trim(),
     ),
   );
 
