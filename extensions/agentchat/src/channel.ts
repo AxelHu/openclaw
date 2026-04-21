@@ -163,17 +163,20 @@ async function handleIncomingMessage(
   }
 
   const sessionKey = groupId
-    ? `agent:default:group:${groupId}`
-    : `agent:default:user:${userId}`;
+    ? `agent:${agentName}:group:${groupId}`
+    : `agent:${agentName}:user:${userId}`;
 
   // wasMentioned: check if agentUserId appears in mentions list (mentions contains {userId,...} from server)
   const msgMentions: any[] = Array.isArray(payload.mentions) ? payload.mentions : [];
   const wasMentioned = msgMentions.some((m: any) => m.userId === agentUserId);
-  const text = content; // content already has <at> tags — server handles formatting
+  const text = content;
 
+  // In group chats: skip if this agent was NOT mentioned (group broadcast includes all members,
+  // but each agent should only process messages where it was explicitly named)
+  if (groupId && !wasMentioned) {
+    return;
+  }
 
-  // Use channel.reply to dispatch the message to the agent
-  console.log("[agentchat] routing message via channel.reply, sessionKey=", sessionKey);
   try {
     // First record the inbound session
     const storePath = runtime.channel.session.resolveStorePath(null);
@@ -372,7 +375,7 @@ export const agentchatPlugin = createChatChannelPlugin({
         // Skip if already connected or connecting
         if (client.isConnected() || (client as any).connecting) {
           ctx.log?.info(`[agentchat][${accountId}] WS already active, skipping`);
-          return;
+          throw new Error(`WS already active for ${accountId}`);
         }
         client.onMessage(makeOnMessageHandler(globalRuntime, accountId, account.config.agentName ?? accountId));
         client.onError((err) => {
