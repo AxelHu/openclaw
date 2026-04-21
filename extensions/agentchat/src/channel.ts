@@ -375,7 +375,7 @@ export const agentchatPlugin = createChatChannelPlugin({
         // Skip if already connected or connecting
         if (client.isConnected() || (client as any).connecting) {
           ctx.log?.info(`[agentchat][${accountId}] WS already active, skipping`);
-          throw new Error(`WS already active for ${accountId}`);
+          return;
         }
         client.onMessage(makeOnMessageHandler(globalRuntime, accountId, account.config.agentName ?? accountId));
         client.onError((err) => {
