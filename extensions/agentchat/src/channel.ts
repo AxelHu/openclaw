@@ -105,6 +105,7 @@ function isValidUrl(value: string): boolean {
 
 let wsClients: Map<string, WSClient> = new Map();
 let agentNames: Map<string, string> = new Map(); // accountId → agentName
+let accountUserIds: Map<string, string> = new Map(); // accountId → server userId
 let globalRuntime: any = null;
 
 function getWsClient(accountId: string): WSClient {
@@ -154,8 +155,9 @@ async function handleIncomingMessage(
   const createdAt = payload.created_at ?? payload.createdAt ?? "";
 
   // Build session key in ACP format: agent:{agentId}:group:{groupId} or agent:{agentId}:user:{userId}
-  const botUserId = "46fa3860-68f0-4d7b-bb59-9b5561172902";
-  if (userId === botUserId) {
+  const client = getWsClient(accountId);
+  const agentUserId = client.getUserId();
+  if (userId === agentUserId) {
     console.log("[agentchat] skipping own message, eventId=", eventId);
     return;
   }
@@ -164,10 +166,10 @@ async function handleIncomingMessage(
     ? `agent:default:group:${groupId}`
     : `agent:default:user:${userId}`;
 
-  // Extract and strip @mentions for clean text
-  const mentions = extractMentions(content);
-  const wasMentioned = mentions.length > 0;
-  const text = stripMentions(content, mentions);
+  // wasMentioned: check if agentUserId appears in mentions list (mentions contains {userId,...} from server)
+  const msgMentions: any[] = Array.isArray(payload.mentions) ? payload.mentions : [];
+  const wasMentioned = msgMentions.some((m: any) => m.userId === agentUserId);
+  const text = content; // content already has <at> tags — server handles formatting
 
 
   // Use channel.reply to dispatch the message to the agent
@@ -355,23 +357,6 @@ async function handleAgentMessage(
   }
 }
 
-function extractMentions(content: string): string[] {
-  const mentions: string[] = [];
-  const regex = /@([\w\u4e00-\u9fa5]{1,32})/g;
-  let match;
-  while ((match = regex.exec(content)) !== null) {
-    mentions.push(match[1]);
-  }
-  return [...new Set(mentions)];
-}
-
-function stripMentions(content: string, mentions: string[]): string {
-  let text = content;
-  for (const mention of mentions) {
-    text = text.replace(new RegExp(`@${mention}\\b`, "g"), "").trim();
-  }
-  return text;
-}
 
 // ── Plugin definition ────────────────────────────────────────────────────────
 
@@ -542,16 +527,22 @@ export const agentchatPlugin = createChatChannelPlugin({
               type: "string",
               description: "Optional message ID to reply to",
             },
+            mentions: {
+              type: "array",
+              items: { type: "string" },
+              description: "User IDs to mention in this message (e.g. [\"d6680324-7abe-4028-ade6-4e7e9a7d2e9d\"])",
+            },
           },
           required: ["accountId", "target", "content"],
         },
-        handler: async ({ cfg, accountId, target, content, contentType = "text", replyTo }: {
+        handler: async ({ cfg, accountId, target, content, contentType = "text", replyTo, mentions }: {
           cfg: OpenClawConfig,
           accountId: string,
           target: string,
           content: string,
           contentType?: string,
           replyTo?: string,
+          mentions?: string[],
         }) => {
           const account = resolveAgentChatAccount(cfg, accountId);
           const client = getWsClient(accountId);
@@ -569,12 +560,14 @@ export const agentchatPlugin = createChatChannelPlugin({
           const targetId = target.replace(/^(group:|user:)/, "");
 
           if (isGroup) {
+            // Send mentions as userId strings — server resolves to usernames and computes offsets
             client.send({
               type: "send_text",
               content,
               contentType,
               groupId: targetId,
               replyTo: replyTo ? Number(replyTo) : undefined,
+              mentions: mentions && mentions.length > 0 ? mentions : undefined,
             } as any);
           } else {
             client.send({

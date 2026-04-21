@@ -36,6 +36,7 @@ export class AgentChatWSClientImpl implements WSClient {
   private connected = false;
   private connId = 0; // Increments on each connect, used to ignore stale callbacks
   private connecting = false; // Prevents concurrent doConnect() calls
+  private userId: string | null = null; // Server-assigned userId
 
   async connect(config: AgentChatConfig): Promise<void> {
     this.config = config;
@@ -131,6 +132,7 @@ export class AgentChatWSClientImpl implements WSClient {
       try {
         const msg = JSON.parse(rawStr) as ServerMessage;
         if (msg.type === "connected") {
+          this.userId = (msg as any).userId ?? null;
           // Server confirmed connection — send identify to register as agent
           if (this.config?.agentId) {
             this.ws.send(JSON.stringify({ type: "identify", agentId: this.config.agentId }));
@@ -248,6 +250,10 @@ export class AgentChatWSClientImpl implements WSClient {
 
   isConnected(): boolean {
     return this.connected;
+  }
+
+  getUserId(): string | null {
+    return this.userId;
   }
 }
 
