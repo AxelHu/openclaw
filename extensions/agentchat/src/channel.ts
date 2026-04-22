@@ -153,6 +153,7 @@ async function handleIncomingMessage(
   const username = payload.sender_name ?? payload.username ?? "";
   const content = payload.content ?? "";
   const createdAt = payload.created_at ?? payload.createdAt ?? "";
+  const replyTo = payload.reply_to ?? payload.replyTo ?? void 0;
 
   // Build session key in ACP format: agent:{agentId}:group:{groupId} or agent:{agentId}:user:{userId}
   const client = getWsClient(accountId);
@@ -192,6 +193,7 @@ async function handleIncomingMessage(
         Surface: "agentchat",
         Provider: "agentchat",
         MessageSid: String(eventId),
+        InReplyToMessageSid: replyTo ? String(replyTo) : void 0,
         SenderId: userId,
         SenderName: username,
         SenderUsername: username,
@@ -219,18 +221,22 @@ async function handleIncomingMessage(
       
       if (groupId) {
         // Send to group using send_text
+        const deliverReplyTo = payload.reply_to ?? payload.replyTo;
         client.send({
           type: "send_text",
           content: replyContent,
           groupId: groupId,
+          replyTo: deliverReplyTo ? Number(deliverReplyTo) : void 0,
         });
         console.log("[agentchat] reply sent to group", groupId);
       } else {
         // Send DM using agent_message
+        const deliverReplyTo = payload.reply_to ?? payload.replyTo;
         client.send({
           type: "agent_message",
           toUserId: userId,
           content: replyContent,
+          replyTo: deliverReplyTo ? Number(deliverReplyTo) : void 0,
         });
         console.log("[agentchat] reply sent to user", userId);
       }
@@ -246,6 +252,7 @@ async function handleIncomingMessage(
         Surface: "agentchat",
         Provider: "agentchat",
         MessageSid: String(eventId),
+        InReplyToMessageSid: replyTo ? String(replyTo) : void 0,
         SenderId: userId,
         SenderName: username,
         SenderUsername: username,
@@ -288,6 +295,7 @@ async function handleAgentMessage(
   const fromUserId = String(payload.fromUserId ?? "");
   const fromUsername = payload.fromUsername ?? "Unknown";
   const content = payload.content ?? "";
+  const replyTo = payload.reply_to ?? payload.replyTo ?? void 0;
 
   // Route as a DM session: the sender is the "from" user
   const sessionKey = `agent:default:user:${fromUserId}`;
@@ -310,6 +318,7 @@ async function handleAgentMessage(
         SenderName: fromUsername,
         SenderUsername: fromUsername,
         ChatType: "direct",
+        InReplyToMessageSid: replyTo ? String(replyTo) : void 0,
       },
       createIfMissing: true,
       onRecordError: (err) => console.error("[agentchat] recordInboundSession (DM) failed:", err),
@@ -330,6 +339,7 @@ async function handleAgentMessage(
         type: "agent_message",
         toUserId: fromUserId,
         content: replyContent,
+        replyTo: replyTo ? Number(replyTo) : void 0,
       });
       console.log("[agentchat] DM reply sent to user", fromUserId);
     };
@@ -347,6 +357,7 @@ async function handleAgentMessage(
         SenderName: fromUsername,
         SenderUsername: fromUsername,
         ChatType: "direct",
+        InReplyToMessageSid: replyTo ? String(replyTo) : void 0,
       },
       cfg: runtime.config,
       dispatcherOptions: {
