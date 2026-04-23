@@ -58,6 +58,7 @@ export type { FeishuBotAddedEvent, FeishuMessageEvent } from "./event-types.js";
 import type { FeishuMessageEvent } from "./event-types.js";
 import type { FeishuMessageContext, FeishuMessageInfo } from "./types.js";
 import type { DynamicAgentCreationConfig } from "./types.js";
+import { isFeishuBotSenderType } from "./types.js";
 
 export { toMessageResourceType } from "./bot-content.js";
 
@@ -202,7 +203,7 @@ function isFetchedGroupContextSenderAllowed(params: {
   if (!params.isGroup || params.allowFrom.length === 0) {
     return true;
   }
-  if (params.senderType === "app") {
+  if (isFeishuBotSenderType(params.senderType)) {
     return true;
   }
   const senderId = params.senderId?.trim();
@@ -949,7 +950,7 @@ export async function handleFeishuMessage(params: {
           (senderScoped
             ? allowlistedMessages.filter(
                 (msg) =>
-                  msg.senderType === "app" ||
+                  isFeishuBotSenderType(msg.senderType) ||
                   (msg.senderId !== undefined && senderIds.has(msg.senderId.trim())),
               )
             : allowlistedMessages) ?? [];
@@ -960,7 +961,7 @@ export async function handleFeishuMessage(params: {
           ? relevantMessages
           : relevantMessages.slice(1);
         const historyParts = historyMessages.map((msg) => {
-          const role = msg.senderType === "app" ? "assistant" : "user";
+          const role = isFeishuBotSenderType(msg.senderType) ? "assistant" : "user";
           return core.channel.reply.formatAgentEnvelope({
             channel: "Feishu",
             from: `${msg.senderId ?? "Unknown"} (${role})`,
