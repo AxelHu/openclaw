@@ -555,9 +555,10 @@ export function wrapToolMemoryFlushAppendOnlyWrite(
         root: options.root,
         containerWorkdir: options.containerWorkdir,
       });
-      if (resolvedPath !== allowedAbsolutePath) {
+      const memoryBase = path.resolve(options.root, path.dirname(options.relativePath));
+      if (!resolvedPath.startsWith(memoryBase + "/")) {
         throw new Error(
-          `Memory flush writes are restricted to ${options.relativePath}; use that path only.`,
+          `Memory flush writes are restricted to paths under memory/; got ${filePath}, expected under ${memoryBase}/`,
         );
       }
 
