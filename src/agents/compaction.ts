@@ -38,7 +38,7 @@ const MERGE_SUMMARIES_INSTRUCTIONS_ZH = [
   "优先保留近期的上下文。Agent 需要知道自己正在做什么，而不仅仅是讨论过什么。",
 ].join("\n");
 const IDENTIFIER_PRESERVATION_INSTRUCTIONS_ZH =
-  "保留所有不透明标识符原样不变（不得缩短或重构），包括：UUID、哈希、ID、Token、API 密钥、主机名、IP、端口、URL、文件名。";
+  "保留所有不透明标识符原样不变（不得缩短或重构），包括：UUID、哈希、ID、主机名、IP、端口、URL、文件名。";
 
 // Use Chinese instructions by default (translatable in future)
 const MERGE_SUMMARIES_INSTRUCTIONS = MERGE_SUMMARIES_INSTRUCTIONS_ZH;
