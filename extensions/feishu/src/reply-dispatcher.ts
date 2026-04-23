@@ -23,6 +23,7 @@ import { sendMessageFeishu, sendStructuredCardFeishu, type CardHeaderConfig } fr
 import { FeishuStreamingSession, mergeStreamingText } from "./streaming-card.js";
 import { resolveReceiveIdType } from "./targets.js";
 import { addTypingIndicator, removeTypingIndicator, type TypingIndicatorState } from "./typing.js";
+import { isFeishuBotSenderType } from "./types.js";
 
 // --- Reply chain tracking for mention decay ---
 // Tracks how many replies have been sent in each reply chain (keyed by chain context).
@@ -264,7 +265,7 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
   // probability halves each subsequent reply in the same thread, gradually
   // breaking potential bot-to-bot cascade loops while still allowing
   // occasional @mentions for long conversations.
-  const senderIsBot = params.senderType === "app";
+  const senderIsBot = isFeishuBotSenderType(params.senderType);
   const mentionPolicy: MentionSenderPolicy = senderIsBot
     ? resolveMentionSenderPolicy(
         (account.config as Record<string, unknown>)?.mentionSender,
