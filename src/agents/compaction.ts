@@ -22,23 +22,27 @@ export const MIN_CHUNK_RATIO = 0.15;
 export const SAFETY_MARGIN = 1.2; // 20% buffer for estimateTokens() inaccuracy
 const DEFAULT_SUMMARY_FALLBACK = "No prior history.";
 const DEFAULT_PARTS = 2;
-const MERGE_SUMMARIES_INSTRUCTIONS = [
-  "Merge these partial summaries into a single cohesive summary.",
+// Chinese localization of the two instructions below
+const MERGE_SUMMARIES_INSTRUCTIONS_ZH = [
+  "将这些分片摘要合并为一个连贯的摘要。",
   "",
-  "MUST PRESERVE:",
-  "- Active tasks and their current status (in-progress, blocked, pending)",
-  "- Batch operation progress (e.g., '5/17 items completed')",
-  "- The last thing the user requested and what was being done about it",
-  "- Decisions made and their rationale",
-  "- TODOs, open questions, and constraints",
-  "- Any commitments or follow-ups promised",
+  "必须保留以下信息：",
+  "- 当前工作环境（主机名、IP地址、Docker/WSL 详情、SSH 隧道、当前工作目录等）",
+  "- 当前进行中的任务及其状态（进行中、阻塞、待处理）",
+  '- 批量操作进度（如"已完成 5/17 项"）',
+  "- 用户最新请求及当前处理进展",
+  "- 已做出的决策及其依据",
+  "- TODO、待解决问题和约束条件",
+  "- 已承诺的待办事项",
   "",
-  "PRIORITIZE recent context over older history. The agent needs to know",
-  "what it was doing, not just what was discussed.",
+  "优先保留近期的上下文。Agent 需要知道自己正在做什么，而不仅仅是讨论过什么。",
 ].join("\n");
-const IDENTIFIER_PRESERVATION_INSTRUCTIONS =
-  "Preserve all opaque identifiers exactly as written (no shortening or reconstruction), " +
-  "including UUIDs, hashes, IDs, hostnames, IPs, ports, URLs, and file names.";
+const IDENTIFIER_PRESERVATION_INSTRUCTIONS_ZH =
+  "保留所有不透明标识符原样不变（不得缩短或重构），包括：UUID、哈希、ID、Token、API 密钥、主机名、IP、端口、URL、文件名。";
+
+// Use Chinese instructions by default (translatable in future)
+const MERGE_SUMMARIES_INSTRUCTIONS = MERGE_SUMMARIES_INSTRUCTIONS_ZH;
+const IDENTIFIER_PRESERVATION_INSTRUCTIONS = IDENTIFIER_PRESERVATION_INSTRUCTIONS_ZH;
 
 export type CompactionSummarizationInstructions = {
   identifierPolicy?: AgentCompactionIdentifierPolicy;
