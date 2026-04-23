@@ -24,6 +24,107 @@ import { FeishuStreamingSession, mergeStreamingText } from "./streaming-card.js"
 import { resolveReceiveIdType } from "./targets.js";
 import { addTypingIndicator, removeTypingIndicator, type TypingIndicatorState } from "./typing.js";
 
+// --- Reply chain tracking for mention decay ---
+// Tracks how many replies have been sent in each reply chain (keyed by chain context).
+// This persists across individual dispatcher instances so that the Nth reply in a
+// conversation chain correctly decays the @mention probability.
+const replyChainCounters = new Map<string, { count: number; lastUsed: number }>();
+const REPLY_CHAIN_TTL_MS = 60 * 60_000; // 60 minutes — agents may run long tasks before replying
+const REPLY_CHAIN_CLEANUP_INTERVAL_MS = 10 * 60_000;
+let lastChainCleanup = Date.now();
+
+function cleanupStaleChains() {
+  const now = Date.now();
+  if (now - lastChainCleanup < REPLY_CHAIN_CLEANUP_INTERVAL_MS) return;
+  lastChainCleanup = now;
+  for (const [key, entry] of replyChainCounters) {
+    if (now - entry.lastUsed > REPLY_CHAIN_TTL_MS) {
+      replyChainCounters.delete(key);
+    }
+  }
+}
+
+/** Build a chain key from reply context.
+ *  Both human and bot senders use the same thread/topic anchor so each
+ *  conversation chain has its own independent counter.
+ *
+ *  - Human senders: policy is "never" (hardcoded), so chain counters are
+ *    not consumed. The agent decides whether to @mention humans on its own.
+ *  - Bot senders: policy is configurable (default: decay). The chain counter
+ *    tracks how many replies have been sent in this thread to the same bot,
+ *    allowing probability-based @mention decay to gradually break cascade.
+ *    Different threads/topics get independent counters, so a bot starting
+ *    a new conversation will still be @mentioned at full probability.
+ *  - Includes agentId so each agent maintains independent counters. */
+function buildReplyChainKey(params: {
+  agentId: string;
+  chatId: string;
+  rootId?: string;
+  replyToMessageId?: string;
+  senderOpenId?: string;
+}): string {
+  const sender = params.senderOpenId || "unknown";
+  const anchor = params.rootId || params.replyToMessageId || params.chatId;
+  return `${params.agentId}:${params.chatId}:${anchor}:${sender}`;
+}
+
+function getAndIncrementChainCount(chainKey: string): number {
+  cleanupStaleChains();
+  const entry = replyChainCounters.get(chainKey);
+  const count = entry?.count ?? 0;
+  replyChainCounters.set(chainKey, { count: count + 1, lastUsed: Date.now() });
+  return count;
+}
+
+/** Mention sender policy — parsed from config */
+export type MentionSenderPolicy =
+  | "always"
+  | "decay"
+  | "first-only"
+  | "never"
+  | { initialProbability: number; decayFactor: number; minProbability: number };
+
+/** Resolve the mentionSender config into a normalized policy object. */
+function resolveMentionSenderPolicy(
+  raw: unknown,
+): MentionSenderPolicy {
+  if (raw === undefined || raw === null) {
+    // Default: decay with sensible defaults (first reply always @, halve each time)
+    return { initialProbability: 1.0, decayFactor: 0.5, minProbability: 0 };
+  }
+  if (typeof raw === "string") {
+    if (raw === "always" || raw === "never" || raw === "first-only" || raw === "decay") {
+      return raw;
+    }
+    return { initialProbability: 1.0, decayFactor: 0.5, minProbability: 0 };
+  }
+  if (typeof raw === "object") {
+    const obj = raw as Record<string, unknown>;
+    return {
+      initialProbability: typeof obj.initialProbability === "number" ? obj.initialProbability : 1.0,
+      decayFactor: typeof obj.decayFactor === "number" ? obj.decayFactor : 0.5,
+      minProbability: typeof obj.minProbability === "number" ? obj.minProbability : 0,
+    };
+  }
+  return { initialProbability: 1.0, decayFactor: 0.5, minProbability: 0 };
+}
+
+/** Decide whether to @mention the sender for the Nth reply (0-based deliverIndex). */
+function shouldMentionSender(policy: MentionSenderPolicy, deliverIndex: number): boolean {
+  if (policy === "always") return true;
+  if (policy === "never") return false;
+  if (policy === "first-only") return deliverIndex === 0;
+  if (policy === "decay") {
+    // Built-in decay: 100% → 50% → 25% → …
+    const prob = Math.pow(0.5, deliverIndex);
+    return Math.random() < prob;
+  }
+  // Custom decay object
+  const { initialProbability, decayFactor, minProbability } = policy;
+  const prob = Math.max(minProbability, initialProbability * Math.pow(decayFactor, deliverIndex));
+  return Math.random() < prob;
+}
+
 /** Detect if text contains markdown elements that benefit from card rendering */
 function shouldUseCard(text: string): boolean {
   return /```[\s\S]*?```/.test(text) || /\|.+\|[\r\n]+\|[-:| ]+\|/.test(text);
@@ -114,9 +215,18 @@ export type CreateFeishuReplyDispatcherParams = {
   /** True when inbound message is already inside a thread/topic context */
   threadReply?: boolean;
   rootId?: string;
+  /** @deprecated No longer used for reply mentions. Kept for type compatibility.
+   *  Mention targets are now resolved dynamically based on sender policy. */
   mentionTargets?: MentionTarget[];
   accountId?: string;
   identity?: OutboundIdentity;
+  /** Sender's open ID — used for auto @mention in replies */
+  senderOpenId?: string;
+  /** Sender's display name — used for auto @mention in replies */
+  senderName?: string;
+  /** Sender type from Feishu (e.g. "user" or "app"). When "app", @mention
+   *  uses configurable decay policy to gradually break bot-to-bot cascade. */
+  senderType?: string;
   /** Epoch ms when the inbound message was created. Used to suppress typing
    *  indicators on old/replayed messages after context compaction (#30418). */
   messageCreateTimeMs?: number;
@@ -133,15 +243,47 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
     replyInThread,
     threadReply,
     rootId,
-    mentionTargets,
+    // mentionTargets — no longer used in reply dispatch; see resolveEffectiveMentions
     accountId,
     identity,
+    senderOpenId,
+    senderName,
   } = params;
   const sendReplyToMessageId = skipReplyToInMessages ? undefined : replyToMessageId;
   const threadReplyMode = threadReply === true;
   const effectiveReplyInThread = threadReplyMode ? true : replyInThread;
   const account = resolveFeishuRuntimeAccount({ cfg, accountId });
   const prefixContext = createReplyPrefixContext({ cfg, agentId });
+
+  // --- Mention sender policy ---
+  // Human senders: "never" — no auto @mention. The agent can still choose to
+  // @mention humans in its reply text. Cascade is impossible because humans
+  // don't auto-reply, so there is no need for the system to force @mentions.
+  // Bot/app senders: configurable via `mentionSender` (default: decay).
+  // The first reply has 100% chance to @mention (ensuring delivery), then
+  // probability halves each subsequent reply in the same thread, gradually
+  // breaking potential bot-to-bot cascade loops while still allowing
+  // occasional @mentions for long conversations.
+  const senderIsBot = params.senderType === "app";
+  const mentionPolicy: MentionSenderPolicy = senderIsBot
+    ? resolveMentionSenderPolicy(
+        (account.config as Record<string, unknown>)?.mentionSender,
+      )
+    : "never";
+  // Build a sender MentionTarget if we have the info
+  const senderMentionTarget: MentionTarget | undefined =
+    senderOpenId
+      ? { openId: senderOpenId, name: senderName || senderOpenId, key: "" }
+      : undefined;
+  // Chain key for cross-message reply chain tracking (per-agent)
+  const chainKey = buildReplyChainKey({
+    agentId, chatId, rootId, replyToMessageId, senderOpenId,
+  });
+  // Whether we've already resolved the mention decision for this dispatcher instance.
+  // Within a single request-response cycle, the mention decision is made once
+  // (on the first text delivery) and reused for all chunks/streaming closes.
+  let chainMentionResolved = false;
+  let chainMentionResult: MentionTarget[] | undefined;
 
   let typingState: TypingIndicatorState | null = null;
   const { typingCallbacks } = createChannelReplyPipeline({
@@ -359,6 +501,31 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
     })();
   };
 
+  /** Resolve effective mention targets for this reply.
+   *  Uses the reply chain counter to determine mention probability.
+   *  The decision is made once per dispatcher (i.e. per inbound message)
+   *  and the chain counter is incremented only once. */
+  const resolveEffectiveMentions = (replyText?: string): MentionTarget[] | undefined => {
+    if (!senderMentionTarget) return undefined;
+    // Dedupe: if the agent already @mentioned the sender in the text, skip auto-mention
+    if (replyText && senderOpenId) {
+      if (
+        replyText.includes(`user_id="${senderOpenId}"`) ||
+        replyText.includes(`id=${senderOpenId}`)
+      ) {
+        return undefined;
+      }
+    }
+    if (!chainMentionResolved) {
+      chainMentionResolved = true;
+      const chainIndex = getAndIncrementChainCount(chainKey);
+      chainMentionResult = shouldMentionSender(mentionPolicy, chainIndex)
+        ? [senderMentionTarget]
+        : undefined;
+    }
+    return chainMentionResult;
+  };
+
   const closeStreaming = async () => {
     try {
       if (streamingStartPromise) {
@@ -368,8 +535,10 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
       if (streaming?.isActive()) {
         statusLine = "";
         let text = buildCombinedStreamText(reasoningText, streamText);
-        if (mentionTargets?.length) {
-          text = buildMentionedCardContent(mentionTargets, text);
+        // Use sender mention for streaming card close (counts as first deliver)
+        const streamingMentions = resolveEffectiveMentions(text);
+        if (streamingMentions?.length) {
+          text = buildMentionedCardContent(streamingMentions, text);
         }
         const finalNote = resolveCardNote(agentId, identity, prefixContext.prefixContext);
         await streaming.close(text, { note: finalNote });
@@ -451,6 +620,9 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
       humanDelay: core.channel.reply.resolveHumanDelayConfig(cfg, agentId),
       onReplyStart: async () => {
         deliveredFinalTexts.clear();
+        // Reset per-request mention resolution so each inbound re-evaluates
+        chainMentionResolved = false;
+        chainMentionResult = undefined;
         if (streamingEnabled && renderMode === "card") {
           startStreaming();
         }
@@ -468,6 +640,9 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
         if (!shouldDeliverText && !hasMedia) {
           return;
         }
+
+        // Resolve effective mentions for this delivery (sender-based with decay)
+        const effectiveMentions = shouldDeliverText ? resolveEffectiveMentions(text) : undefined;
 
         if (shouldDeliverText) {
           const useCard = renderMode === "card" || (renderMode === "auto" && shouldUseCard(text));
@@ -524,7 +699,7 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
                   text: chunk,
                   replyToMessageId: sendReplyToMessageId,
                   replyInThread: effectiveReplyInThread,
-                  mentions: isFirst ? mentionTargets : undefined,
+                  mentions: isFirst ? effectiveMentions : undefined,
                   accountId,
                   header: cardHeader,
                   note: cardNote,
@@ -543,7 +718,7 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
                   text: chunk,
                   replyToMessageId: sendReplyToMessageId,
                   replyInThread: effectiveReplyInThread,
-                  mentions: isFirst ? mentionTargets : undefined,
+                  mentions: isFirst ? effectiveMentions : undefined,
                   accountId,
                 });
               },

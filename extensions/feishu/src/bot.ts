@@ -243,6 +243,7 @@ export function parseFeishuMessageEvent(
     // Keep the historical field name, but fall back to user_id when open_id is unavailable
     // (common in some mobile app deliveries).
     senderOpenId: senderFallbackId,
+    senderType: event.sender.sender_type,
     chatType: event.message.chat_type,
     mentionedBot,
     hasAnyMention,
@@ -294,8 +295,10 @@ export function buildFeishuAgentBody(params: {
   }
 
   if (ctx.mentionTargets && ctx.mentionTargets.length > 0) {
-    const targetNames = ctx.mentionTargets.map((t) => t.name).join(", ");
-    messageBody += `\n\n[System: Your reply will automatically @mention: ${targetNames}. Do not write @xxx yourself.]`;
+    const targetInfo = ctx.mentionTargets
+      .map((t) => `${t.name} (user_id="${t.openId}")`)
+      .join(", ");
+    messageBody += `\n\n[System: The original message also mentioned: ${targetInfo}. If you want them to see your reply, include @mentions for them using <at user_id="OPEN_ID">name</at> syntax.]`;
   }
 
   // Keep message_id on its own line so shared message-id hint stripping can parse it reliably.
@@ -1284,6 +1287,9 @@ export async function handleFeishuMessage(params: {
             accountId: account.accountId,
             identity,
             messageCreateTimeMs,
+            senderOpenId: ctx.senderOpenId,
+            senderName: ctx.senderName,
+            senderType: ctx.senderType,
           });
 
           log(
@@ -1393,6 +1399,9 @@ export async function handleFeishuMessage(params: {
         accountId: account.accountId,
         identity,
         messageCreateTimeMs,
+        senderOpenId: ctx.senderOpenId,
+        senderName: ctx.senderName,
+        senderType: ctx.senderType,
       });
 
       log(`feishu[${account.accountId}]: dispatching to agent (session=${route.sessionKey})`);

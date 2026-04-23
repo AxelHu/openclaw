@@ -156,6 +156,28 @@ const ReactionNotificationModeSchema = z.enum(["off", "own", "all"]).optional();
  */
 const ReplyInThreadSchema = z.enum(["disabled", "enabled"]).optional();
 
+/**
+ * Controls automatic @mention of the message sender in replies.
+ * - "always": always @mention the sender in every reply
+ * - "decay": @mention with decreasing probability per reply in a chain
+ * - "first-only": only @mention in the first reply of a chain
+ * - "never": never auto @mention the sender
+ * - object: fine-grained config with initial probability and decay factor
+ */
+const MentionSenderSchema = z
+  .union([
+    z.enum(["always", "decay", "first-only", "never"]),
+    z.object({
+      /** Probability of @mentioning the sender on the first reply (0-1). Default: 1.0 */
+      initialProbability: z.number().min(0).max(1).optional().default(1.0),
+      /** Multiply probability by this factor for each subsequent reply. Default: 0.5 */
+      decayFactor: z.number().min(0).max(1).optional().default(0.5),
+      /** Minimum probability floor. Default: 0 */
+      minProbability: z.number().min(0).max(1).optional().default(0),
+    }),
+  ])
+  .optional();
+
 export const FeishuGroupSchema = z
   .object({
     requireMention: z.boolean().optional(),
@@ -201,6 +223,9 @@ const FeishuSharedConfigShape = {
   typingIndicator: z.boolean().optional(),
   resolveSenderNames: z.boolean().optional(),
   tts: TtsOverrideSchema,
+  /** Controls automatic @mention of the message sender in agent replies.
+   *  Also controls whether originally-@mentioned users are forwarded in replies. */
+  mentionSender: MentionSenderSchema,
 };
 
 /**

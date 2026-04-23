@@ -45,6 +45,7 @@ export type FeishuMessageContext = {
   senderId: string;
   senderOpenId: string;
   senderName?: string;
+  senderType?: string;
   chatType: FeishuChatType;
   mentionedBot: boolean;
   hasAnyMention?: boolean;
