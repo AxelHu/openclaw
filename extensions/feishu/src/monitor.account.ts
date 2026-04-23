@@ -30,7 +30,7 @@ import { monitorWebhook, monitorWebSocket } from "./monitor.transport.js";
 import { getFeishuRuntime } from "./runtime.js";
 import { getMessageFeishu } from "./send.js";
 import { createFeishuThreadBindingManager } from "./thread-bindings.js";
-import type { FeishuChatType, ResolvedFeishuAccount } from "./types.js";
+import { isFeishuBotSenderType, type FeishuChatType, type ResolvedFeishuAccount } from "./types.js";
 
 const FEISHU_REACTION_VERIFY_TIMEOUT_MS = 1_500;
 
@@ -108,7 +108,7 @@ export async function resolveReactionSyntheticEvent(
   })
     .then((result) => (result.status === "resolved" ? result.value : null))
     .catch(() => null);
-  const isBotMessage = reactedMsg?.senderType === "app" || reactedMsg?.senderOpenId === botOpenId;
+  const isBotMessage = isFeishuBotSenderType(reactedMsg?.senderType) || reactedMsg?.senderOpenId === botOpenId;
   if (!reactedMsg || (reactionNotifications === "own" && !isBotMessage)) {
     logger?.(
       `feishu[${accountId}]: ignoring reaction on non-bot/unverified message ${messageId} ` +

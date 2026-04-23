@@ -11,6 +11,12 @@ export type FeishuConfig = z.infer<typeof FeishuConfigSchema>;
 export type FeishuGroupConfig = z.infer<typeof FeishuGroupSchema>;
 export type FeishuAccountConfig = z.infer<typeof FeishuAccountConfigSchema>;
 
+/** Check if a Feishu sender_type represents a non-human (bot/app) sender.
+ *  Feishu may return "app" or "bot" depending on the context. */
+export function isFeishuBotSenderType(senderType: string | undefined): boolean {
+  return senderType === "app" || senderType === "bot";
+}
+
 export type FeishuDomain = "feishu" | "lark" | (string & {});
 export type FeishuConnectionMode = "websocket" | "webhook";
 
