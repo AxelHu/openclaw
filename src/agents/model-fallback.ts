@@ -201,6 +201,19 @@ async function runFallbackCandidate<T>(params: {
     const result = params.options
       ? await params.run(params.provider, params.model, params.options)
       : await params.run(params.provider, params.model);
+    // Detect empty responses (e.g. MiniMax returning no content) — throw as
+    // FailoverError so the fallback loop retries with the next candidate.
+    if (
+      result !== null &&
+      typeof result === "object" &&
+      (result as Record<string, unknown>).payloads === undefined &&
+      !(result as Record<string, unknown>).aborted
+    ) {
+      throw new FailoverError(
+        `Empty response from ${params.provider}/${params.model}`,
+        { reason: "empty_response", provider: params.provider, model: params.model },
+      );
+    }
     return {
       ok: true,
       result,
@@ -208,6 +221,17 @@ async function runFallbackCandidate<T>(params: {
   } catch (err) {
     // Normalize abort-wrapped rate-limit errors (e.g. Google Vertex RESOURCE_EXHAUSTED)
     // so they become FailoverErrors and continue the fallback loop instead of aborting.
+    const errMessage =
+      typeof err === "string" ? err : (err as { message?: string }).message ?? "";
+    if (errMessage.includes("no payloads")) {
+      // Any LLM returning empty content is a transient error — treat as retryable.
+      throw new FailoverError("Model returned empty response", {
+        reason: "empty_response",
+        provider: params.provider,
+        model: params.model,
+        cause: err,
+      });
+    }
     const normalizedFailover = coerceToFailoverError(err, {
       provider: params.provider,
       model: params.model,
