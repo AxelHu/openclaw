@@ -22,8 +22,8 @@ import { getFeishuRuntime } from "./runtime.js";
 import { sendMessageFeishu, sendStructuredCardFeishu, type CardHeaderConfig } from "./send.js";
 import { FeishuStreamingSession, mergeStreamingText } from "./streaming-card.js";
 import { resolveReceiveIdType } from "./targets.js";
-import { addTypingIndicator, removeTypingIndicator, type TypingIndicatorState } from "./typing.js";
 import { isFeishuBotSenderType } from "./types.js";
+import { addTypingIndicator, removeTypingIndicator, type TypingIndicatorState } from "./typing.js";
 
 // --- Reply chain tracking for mention decay ---
 // Tracks how many replies have been sent in each reply chain (keyed by chain context).
@@ -36,7 +36,9 @@ let lastChainCleanup = Date.now();
 
 function cleanupStaleChains() {
   const now = Date.now();
-  if (now - lastChainCleanup < REPLY_CHAIN_CLEANUP_INTERVAL_MS) return;
+  if (now - lastChainCleanup < REPLY_CHAIN_CLEANUP_INTERVAL_MS) {
+    return;
+  }
   lastChainCleanup = now;
   for (const [key, entry] of replyChainCounters) {
     if (now - entry.lastUsed > REPLY_CHAIN_TTL_MS) {
@@ -86,9 +88,7 @@ export type MentionSenderPolicy =
   | { initialProbability: number; decayFactor: number; minProbability: number };
 
 /** Resolve the mentionSender config into a normalized policy object. */
-function resolveMentionSenderPolicy(
-  raw: unknown,
-): MentionSenderPolicy {
+function resolveMentionSenderPolicy(raw: unknown): MentionSenderPolicy {
   if (raw === undefined || raw === null) {
     // Default: decay with sensible defaults (first reply always @, halve each time)
     return { initialProbability: 1.0, decayFactor: 0.5, minProbability: 0 };
@@ -112,9 +112,15 @@ function resolveMentionSenderPolicy(
 
 /** Decide whether to @mention the sender for the Nth reply (0-based deliverIndex). */
 function shouldMentionSender(policy: MentionSenderPolicy, deliverIndex: number): boolean {
-  if (policy === "always") return true;
-  if (policy === "never") return false;
-  if (policy === "first-only") return deliverIndex === 0;
+  if (policy === "always") {
+    return true;
+  }
+  if (policy === "never") {
+    return false;
+  }
+  if (policy === "first-only") {
+    return deliverIndex === 0;
+  }
   if (policy === "decay") {
     // Built-in decay: 100% → 50% → 25% → …
     const prob = Math.pow(0.5, deliverIndex);
@@ -267,18 +273,19 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
   // occasional @mentions for long conversations.
   const senderIsBot = isFeishuBotSenderType(params.senderType);
   const mentionPolicy: MentionSenderPolicy = senderIsBot
-    ? resolveMentionSenderPolicy(
-        (account.config as Record<string, unknown>)?.mentionSender,
-      )
+    ? resolveMentionSenderPolicy((account.config as Record<string, unknown>)?.mentionSender)
     : "never";
   // Build a sender MentionTarget if we have the info
-  const senderMentionTarget: MentionTarget | undefined =
-    senderOpenId
-      ? { openId: senderOpenId, name: senderName || senderOpenId, key: "" }
-      : undefined;
+  const senderMentionTarget: MentionTarget | undefined = senderOpenId
+    ? { openId: senderOpenId, name: senderName || senderOpenId, key: "" }
+    : undefined;
   // Chain key for cross-message reply chain tracking (per-agent)
   const chainKey = buildReplyChainKey({
-    agentId, chatId, rootId, replyToMessageId, senderOpenId,
+    agentId,
+    chatId,
+    rootId,
+    replyToMessageId,
+    senderOpenId,
   });
   // Whether we've already resolved the mention decision for this dispatcher instance.
   // Within a single request-response cycle, the mention decision is made once
@@ -507,7 +514,9 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
    *  The decision is made once per dispatcher (i.e. per inbound message)
    *  and the chain counter is incremented only once. */
   const resolveEffectiveMentions = (replyText?: string): MentionTarget[] | undefined => {
-    if (!senderMentionTarget) return undefined;
+    if (!senderMentionTarget) {
+      return undefined;
+    }
     // Dedupe: if the agent already @mentioned the sender in the text, skip auto-mention
     if (replyText && senderOpenId) {
       if (
@@ -578,6 +587,17 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
     infoKind?: string;
     sendChunk: (params: { chunk: string; isFirst: boolean }) => Promise<void>;
   }) => {
+    // For bot-to-bot communication, send the complete text as a single message
+    // to avoid triggering cascade on each chunk (each chunk would otherwise be
+    // treated as a separate message and potentially cause reply loops).
+    if (senderIsBot) {
+      await params.sendChunk({ chunk: params.text, isFirst: true });
+      if (params.infoKind === "final") {
+        deliveredFinalTexts.add(params.text);
+      }
+      return;
+    }
+
     const chunkSource = params.useCard
       ? params.text
       : core.channel.text.convertMarkdownTables(params.text, tableMode);
