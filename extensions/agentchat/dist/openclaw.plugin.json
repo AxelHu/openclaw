@@ -1,0 +1,10 @@
+{
+    "id": "agentchat",
+    "channels": ["agentchat"],
+    "channelEnvVars": {},
+    "configSchema": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {}
+    }
+}
