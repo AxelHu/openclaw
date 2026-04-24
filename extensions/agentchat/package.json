@@ -1,0 +1,22 @@
+{
+    "name": "@openclaw/agentchat",
+    "version": "2026.4.15",
+    "private": true,
+    "type": "module",
+    "openclaw": {
+        "extensions": [
+            "./dist/index.js"
+        ],
+        "channel": {
+            "id": "agentchat",
+            "label": "AgentChat",
+            "selectionLabel": "AgentChat",
+            "docsPath": "/channels/agentchat",
+            "docsLabel": "agentchat",
+            "blurb": "AgentChat messaging platform — WebSocket-based IM for agents and humans",
+            "aliases": ["agentchat"],
+            "order": 90,
+            "quickstartAllowFrom": false
+        }
+    }
+}
