@@ -43,6 +43,7 @@ import { type FeishuPermissionError, resolveFeishuSenderName } from "./bot-sende
 import { createFeishuClient } from "./client.js";
 import { finalizeFeishuMessageProcessing, tryRecordMessagePersistent } from "./dedup.js";
 import { maybeCreateDynamicAgent } from "./dynamic-agent.js";
+import { recordSenderIds } from "./id-mapping.js";
 import { extractMentionTargets, isMentionForwardRequest } from "./mention.js";
 import {
   resolveFeishuGroupConfig,
@@ -371,6 +372,26 @@ export async function handleFeishuMessage(params: {
   log(
     `feishu[${account.accountId}]: received message from ${ctx.senderOpenId} in ${ctx.chatId} (${ctx.chatType})`,
   );
+
+  // Build ID mapping cache from incoming message
+  const senderOpenId = event.sender.sender_id.open_id?.trim();
+  const senderUnionId = event.sender.sender_id.union_id?.trim();
+  const appId = account.appId ?? "default";
+  if (senderOpenId && senderUnionId) {
+    recordSenderIds({ openId: senderOpenId, unionId: senderUnionId, appId });
+  }
+  // Also cache mention targets (their open_ids may be from different app contexts)
+  if (event.message.mentions) {
+    for (const m of event.message.mentions) {
+      if (m.id.union_id?.trim() && m.id.open_id?.trim()) {
+        recordSenderIds({
+          openId: m.id.open_id.trim(),
+          unionId: m.id.union_id.trim(),
+          appId,
+        });
+      }
+    }
+  }
 
   // Log mention targets if detected
   if (ctx.mentionTargets && ctx.mentionTargets.length > 0) {

@@ -7,6 +7,7 @@ import {
 import type { ClawdbotConfig } from "../runtime-api.js";
 import { resolveFeishuRuntimeAccount } from "./accounts.js";
 import { createFeishuClient } from "./client.js";
+import { resolveOpenIdForApp } from "./id-mapping.js";
 import type { MentionTarget } from "./mention-target.types.js";
 import { buildMentionedCardContent, buildMentionedMessage } from "./mention.js";
 import { parsePostContent } from "./post.js";
@@ -461,9 +462,25 @@ export async function sendMessageFeishu(
     channel: "feishu",
   });
 
+  const account = resolveFeishuRuntimeAccount({ cfg, accountId });
+  const thisAppId = account.appId ?? "default";
+
+  // Normalize mention open_ids to this app's context
+  let normalizedMentions: typeof mentions = undefined;
+  if (mentions && mentions.length > 0) {
+    const resolved = await Promise.all(
+      mentions.map((m) => resolveOpenIdForApp(m.openId, thisAppId, thisAppId)),
+    );
+    normalizedMentions = mentions.map((m, i) =>
+      resolved[i] && resolved[i] !== m.openId ? { ...m, openId: resolved[i] } : m,
+    );
+  }
+
   // Build message content (with @mention support)
   let rawText = text ?? "";
-  if (mentions && mentions.length > 0) {
+  if (normalizedMentions && normalizedMentions.length > 0) {
+    rawText = buildMentionedMessage(normalizedMentions, rawText);
+  } else if (mentions && mentions.length > 0) {
     rawText = buildMentionedMessage(mentions, rawText);
   }
   const messageText = convertMarkdownTables(rawText, tableMode);
@@ -672,8 +689,24 @@ export async function sendStructuredCardFeishu(params: {
 }): Promise<FeishuSendResult> {
   const { cfg, to, text, replyToMessageId, replyInThread, mentions, accountId, header, note } =
     params;
-  let cardText = text;
+  const account = resolveFeishuRuntimeAccount({ cfg, accountId });
+  const thisAppId = account.appId ?? "default";
+
+  // Normalize mention open_ids to this app's context
+  let normalizedMentions: typeof mentions = undefined;
   if (mentions && mentions.length > 0) {
+    const resolved = await Promise.all(
+      mentions.map((m) => resolveOpenIdForApp(m.openId, thisAppId, thisAppId)),
+    );
+    normalizedMentions = mentions.map((m, i) =>
+      resolved[i] && resolved[i] !== m.openId ? { ...m, openId: resolved[i] } : m,
+    );
+  }
+
+  let cardText = text;
+  if (normalizedMentions && normalizedMentions.length > 0) {
+    cardText = buildMentionedCardContent(normalizedMentions, text);
+  } else if (mentions && mentions.length > 0) {
     cardText = buildMentionedCardContent(mentions, text);
   }
   const card = buildStructuredCard(cardText, { header, note });
@@ -696,8 +729,24 @@ export async function sendMarkdownCardFeishu(params: {
   accountId?: string;
 }): Promise<FeishuSendResult> {
   const { cfg, to, text, replyToMessageId, replyInThread, mentions, accountId } = params;
-  let cardText = text;
+  const account = resolveFeishuRuntimeAccount({ cfg, accountId });
+  const thisAppId = account.appId ?? "default";
+
+  // Normalize mention open_ids to this app's context
+  let normalizedMentions: typeof mentions = undefined;
   if (mentions && mentions.length > 0) {
+    const resolved = await Promise.all(
+      mentions.map((m) => resolveOpenIdForApp(m.openId, thisAppId, thisAppId)),
+    );
+    normalizedMentions = mentions.map((m, i) =>
+      resolved[i] && resolved[i] !== m.openId ? { ...m, openId: resolved[i] } : m,
+    );
+  }
+
+  let cardText = text;
+  if (normalizedMentions && normalizedMentions.length > 0) {
+    cardText = buildMentionedCardContent(normalizedMentions, text);
+  } else if (mentions && mentions.length > 0) {
     cardText = buildMentionedCardContent(mentions, text);
   }
   const card = buildMarkdownCard(cardText);
