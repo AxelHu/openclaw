@@ -203,16 +203,28 @@ async function runFallbackCandidate<T>(params: {
       : await params.run(params.provider, params.model);
     // Detect empty responses (e.g. MiniMax returning no content) — throw as
     // FailoverError so the fallback loop retries with the next candidate.
+    // NOTE: NO_REPLY is a valid (silent) response — do NOT treat it as empty.
     if (
       result !== null &&
       typeof result === "object" &&
       (result as Record<string, unknown>).payloads === undefined &&
       !(result as Record<string, unknown>).aborted
     ) {
-      throw new FailoverError(
-        `Empty response from ${params.provider}/${params.model}`,
-        { reason: "empty_response", provider: params.provider, model: params.model },
+      const meta = (result as Record<string, unknown>).meta as Record<string, unknown> | undefined;
+      const finalText = meta?.finalAssistantRawText as string | undefined;
+      if (finalText === "NO_REPLY") {
+        // Silent reply — model produced content but chose to suppress output.
+        // This is a valid response, not an error. Return success.
+        return { ok: true, result };
+      }
+      console.log(
+        `[empty-response-debug] provider=${params.provider} model=${params.model} resultKeys=${Object.keys(result as Record<string, unknown>).join(",")} finalText=${finalText}`,
       );
+      throw new FailoverError(`Empty response from ${params.provider}/${params.model}`, {
+        reason: "empty_response",
+        provider: params.provider,
+        model: params.model,
+      });
     }
     return {
       ok: true,
@@ -222,7 +234,7 @@ async function runFallbackCandidate<T>(params: {
     // Normalize abort-wrapped rate-limit errors (e.g. Google Vertex RESOURCE_EXHAUSTED)
     // so they become FailoverErrors and continue the fallback loop instead of aborting.
     const errMessage =
-      typeof err === "string" ? err : (err as { message?: string }).message ?? "";
+      typeof err === "string" ? err : ((err as { message?: string }).message ?? "");
     if (errMessage.includes("no payloads")) {
       // Any LLM returning empty content is a transient error — treat as retryable.
       throw new FailoverError("Model returned empty response", {
