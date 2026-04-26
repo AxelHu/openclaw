@@ -536,7 +536,6 @@ export function wrapToolMemoryFlushAppendOnlyWrite(
   tool: AnyAgentTool,
   options: MemoryFlushAppendOnlyWriteOptions,
 ): AnyAgentTool {
-  const allowedAbsolutePath = path.resolve(options.root, options.relativePath);
   return {
     ...tool,
     description: `${tool.description} During memory flush, this tool may only append to ${options.relativePath}.`,
@@ -561,19 +560,19 @@ export function wrapToolMemoryFlushAppendOnlyWrite(
           `Memory flush writes are restricted to paths under memory/; got ${filePath}, expected under ${memoryBase}/`,
         );
       }
-
+      const relativePathForWrite = path.relative(options.root, resolvedPath);
       await appendMemoryFlushContent({
-        absolutePath: allowedAbsolutePath,
+        absolutePath: resolvedPath,
         root: options.root,
-        relativePath: options.relativePath,
+        relativePath: relativePathForWrite,
         content,
         sandbox: options.sandbox,
         signal,
       });
       return {
-        content: [{ type: "text", text: `Appended content to ${options.relativePath}.` }],
+        content: [{ type: "text", text: `Appended content to ${relativePathForWrite}.` }],
         details: {
-          path: options.relativePath,
+          path: relativePathForWrite,
           appendOnly: true,
         },
       };
