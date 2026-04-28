@@ -468,9 +468,7 @@ export async function sendMessageFeishu(
   // Normalize mention open_ids to this app's context
   let normalizedMentions: typeof mentions = undefined;
   if (mentions && mentions.length > 0) {
-    const resolved = await Promise.all(
-      mentions.map((m) => resolveOpenIdForApp(m.openId, thisAppId, thisAppId)),
-    );
+    const resolved = mentions.map((m) => resolveOpenIdForApp(m.openId, thisAppId));
     normalizedMentions = mentions.map((m, i) =>
       resolved[i] && resolved[i] !== m.openId ? { ...m, openId: resolved[i] } : m,
     );
@@ -695,9 +693,7 @@ export async function sendStructuredCardFeishu(params: {
   // Normalize mention open_ids to this app's context
   let normalizedMentions: typeof mentions = undefined;
   if (mentions && mentions.length > 0) {
-    const resolved = await Promise.all(
-      mentions.map((m) => resolveOpenIdForApp(m.openId, thisAppId, thisAppId)),
-    );
+    const resolved = mentions.map((m) => resolveOpenIdForApp(m.openId, thisAppId));
     normalizedMentions = mentions.map((m, i) =>
       resolved[i] && resolved[i] !== m.openId ? { ...m, openId: resolved[i] } : m,
     );
@@ -735,20 +731,18 @@ export async function sendMarkdownCardFeishu(params: {
   // Normalize mention open_ids to this app's context
   let normalizedMentions: typeof mentions = undefined;
   if (mentions && mentions.length > 0) {
-    const resolved = await Promise.all(
-      mentions.map((m) => resolveOpenIdForApp(m.openId, thisAppId, thisAppId)),
-    );
+    const resolved = mentions.map((m) => resolveOpenIdForApp(m.openId, thisAppId));
     normalizedMentions = mentions.map((m, i) =>
       resolved[i] && resolved[i] !== m.openId ? { ...m, openId: resolved[i] } : m,
     );
   }
 
-  let cardText = text;
+  let markdownText = text;
   if (normalizedMentions && normalizedMentions.length > 0) {
-    cardText = buildMentionedCardContent(normalizedMentions, text);
+    markdownText = buildMentionedCardContent(normalizedMentions, text);
   } else if (mentions && mentions.length > 0) {
-    cardText = buildMentionedCardContent(mentions, text);
+    markdownText = buildMentionedCardContent(mentions, text);
   }
-  const card = buildMarkdownCard(cardText);
+  const card = buildMarkdownCard(markdownText);
   return sendCardFeishu({ cfg, to, card, replyToMessageId, replyInThread, accountId });
 }
