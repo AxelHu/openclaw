@@ -16,7 +16,6 @@
 import os from "node:os";
 import path from "node:path";
 import Database from "better-sqlite3";
-import { getFeishuClientForApp } from "./feishu-client.js";
 
 function resolveStateDir(env: NodeJS.ProcessEnv = process.env): string {
   const stateOverride = env.OPENCLAW_STATE_DIR?.trim();
@@ -110,69 +109,6 @@ function getAppOpenid(unionId: string, appId: string): string | undefined {
   return row?.open_id;
 }
 
-// --- API lookup (called at most once per miss) ---
-
-/**
- * Lookup user info by open_id via Feishu Contact API.
- * Returns union_id on success, undefined on failure.
- */
-async function lookupByOpenId(openId: string, appId: string): Promise<string | undefined> {
-  try {
-    const client = getFeishuClientForApp(appId);
-    const resp = await client.contact.user.get({
-      path: { user_id: openId },
-      params: { user_id_type: "open_id" },
-    });
-    const data = resp.data;
-    if (!data) {
-      return undefined;
-    }
-
-    const unionId = (data as unknown as { union_id?: string }).union_id;
-    if (!unionId) {
-      return undefined;
-    }
-
-    upsertMapping(openId, unionId);
-    upsertAppOpenid(unionId, appId, openId);
-
-    return unionId;
-  } catch (err) {
-    console.warn(`[id-mapping] lookupByOpenId failed for ${openId}:`, err);
-    return undefined;
-  }
-}
-
-/**
- * Lookup user info by union_id via Feishu Contact API.
- * Returns open_id on success, undefined on failure.
- */
-async function lookupByUnionId(unionId: string, appId: string): Promise<string | undefined> {
-  try {
-    const client = getFeishuClientForApp(appId);
-    const resp = await client.contact.user.get({
-      path: { user_id: unionId },
-      params: { user_id_type: "union_id" },
-    });
-    const data = resp.data;
-    if (!data) {
-      return undefined;
-    }
-
-    const openId = (data as unknown as { open_id?: string }).open_id;
-    if (!openId) {
-      return undefined;
-    }
-
-    upsertAppOpenid(unionId, appId, openId);
-
-    return openId;
-  } catch (err) {
-    console.warn(`[id-mapping] lookupByUnionId failed for ${unionId}:`, err);
-    return undefined;
-  }
-}
-
 // --- Public API ---
 
 /**
@@ -204,38 +140,27 @@ export function getUnionIdForOpenId(openId: string): string | undefined {
  * Given an open_id that might be from a different app's context,
  * resolve it to the open_id for a specific target app.
  *
+ * Resolution is cache-only: the Feishu Contact API only supports querying
+ * real users, not app-bots, so API fallback would never succeed for the
+ * cross-bot @mention scenario.  The cache is populated by recordSenderIds()
+ * whenever a message is received from a bot/user.
+ *
  * @param openId - the open_id to resolve (may be from wrong app context)
  * @param targetAppId - the app_id we want the open_id for
- * @param originatorAppId - the app_id of this bot (used for API calls)
  * @returns the correct open_id for targetAppId, or undefined if unknown (caller should fallback)
  */
-export async function resolveOpenIdForApp(
+export function resolveOpenIdForApp(
   openId: string,
   targetAppId: string,
-  originatorAppId: string,
-): Promise<string | undefined> {
-  // Step 1: open_id → union_id (cache → API → fallback)
-  let unionId = getMappingUnionId(openId);
+): string | undefined {
+  // Step 1: open_id → union_id (cache only)
+  const unionId = getMappingUnionId(openId);
   if (!unionId) {
-    unionId = await lookupByOpenId(openId, originatorAppId);
-    if (!unionId) {
-      // API failed → caller should fallback to original open_id
-      return undefined;
-    }
+    return undefined;
   }
 
-  // Step 2: union_id → targetAppId open_id (cache → API → fallback)
-  let resolvedOpenId = getAppOpenid(unionId, targetAppId);
-  if (!resolvedOpenId) {
-    await lookupByUnionId(unionId, targetAppId);
-    resolvedOpenId = getAppOpenid(unionId, targetAppId);
-    if (!resolvedOpenId) {
-      // API failed → caller should fallback to original open_id
-      return undefined;
-    }
-  }
-
-  return resolvedOpenId;
+  // Step 2: union_id → targetAppId open_id (cache only)
+  return getAppOpenid(unionId, targetAppId);
 }
 
 /**
