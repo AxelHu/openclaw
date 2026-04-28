@@ -16,7 +16,7 @@
 import os from "node:os";
 import path from "node:path";
 import Database from "better-sqlite3";
-import { getLarkClientForApp } from "./lark-client.js";
+import { getFeishuClientForApp } from "./feishu-client.js";
 
 function resolveStateDir(env: NodeJS.ProcessEnv = process.env): string {
   const stateOverride = env.OPENCLAW_STATE_DIR?.trim();
@@ -118,7 +118,7 @@ function getAppOpenid(unionId: string, appId: string): string | undefined {
  */
 async function lookupByOpenId(openId: string, appId: string): Promise<string | undefined> {
   try {
-    const client = getLarkClientForApp(appId);
+    const client = getFeishuClientForApp(appId);
     const resp = await client.contact.user.get({
       path: { user_id: openId },
       params: { user_id_type: "open_id" },
@@ -149,7 +149,7 @@ async function lookupByOpenId(openId: string, appId: string): Promise<string | u
  */
 async function lookupByUnionId(unionId: string, appId: string): Promise<string | undefined> {
   try {
-    const client = getLarkClientForApp(appId);
+    const client = getFeishuClientForApp(appId);
     const resp = await client.contact.user.get({
       path: { user_id: unionId },
       params: { user_id_type: "union_id" },

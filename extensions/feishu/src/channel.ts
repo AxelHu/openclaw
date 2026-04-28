@@ -1237,14 +1237,14 @@ export const feishuPlugin: ChannelPlugin<ResolvedFeishuAccount, FeishuProbeResul
       gateway: {
         startAccount: async (ctx) => {
           const { monitorFeishuProvider } = await import("./monitor.js");
-          const { registerLarkAppCredentials } = await import("./lark-client.js");
+          const { registerFeishuAppCredentials } = await import("./feishu-client.js");
           const account = resolveFeishuRuntimeAccount(
             { cfg: ctx.cfg, accountId: ctx.accountId },
             { requireEventSecrets: true },
           );
           // Register credentials for id-mapping lookups (per-app Lark client)
           if (account.appId && account.appSecret) {
-            registerLarkAppCredentials(account.appId, account.appSecret);
+            registerFeishuAppCredentials(account.appId, account.appSecret);
           }
           const port = account.config?.webhookPort ?? null;
           ctx.setStatus({ accountId: ctx.accountId, port });
