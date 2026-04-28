@@ -164,7 +164,7 @@ async function lookupByUnionId(unionId: string, appId: string): Promise<string |
       return undefined;
     }
 
-    upsertAppOpenid(unionId, "user_primary", openId);
+    upsertAppOpenid(unionId, appId, openId);
 
     return openId;
   } catch (err) {
