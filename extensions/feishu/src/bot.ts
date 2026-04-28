@@ -44,6 +44,7 @@ import { createFeishuClient } from "./client.js";
 import { finalizeFeishuMessageProcessing, tryRecordMessagePersistent } from "./dedup.js";
 import { maybeCreateDynamicAgent } from "./dynamic-agent.js";
 import { recordSenderIds } from "./id-mapping.js";
+import { registerLarkAppCredentials } from "./lark-client.js";
 import { extractMentionTargets, isMentionForwardRequest } from "./mention.js";
 import {
   resolveFeishuGroupConfig,
@@ -289,6 +290,11 @@ export async function handleFeishuMessage(params: {
   // Resolve account with merged config
   const account = resolveFeishuRuntimeAccount({ cfg, accountId });
   const feishuCfg = account.config;
+
+  // Register credentials so id-mapping lookups use the correct app identity
+  if (account.appId && account.appSecret) {
+    registerLarkAppCredentials(account.appId, account.appSecret);
+  }
 
   const log = runtime?.log ?? console.log;
   const error = runtime?.error ?? console.error;

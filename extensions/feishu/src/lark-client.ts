@@ -1,50 +1,45 @@
 /**
- * Lark/Fishu client factory for ID mapping lookups.
+ * Lark/Feishu client factory for ID mapping lookups.
+ * Caches one Client instance per appId so that multi-bot setups
+ * each use their own credentials.
  */
 
 import * as Lark from "@larksuiteoapi/node-sdk";
-import type { FeishuConfig } from "./types.js";
 
-let _cachedClient: Lark.Client | null = null;
+const _clientCache = new Map<string, Lark.Client>();
 
-function getDefaultFeishuConfig(): { appId: string; appSecret: string } | null {
-  try {
-    const { readFileSync } = require("node:fs");
-    const path = require("node:path");
-    const cfgPath =
-      process.env.OPENCLAW_CONFIG_PATH ??
-      path.join(process.env.HOME ?? "/home/axelhu", ".openclaw", "openclaw.json");
-    const raw = readFileSync(cfgPath, "utf-8");
-    const cfg = JSON.parse(raw) as { channels?: { feishu?: FeishuConfig } };
-    const feishuCfg = cfg?.channels?.feishu;
-    // appId and appSecret might be secret refs or plain strings
-    // Handle both cases by resolving them
-    const appIdRaw = feishuCfg?.appId;
-    const appSecretRaw = feishuCfg?.appSecret;
-    const appId = typeof appIdRaw === "string" ? appIdRaw : undefined;
-    const appSecret = typeof appSecretRaw === "string" ? appSecretRaw : undefined;
-    if (!appId || !appSecret) {
-      return null;
-    }
-    return { appId, appSecret };
-  } catch {
-    return null;
+/**
+ * Register (or update) credentials for an appId.
+ * Call this during account resolution / bot startup so that
+ * `getLarkClientForApp` can create properly authenticated clients.
+ */
+export function registerLarkAppCredentials(appId: string, appSecret: string): void {
+  if (_clientCache.has(appId)) {
+    return; // already initialised
   }
+  _clientCache.set(
+    appId,
+    new Lark.Client({
+      appId,
+      appSecret,
+      loggerLevel: Lark.LoggerLevel.warn,
+    }),
+  );
 }
 
-export function getLarkClientForApp(_appId: string): Lark.Client {
-  const creds = getDefaultFeishuConfig();
-  if (!creds) {
-    throw new Error("[lark-client] No Feishu credentials configured");
+/**
+ * Get a Lark Client for the given appId.
+ * The credentials must have been registered beforehand via
+ * `registerLarkAppCredentials` (typically at bot startup or first
+ * message handling).
+ */
+export function getLarkClientForApp(appId: string): Lark.Client {
+  const client = _clientCache.get(appId);
+  if (!client) {
+    throw new Error(
+      `[lark-client] No credentials registered for appId "${appId}". ` +
+        "Call registerLarkAppCredentials() first.",
+    );
   }
-
-  if (!_cachedClient) {
-    _cachedClient = new Lark.Client({
-      appId: creds.appId,
-      appSecret: creds.appSecret,
-      loggerLevel: Lark.LoggerLevel.warn,
-    });
-  }
-
-  return _cachedClient;
+  return client;
 }
