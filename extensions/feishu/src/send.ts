@@ -735,7 +735,7 @@ export function buildMarkdownCard(text: string): Record<string, unknown> {
       elements: [
         {
           tag: "markdown",
-          content: text,
+          content: normalizeCardMentionTags(text),
         },
       ],
     },
@@ -749,6 +749,13 @@ export type CardHeaderConfig = {
   /** Feishu header color template (blue, green, red, orange, purple, grey, etc.). Defaults to "blue". */
   template?: string;
 };
+
+// Normalize @mention tags for card lark_md format:
+// - Models output <at user_id="..."> (post text format) → card needs <at id="...">
+// - Escaped underscores (\_) in IDs need to be stripped
+function normalizeCardMentionTags(text: string): string {
+  return text.replace(/<at user_id=/g, "<at id=").replace(/\\(?=[ou_])/g, "");
+}
 
 export function resolveFeishuCardTemplate(template?: string): string | undefined {
   const normalized = normalizeOptionalLowercaseString(template);
@@ -769,10 +776,15 @@ export function buildStructuredCard(
     note?: string;
   },
 ): Record<string, unknown> {
-  const elements: Record<string, unknown>[] = [{ tag: "markdown", content: text }];
+  const elements: Record<string, unknown>[] = [
+    { tag: "markdown", content: normalizeCardMentionTags(text) },
+  ];
   if (options?.note) {
     elements.push({ tag: "hr" });
-    elements.push({ tag: "markdown", content: `<font color='grey'>${options.note}</font>` });
+    elements.push({
+      tag: "markdown",
+      content: `<font color='grey'>${normalizeCardMentionTags(options.note)}</font>`,
+    });
   }
   const card: Record<string, unknown> = {
     schema: "2.0",

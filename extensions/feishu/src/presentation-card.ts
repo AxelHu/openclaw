@@ -203,17 +203,26 @@ export function buildFeishuPresentationCardElements(params: {
   return [
     {
       tag: "markdown",
-      content: renderMessagePresentationFallbackText({
-        text: params.fallbackText,
-        presentation: params.presentation.title
-          ? {
-              ...(params.presentation.tone ? { tone: params.presentation.tone } : {}),
-              blocks: params.presentation.blocks,
-            }
-          : params.presentation,
-      }),
+      content: normalizeCardMentionText(
+        renderMessagePresentationFallbackText({
+          text: params.fallbackText,
+          presentation: params.presentation.title
+            ? {
+                ...(params.presentation.tone ? { tone: params.presentation.tone } : {}),
+                blocks: params.presentation.blocks,
+              }
+            : params.presentation,
+        }),
+      ),
     },
   ];
+}
+
+// Normalize @mention tags for card lark_md format:
+// - Models output <at user_id="..."> (post text format) → card needs <at id="...">
+// - Escaped underscores (\_) in IDs need to be stripped
+function normalizeCardMentionText(text: string): string {
+  return text.replace(/<at user_id=/g, "<at id=").replace(/\\(?=[ou_])/g, "");
 }
 
 export function buildFeishuPresentationCard(params: {
