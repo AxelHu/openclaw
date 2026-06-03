@@ -393,6 +393,10 @@ export const cronHandlers: GatewayRequestHandlers = {
       return;
     }
     const jobCreate = normalized as unknown as CronJobCreate;
+    // Auto-fill agentId for agentTurn payloads so the job routes to the calling agent
+    if (!jobCreate.agentId && jobCreate.payload?.kind === "agentTurn") {
+      jobCreate.agentId = context.agentId;
+    }
     const cfg = context.getRuntimeConfig();
     const timestampValidation = validateScheduleTimestamp(jobCreate.schedule);
     if (!timestampValidation.ok) {
