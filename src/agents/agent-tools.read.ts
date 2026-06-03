@@ -662,7 +662,7 @@ export function wrapToolMemoryFlushAppendOnlyWrite(
       }
 
       await appendMemoryFlushContent({
-        absolutePath: allowedAbsolutePath,
+        absolutePath: resolvedPath,
         root: options.root,
         relativePath: options.relativePath,
         content,
