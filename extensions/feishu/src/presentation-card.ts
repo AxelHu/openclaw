@@ -24,6 +24,42 @@ function escapeFeishuCardMarkdownText(text: string): string {
   });
 }
 
+/**
+ * Escape Feishu card markdown text while preserving <at> mention tags.
+ * <at> tags must remain as-is for Feishu to render mentions and trigger
+ * notifications. Uses placeholder strategy to avoid nested escaping.
+ */
+function escapeFeishuCardMarkdownPreservingMentions(text: string): string {
+  const PLACEHOLDER_PREFIX = "\x00AT_PLACEHOLDER_";
+  let placeholderIndex = 0;
+  const placeholders: string[] = [];
+
+  const protectedText = text.replace(/<at\b[^>]*>[\s\S]*?<\/at>/gi, (match) => {
+    const placeholder = `${PLACEHOLDER_PREFIX}${placeholderIndex++}`;
+    placeholders.push(match);
+    return placeholder;
+  });
+
+  const escaped = protectedText.replace(/[&<>]/g, (char) => {
+    switch (char) {
+      case "&":
+        return "&amp;";
+      case "<":
+        return "&lt;";
+      case ">":
+        return "&gt;";
+      default:
+        return char;
+    }
+  });
+
+  let result = escaped;
+  for (let i = 0; i < placeholders.length; i++) {
+    result = result.replace(`${PLACEHOLDER_PREFIX}${i}`, placeholders[i]);
+  }
+  return result;
+}
+
 function resolveSafeFeishuButtonUrl(url: string | undefined): string | undefined {
   const trimmed = url?.trim();
   if (!trimmed) {
@@ -102,13 +138,13 @@ export function buildFeishuCardElementsForBlock(
   block: MessagePresentationBlock,
 ): Record<string, unknown>[] {
   if (block.type === "text") {
-    return [{ tag: "markdown", content: escapeFeishuCardMarkdownText(block.text) }];
+    return [{ tag: "markdown", content: escapeFeishuCardMarkdownPreservingMentions(block.text) }];
   }
   if (block.type === "context") {
     return [
       {
         tag: "markdown",
-        content: `<font color='grey'>${escapeFeishuCardMarkdownText(block.text)}</font>`,
+        content: `<font color='grey'>${escapeFeishuCardMarkdownPreservingMentions(block.text)}</font>`,
       },
     ];
   }

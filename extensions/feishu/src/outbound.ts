@@ -108,6 +108,45 @@ function escapeFeishuCardMarkdownText(text: string): string {
   });
 }
 
+/**
+ * Escape Feishu card markdown text while preserving <at> mention tags.
+ * <at> tags must remain as-is for Feishu to render mentions and trigger
+ * notifications. Uses placeholder strategy to avoid nested escaping.
+ */
+function escapeFeishuCardMarkdownPreservingMentions(text: string): string {
+  const PLACEHOLDER_PREFIX = "\x00AT_PLACEHOLDER_";
+  let placeholderIndex = 0;
+  const placeholders: string[] = [];
+
+  // Protect all <at ...>...</at> patterns
+  const protectedText = text.replace(/<at\b[^>]*>[\s\S]*?<\/at>/gi, (match) => {
+    const placeholder = `${PLACEHOLDER_PREFIX}${placeholderIndex++}`;
+    placeholders.push(match);
+    return placeholder;
+  });
+
+  // Escape the rest (also escapes any <at ...> that wasn't matched, e.g. unclosed tags)
+  const escaped = protectedText.replace(/[&<>]/g, (char) => {
+    switch (char) {
+      case "&":
+        return "&amp;";
+      case "<":
+        return "&lt;";
+      case ">":
+        return "&gt;";
+      default:
+        return char;
+    }
+  });
+
+  // Restore <at> tags (they were not escaped, so restore as-is)
+  let result = escaped;
+  for (let i = 0; i < placeholders.length; i++) {
+    result = result.replace(`${PLACEHOLDER_PREFIX}${i}`, placeholders[i]);
+  }
+  return result;
+}
+
 function resolveSafeFeishuButtonUrl(url: unknown): string | undefined {
   const trimmed = typeof url === "string" ? url.trim() : "";
   if (!trimmed) {
@@ -195,7 +234,7 @@ function sanitizeNativeFeishuCardElements(element: unknown): Record<string, unkn
     return [
       {
         tag: "markdown",
-        content: escapeFeishuCardMarkdownText(element.content),
+        content: escapeFeishuCardMarkdownPreservingMentions(element.content),
       },
     ];
   }
