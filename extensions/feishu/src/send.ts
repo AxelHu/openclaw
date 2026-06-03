@@ -549,6 +549,11 @@ export function buildFeishuPostMessagePayload(params: { messageText: string }): 
   msgType: string;
 } {
   const { messageText } = params;
+  // Normalize erroneous escapes that models add to @mention tags (e.g. `user=` instead of `user_id=`, or `\_` in IDs)
+  // These would break Feishu's parsing. Match only well-formed opening tags to avoid false positives.
+  const normalizedText = messageText
+    .replace(/<at user=/g, "<at user_id=")
+    .replace(/\\(?=[ou_])/g, "");
   return {
     content: JSON.stringify({
       zh_cn: {
@@ -556,7 +561,7 @@ export function buildFeishuPostMessagePayload(params: { messageText: string }): 
           [
             {
               tag: "md",
-              text: messageText,
+              text: normalizedText,
             },
           ],
         ],
