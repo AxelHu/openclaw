@@ -13,6 +13,7 @@ import {
 import { stripReasoningTagsFromText } from "openclaw/plugin-sdk/text-chunking";
 import { resolveFeishuRuntimeAccount } from "./accounts.js";
 import { createFeishuClient } from "./client.js";
+import { withFeishuRetry } from "./feishu-retry.js";
 import { sendMediaFeishu, shouldSuppressFeishuTextForVoiceMedia } from "./media.js";
 import {
   createReplyPrefixContext,
@@ -132,6 +133,7 @@ type CreateFeishuReplyDispatcherParams = {
 
 export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherParams) {
   const core = getFeishuRuntime();
+  const log = (message: string) => params.runtime?.log?.(message);
   const {
     cfg,
     agentId,
@@ -465,15 +467,19 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
             useCard: false,
             infoKind: "final",
             sendChunk: async ({ chunk }) => {
-              await sendMessageFeishu({
-                cfg,
-                to: chatId,
-                text: chunk,
-                replyToMessageId: sendReplyToMessageId,
-                replyInThread: effectiveReplyInThread,
-                allowTopLevelReplyFallback,
-                accountId,
-              });
+              await withFeishuRetry(
+                () =>
+                  sendMessageFeishu({
+                    cfg,
+                    to: chatId,
+                    text: chunk,
+                    replyToMessageId: sendReplyToMessageId,
+                    replyInThread: effectiveReplyInThread,
+                    allowTopLevelReplyFallback,
+                    accountId,
+                  }),
+                log,
+              );
             },
           });
         }
@@ -492,15 +498,19 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
                 useCard: false,
                 infoKind: "final",
                 sendChunk: async ({ chunk }) => {
-                  await sendMessageFeishu({
-                    cfg,
-                    to: chatId,
-                    text: chunk,
-                    replyToMessageId: sendReplyToMessageId,
-                    replyInThread: effectiveReplyInThread,
-                    allowTopLevelReplyFallback,
-                    accountId,
-                  });
+                  await withFeishuRetry(
+                    () =>
+                      sendMessageFeishu({
+                        cfg,
+                        to: chatId,
+                        text: chunk,
+                        replyToMessageId: sendReplyToMessageId,
+                        replyInThread: effectiveReplyInThread,
+                        allowTopLevelReplyFallback,
+                        accountId,
+                      }),
+                    log,
+                  );
                 },
               });
             },
@@ -607,17 +617,21 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
               useCard: true,
               infoKind: info?.kind,
               sendChunk: async ({ chunk }) => {
-                await sendStructuredCardFeishu({
-                  cfg,
-                  to: chatId,
-                  text: chunk,
-                  replyToMessageId: sendReplyToMessageId,
-                  replyInThread: effectiveReplyInThread,
-                  allowTopLevelReplyFallback,
-                  accountId,
-                  header: cardHeader,
-                  note: cardNote,
-                });
+                await withFeishuRetry(
+                  () =>
+                    sendStructuredCardFeishu({
+                      cfg,
+                      to: chatId,
+                      text: chunk,
+                      replyToMessageId: sendReplyToMessageId,
+                      replyInThread: effectiveReplyInThread,
+                      allowTopLevelReplyFallback,
+                      accountId,
+                      header: cardHeader,
+                      note: cardNote,
+                    }),
+                  log,
+                );
               },
             });
           } else {
@@ -626,15 +640,19 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
               useCard: false,
               infoKind: info?.kind,
               sendChunk: async ({ chunk }) => {
-                await sendMessageFeishu({
-                  cfg,
-                  to: chatId,
-                  text: chunk,
-                  replyToMessageId: sendReplyToMessageId,
-                  replyInThread: effectiveReplyInThread,
-                  allowTopLevelReplyFallback,
-                  accountId,
-                });
+                await withFeishuRetry(
+                  () =>
+                    sendMessageFeishu({
+                      cfg,
+                      to: chatId,
+                      text: chunk,
+                      replyToMessageId: sendReplyToMessageId,
+                      replyInThread: effectiveReplyInThread,
+                      allowTopLevelReplyFallback,
+                      accountId,
+                    }),
+                  log,
+                );
               },
             });
           }
