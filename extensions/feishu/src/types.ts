@@ -48,6 +48,8 @@ export type FeishuMessageContext = {
   senderId: string;
   senderOpenId: string;
   senderName?: string;
+  /** Sender type from Feishu event.sender.sender_type ("user" | "app" | "bot"). */
+  senderType?: string;
   chatType: FeishuChatType;
   mentionedBot: boolean;
   hasAnyMention?: boolean;

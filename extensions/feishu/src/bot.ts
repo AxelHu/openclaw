@@ -274,6 +274,7 @@ export function parseFeishuMessageEvent(
     // Keep the historical field name, but fall back to user_id when open_id is unavailable
     // (common in some mobile app deliveries).
     senderOpenId: senderFallbackId,
+    senderType: event.sender.sender_type,
     chatType: event.message.chat_type,
     mentionedBot,
     hasAnyMention,
@@ -1488,6 +1489,7 @@ export async function handleFeishuMessage(params: {
             accountId: account.accountId,
             identity,
             messageCreateTimeMs,
+            senderType: ctx.senderType,
           });
 
           log(
@@ -1653,6 +1655,7 @@ export async function handleFeishuMessage(params: {
         accountId: account.accountId,
         identity,
         messageCreateTimeMs,
+        senderType: ctx.senderType,
       });
 
       log(`feishu[${account.accountId}]: dispatching to agent (session=${route.sessionKey})`);

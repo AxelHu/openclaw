@@ -129,6 +129,9 @@ type CreateFeishuReplyDispatcherParams = {
   /** Epoch ms when the inbound message was created. Used to suppress typing
    *  indicators on old/replayed messages after context compaction (#30418). */
   messageCreateTimeMs?: number;
+  /** Sender type of the inbound message ("user" | "app" | "bot"). Used to
+   *  skip text chunking for bot-to-bot replies (avoids reply loops). */
+  senderType?: string;
 };
 
 export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherParams) {
@@ -146,6 +149,10 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
     accountId,
     identity,
   } = params;
+  // Detect bot-to-bot sender: if the inbound message came from a bot/app, skip
+  // text chunking on the outbound reply to avoid reply loops (each chunk would
+  // otherwise be treated as a separate message and could cascade).
+  const senderIsBot = params.senderType === "app" || params.senderType === "bot";
   const sendReplyToMessageId = skipReplyToInMessages ? undefined : replyToMessageId;
   const threadReplyMode = threadReply === true;
   const effectiveReplyInThread = threadReplyMode ? true : replyInThread;
@@ -426,6 +433,16 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
     infoKind?: string;
     sendChunk: (params: { chunk: string; isFirst: boolean }) => Promise<void>;
   }) => {
+    // For bot-to-bot communication, send the complete text as a single message
+    // to avoid triggering cascade on each chunk (each chunk would otherwise be
+    // treated as a separate message and could cause reply loops).
+    if (senderIsBot) {
+      await params.sendChunk({ chunk: params.text, isFirst: true });
+      if (params.infoKind === "final") {
+        deliveredFinalTexts.add(params.text);
+      }
+      return;
+    }
     const chunkSource = params.useCard
       ? params.text
       : core.channel.text.convertMarkdownTables(params.text, tableMode);
