@@ -69,7 +69,7 @@ import {
   type FeishuMessageInfo,
   type ResolvedFeishuAccount,
 } from "./types.js";
-import type { DynamicAgentCreationConfig } from "./types.js";
+import { isFeishuBotSenderType, type DynamicAgentCreationConfig } from "./types.js";
 
 export { toMessageResourceType } from "./bot-content.js";
 
@@ -369,7 +369,7 @@ async function shouldIncludeFetchedGroupContextMessage(params: {
   senderType?: string;
 }): Promise<boolean> {
   let senderAllowed =
-    !params.isGroup || params.allowFrom.length === 0 || params.senderType === "app";
+    !params.isGroup || params.allowFrom.length === 0 || isFeishuBotSenderType(params.senderType);
   const senderId = params.senderId?.trim();
   if (!senderAllowed && senderId) {
     const access = await resolveFeishuGroupSenderActivationIngressAccess({
@@ -1230,7 +1230,7 @@ export async function handleFeishuMessage(params: {
           (senderScoped
             ? allowlistedMessages.filter(
                 (msg) =>
-                  msg.senderType === "app" ||
+                  isFeishuBotSenderType(msg.senderType) ||
                   (msg.senderId !== undefined && senderIds.has(msg.senderId.trim())),
               )
             : allowlistedMessages) ?? [];
@@ -1241,7 +1241,7 @@ export async function handleFeishuMessage(params: {
           ? relevantMessages
           : relevantMessages.slice(1);
         const historyParts = historyMessages.map((msg) => {
-          const role = msg.senderType === "app" ? "assistant" : "user";
+          const role = isFeishuBotSenderType(msg.senderType) ? "assistant" : "user";
           return core.channel.reply.formatAgentEnvelope({
             channel: "Feishu",
             from: `${msg.senderId ?? "Unknown"} (${role})`,
