@@ -9,6 +9,15 @@ export type FeishuAccountConfig = z.infer<typeof FeishuAccountConfigSchema>;
 
 export type FeishuDomain = "feishu" | "lark" | (string & {});
 
+/**
+ * Feishu may return sender_type as 'bot' instead of 'app' for application senders.
+ * Treat both as non-human (bot/app) for downstream checks (role assignment, allowlist
+ * gating, mention decay, etc).
+ */
+export function isFeishuBotSenderType(senderType: string | undefined | null): boolean {
+  return senderType === "app" || senderType === "bot";
+}
+
 export type FeishuDefaultAccountSelectionSource =
   | "explicit-default"
   | "mapped-default"
