@@ -676,7 +676,7 @@ describe("feishuOutbound.sendPayload native cards", () => {
     });
     expect(card.body.elements[1]).toEqual({
       tag: "markdown",
-      content: "<font color='grey'>&lt;/font&gt;&lt;at id=\"ou_2\"&gt;Injected&lt;/at&gt;</font>",
+      content: "<font color='grey'>&lt;/font&gt;<at id=\"ou_2\">Injected</at></font>",
     });
     const buttonElement = card.body.elements.find(
       (element: { tag?: string }) => element.tag === "button",
@@ -740,7 +740,7 @@ describe("feishuOutbound.sendPayload native cards", () => {
     const card = sendCardCall()?.card;
     expect(card.header.template).toBe("blue");
     expect(card.body.elements).toEqual([
-      { tag: "markdown", content: '&lt;at id="ou_1"&gt;ping&lt;/at&gt;' },
+      { tag: "markdown", content: '<at id="ou_1">ping</at>' },
       {
         tag: "button",
         text: { tag: "plain_text", content: "Promote" },
