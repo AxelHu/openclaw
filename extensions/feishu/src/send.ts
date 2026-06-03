@@ -12,7 +12,13 @@ import { resolveFeishuRuntimeAccount } from "./accounts.js";
 import { createFeishuClient } from "./client.js";
 import { requestFeishuApi } from "./comment-shared.js";
 import type { MentionTarget } from "./mention-target.types.js";
-import { buildMentionedCardContent, buildMentionedMessage } from "./mention.js";
+import {
+  buildMentionedCardContent,
+  buildMentionedMessage,
+  extractMentionTagsFromText,
+  mergeMentionsWithExtracted,
+} from "./mention.js";
+import { normalizeCardMentionTags } from "./mention.js";
 import { parsePostContent } from "./post.js";
 import {
   assertFeishuMessageApiSuccess,
@@ -750,12 +756,7 @@ export type CardHeaderConfig = {
   template?: string;
 };
 
-// Normalize @mention tags for card lark_md format:
-// - Models output <at user_id="..."> (post text format) → card needs <at id="...">
-// - Escaped underscores (\_) in IDs need to be stripped
-function normalizeCardMentionTags(text: string): string {
-  return text.replace(/<at user_id=/g, "<at id=").replace(/\\(?=[ou_])/g, "");
-}
+// normalizeCardMentionTags is imported from ./mention.js (shared with streaming-card)
 
 export function resolveFeishuCardTemplate(template?: string): string | undefined {
   const normalized = normalizeOptionalLowercaseString(template);
@@ -828,9 +829,16 @@ export async function sendStructuredCardFeishu(params: {
     header,
     note,
   } = params;
-  let cardText = text;
-  if (mentions && mentions.length > 0) {
-    cardText = buildMentionedCardContent(mentions, text);
+  // Capture any <at> tags the programmer wrote inline so the recipient
+  // actually gets a mention notification (otherwise the tag renders as
+  // raw text and Feishu's frontend silently drops the @ on the card).
+  const { text: textWithoutInlineAt, mentions: inlineAtMentions } =
+    extractMentionTagsFromText(text);
+  const combinedMentions = mergeMentionsWithExtracted(mentions, inlineAtMentions);
+
+  let cardText = textWithoutInlineAt;
+  if (combinedMentions && combinedMentions.length > 0) {
+    cardText = buildMentionedCardContent(combinedMentions, textWithoutInlineAt);
   }
   const card = buildStructuredCard(cardText, { header, note });
   return sendCardFeishu({
@@ -870,9 +878,16 @@ export async function sendMarkdownCardFeishu(params: {
     mentions,
     accountId,
   } = params;
-  let cardText = text;
-  if (mentions && mentions.length > 0) {
-    cardText = buildMentionedCardContent(mentions, text);
+  // Capture any <at> tags the programmer wrote inline so the recipient
+  // actually gets a mention notification (otherwise the tag renders as
+  // raw text and Feishu's frontend silently drops the @ on the card).
+  const { text: textWithoutInlineAt, mentions: inlineAtMentions } =
+    extractMentionTagsFromText(text);
+  const combinedMentions = mergeMentionsWithExtracted(mentions, inlineAtMentions);
+
+  let cardText = textWithoutInlineAt;
+  if (combinedMentions && combinedMentions.length > 0) {
+    cardText = buildMentionedCardContent(combinedMentions, textWithoutInlineAt);
   }
   const card = buildMarkdownCard(cardText);
   return sendCardFeishu({

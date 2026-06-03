@@ -11,6 +11,7 @@ import {
 import { fetchWithSsrFGuard } from "openclaw/plugin-sdk/ssrf-runtime";
 import { getFeishuUserAgent } from "./client.js";
 import { requestFeishuApi } from "./comment-shared.js";
+import { normalizeCardMentionTags } from "./mention.js";
 import { resolveFeishuCardTemplate, type CardHeaderConfig } from "./send.js";
 import type { FeishuDomain } from "./types.js";
 
@@ -357,6 +358,11 @@ export class FeishuStreamingSession {
     if (!this.state) {
       return false;
     }
+    // Programmer (LLM) text uses post-text format <at user_id="ou_xxx">name</at>.
+    // The streaming card renderer only recognizes the card format
+    // <at id=ou_xxx>name</at>, otherwise the @ silently disappears.
+    // Same conversion `buildStructuredCard`/`buildMarkdownCard` apply.
+    const normalizedText = normalizeCardMentionTags(text);
     const apiBase = resolveApiBase(this.creds.domain);
     this.state.sequence += 1;
     try {
@@ -370,7 +376,7 @@ export class FeishuStreamingSession {
             "User-Agent": getFeishuUserAgent(),
           },
           body: JSON.stringify({
-            content: text,
+            content: normalizedText,
             sequence: this.state.sequence,
             uuid: `s_${this.state.cardId}_${this.state.sequence}`,
           }),
