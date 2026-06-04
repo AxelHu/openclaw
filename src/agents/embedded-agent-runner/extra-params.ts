@@ -1,7 +1,10 @@
 import type { ThinkLevel } from "../../auto-reply/thinking.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { createGoogleThinkingPayloadWrapper } from "../../llm/providers/stream-wrappers/google.js";
-import { createMinimaxThinkingDisabledWrapper } from "../../llm/providers/stream-wrappers/minimax.js";
+import {
+  createMinimaxSafetyRetryWrapper,
+  createMinimaxThinkingDisabledWrapper,
+} from "../../llm/providers/stream-wrappers/minimax.js";
 import {
   createSiliconFlowThinkingWrapper,
   shouldApplySiliconFlowThinkingOffCompat,
@@ -842,6 +845,11 @@ function applyPostPluginStreamWrappers(
   // visible reply path because it does not emit native Anthropic thinking
   // blocks. Disable thinking unless an earlier wrapper already set it.
   ctx.agent.streamFn = createMinimaxThinkingDisabledWrapper(ctx.agent.streamFn);
+
+  // Apply the safety retry wrapper as the outermost layer so it catches
+  // mid-stream 1027 (output new_sensitive) errors from any downstream
+  // wrapper. Single silent retry, same temperature.
+  ctx.agent.streamFn = createMinimaxSafetyRetryWrapper(ctx.agent.streamFn);
 
   const rawChatTemplateKwargs = resolveAliasedParamValue(
     [ctx.effectiveExtraParams, ctx.override],

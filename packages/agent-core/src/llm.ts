@@ -114,6 +114,15 @@ export interface AssistantMessage {
   responseId?: string;
   diagnostics?: AssistantMessageDiagnostic[];
   stopReason: StopReason;
+  /**
+   * The raw, un-mapped stop reason returned by the upstream API.
+   * Preserved so callers can distinguish specific error categories that
+   * mapStopReason() collapses to a generic "error" (for example, the
+   * Anthropic-compatible MiniMax endpoint returns "sensitive" for content
+   * safety filter hits, surfaced to the user as 1027).
+   * Provider-specific; not all providers populate this.
+   */
+  rawStopReason?: string;
   errorMessage?: string;
   timestamp: number;
   usage: Usage;
