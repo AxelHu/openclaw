@@ -393,10 +393,9 @@ export const cronHandlers: GatewayRequestHandlers = {
       return;
     }
     const jobCreate = normalized as unknown as CronJobCreate;
-    // Auto-fill agentId for agentTurn payloads so the job routes to the calling agent
-    if (!jobCreate.agentId && jobCreate.payload?.kind === "agentTurn") {
-      jobCreate.agentId = context.agentId;
-    }
+    // 6.1: GatewayRequestContext no longer exposes agentId, and
+    // isolated-agent/run.ts already falls back to defaultAgentId when
+    // job.agentId is empty (line 520-529). No auto-fill needed here.
     const cfg = context.getRuntimeConfig();
     const timestampValidation = validateScheduleTimestamp(jobCreate.schedule);
     if (!timestampValidation.ok) {
