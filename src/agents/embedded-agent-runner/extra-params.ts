@@ -1,10 +1,7 @@
 import type { ThinkLevel } from "../../auto-reply/thinking.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { createGoogleThinkingPayloadWrapper } from "../../llm/providers/stream-wrappers/google.js";
-import {
-  createMinimaxSafetyRetryWrapper,
-  createMinimaxThinkingDisabledWrapper,
-} from "../../llm/providers/stream-wrappers/minimax.js";
+import { createMinimaxSafetyRetryWrapper } from "../../llm/providers/stream-wrappers/minimax.js";
 import {
   createSiliconFlowThinkingWrapper,
   shouldApplySiliconFlowThinkingOffCompat,
@@ -841,10 +838,8 @@ function applyPostPluginStreamWrappers(
     );
   }
 
-  // MiniMax's Anthropic-compatible stream can leak reasoning_content into the
-  // visible reply path because it does not emit native Anthropic thinking
-  // blocks. Disable thinking unless an earlier wrapper already set it.
-  ctx.agent.streamFn = createMinimaxThinkingDisabledWrapper(ctx.agent.streamFn);
+  // M3 now returns proper Anthropic thinking blocks natively.
+  // Removed createMinimaxThinkingDisabledWrapper — see #89114.
 
   // Apply the safety retry wrapper as the outermost layer so it catches
   // mid-stream 1027 (output new_sensitive) errors from any downstream
