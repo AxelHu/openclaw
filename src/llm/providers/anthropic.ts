@@ -668,21 +668,7 @@ export const streamAnthropic: StreamFunction<"anthropic-messages", AnthropicOpti
           }
         } else if (event.type === "message_delta") {
           if (event.delta.stop_reason) {
-            const raw = event.delta.stop_reason as string;
-            output.rawStopReason = raw;
-            output.stopReason = mapStopReason(raw);
-            // Diagnostic log: surfaces content-safety filter hits (e.g.
-            // MiniMax "sensitive" = code 1027) and any other upstream-only
-            // stop reasons that mapStopReason() collapses to "error".
-            const mapped = output.stopReason;
-            if (raw !== mapped) {
-              const subsys = (process.env.OPENCLAW_LOG_SUBSYS as string) || "anthropic-safety";
-              // eslint-disable-next-line no-console
-              console.warn(
-                `[${subsys}] upstream stop_reason=${raw} mapped to stopReason=${mapped}` +
-                  (raw === "sensitive" ? " (minimax 1027 / content safety filter)" : ""),
-              );
-            }
+            output.stopReason = mapStopReason(event.delta.stop_reason);
           }
           // Only update usage fields if present (not null).
           // Preserves input_tokens from message_start when proxies omit it in message_delta.
@@ -713,14 +699,7 @@ export const streamAnthropic: StreamFunction<"anthropic-messages", AnthropicOpti
       }
 
       if (output.stopReason === "aborted" || output.stopReason === "error") {
-        // Preserve the raw upstream stop_reason so the safety-retry wrapper
-        // (and the user-facing error message) can distinguish safety filter
-        // hits from generic provider errors.
-        throw new Error(
-          output.rawStopReason
-            ? `Stream ended with stop_reason: ${output.rawStopReason}`
-            : "An unknown error occurred",
-        );
+        throw new Error("An unknown error occurred");
       }
 
       stream.push({ type: "done", reason: output.stopReason, message: output });
