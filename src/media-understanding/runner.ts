@@ -1020,11 +1020,15 @@ export async function runCapability(params: {
 
   // Skip image understanding when the primary model supports vision natively.
   // The image will be injected directly into the model context instead.
+  // Note: previously excluded minimax/* providers here as a hardcoded bypass
+  // (when minimax was VLM-only). After MiniMax-M3 (input: [text, image]) was
+  // added, that hardcode became wrong for M3. The modelSupportsVision(entry)
+  // check below is the single source of truth: text-only models (M2.5/M2.7)
+  // still take the describe path, M3 takes the vision-skip path.
   const activeProvider = params.activeModel?.provider?.trim();
   if (
     capability === "image" &&
     activeProvider &&
-    !isMinimaxVlmProvider(activeProvider) &&
     !hasExplicitImageUnderstandingConfig({
       cfg,
       config,
