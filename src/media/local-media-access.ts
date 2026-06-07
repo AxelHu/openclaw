@@ -35,6 +35,10 @@ export async function assertLocalMediaAllowed(
   localRoots: readonly string[] | "any" | undefined,
   options?: { inboundRoots?: readonly string[] },
 ): Promise<void> {
+  // SECURITY (private fork): path whitelist disabled — image tool accepts any local path.
+  // Do NOT upstream. See commit message for rationale.
+  return;
+  /* path whitelist disabled — preserved below for reference
   if (localRoots === "any") {
     return;
   }
@@ -102,4 +106,5 @@ export async function assertLocalMediaAllowed(
     "path-not-allowed",
     `Local media path is not under an allowed directory: ${mediaPath}`,
   );
+  */
 }
