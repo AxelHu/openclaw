@@ -166,6 +166,51 @@ describe("runCapability image skip", () => {
     }
   });
 
+  it("skips image understanding when imageModel is set but primary is vision-capable", async () => {
+    // Regression test for openclaw/openclaw#91084.
+    // `agents.defaults.imageModel` is documented as a fallback that fires
+    // only when the primary model cannot accept images. If the primary
+    // model is already vision-capable, the imageModel should be ignored
+    // and the model should see the image directly via its vision input.
+    const ctx: MsgContext = { MediaPath: "/tmp/image.png", MediaType: "image/png" };
+    const media = normalizeMediaAttachments(ctx);
+    const cache = createMediaAttachmentCache(media);
+    const cfg = {
+      agents: {
+        defaults: {
+          imageModel: {
+            primary: "openai/gpt-4.1",
+            fallbacks: ["openai/gpt-4.1"],
+          },
+        },
+      },
+    } as OpenClawConfig;
+
+    try {
+      const result = await runCapability({
+        capability: "image",
+        cfg,
+        ctx,
+        attachments: cache,
+        media,
+        providerRegistry: buildProviderRegistry(),
+        activeModel: { provider: "openai", model: "gpt-4.1" },
+      });
+
+      expect(result.outputs).toHaveLength(0);
+      expect(result.decision.outcome).toBe("skipped");
+      const attachment = requireDecisionAttachment(result, 0);
+      const attempt = attachment.attempts[0];
+      if (!attempt) {
+        throw new Error("expected media-understanding skipped attempt");
+      }
+      expect(attempt.outcome).toBe("skipped");
+      expect(attempt.reason).toBe("primary model supports vision natively");
+    } finally {
+      await cache.cleanup();
+    }
+  });
+
   it("uses explicit media image models instead of native vision skip", async () => {
     await withMediaFixture(
       {
@@ -284,6 +329,11 @@ describe("runCapability image skip", () => {
   });
 
   it("runs providerless configured imageModel fallbacks on the unique configured provider", async () => {
+    // Regression test for openclaw/openclaw#91084.
+    // `agents.defaults.imageModel` is documented as a fallback that fires
+    // only when the primary model cannot accept images. The active model
+    // here is text-only (gpt-3.5-turbo) so the fallback should still kick
+    // in: try the primary, fail, then the fallback.
     await withMediaFixture(
       {
         filePrefix: "openclaw-image-providerless-fallbacks",
@@ -315,6 +365,14 @@ describe("runCapability image skip", () => {
                   },
                 ],
               },
+              openai: {
+                models: [
+                  {
+                    id: "gpt-3.5-turbo",
+                    input: ["text"],
+                  },
+                ],
+              },
             },
           },
         } as unknown as OpenClawConfig;
@@ -341,7 +399,8 @@ describe("runCapability image skip", () => {
               } satisfies MediaUnderstandingProvider,
             ],
           ]),
-          activeModel: { provider: "openai", model: "gpt-4.1" },
+          // Active model is text-only so the imageModel fallback fires.
+          activeModel: { provider: "openai", model: "gpt-3.5-turbo" },
         });
 
         expect(result.decision.outcome).toBe("success");

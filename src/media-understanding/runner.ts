@@ -1025,16 +1025,18 @@ export async function runCapability(params: {
   // added, that hardcode became wrong for M3. The modelSupportsVision(entry)
   // check below is the single source of truth: text-only models (M2.5/M2.7)
   // still take the describe path, M3 takes the vision-skip path.
+  //
+  // The vision-skip is bypassed only by per-call `config.models` (an
+  // explicit choice for this request), NOT by `agents.defaults.imageModel`.
+  // The agent-default `imageModel` is documented as a fallback that fires
+  // only when the primary model cannot accept images
+  // (docs/concepts/models.md:47). When the primary model is vision-capable,
+  // the user's `imageModel` is irrelevant — calling it to describe an image
+  // the model can already see produces a redundant `Description:` segment
+  // in the user body. See upstream issue openclaw/openclaw#91084.
   const activeProvider = params.activeModel?.provider?.trim();
-  if (
-    capability === "image" &&
-    activeProvider &&
-    !hasExplicitImageUnderstandingConfig({
-      cfg,
-      config,
-      agentId: params.agentId,
-    })
-  ) {
+  const hasPerCallExplicit = (config?.models?.length ?? 0) > 0;
+  if (capability === "image" && activeProvider && !hasPerCallExplicit) {
     const { findModelInCatalog, loadModelCatalog, modelSupportsVision } =
       await loadModelCatalogApi();
     const catalog = await loadModelCatalog({ config: cfg });
