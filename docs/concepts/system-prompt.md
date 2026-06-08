@@ -176,6 +176,7 @@ prompt surface that matches their lifetime:
 - `USER.md`
 - `HEARTBEAT.md`
 - `BOOTSTRAP.md` (only on brand-new workspaces)
+- `ENVIRONMENT.md` (host/network/runtime context)
 - `MEMORY.md` when present
 
 On the native Codex harness, OpenClaw avoids repeating stable workspace files
