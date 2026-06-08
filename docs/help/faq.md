@@ -606,7 +606,7 @@ lives on the [First-run FAQ](/help/faq-first-run).
     These files live in the **agent workspace**, not `~/.openclaw`.
 
     - **Workspace (per agent)**: `AGENTS.md`, `SOUL.md`, `IDENTITY.md`, `USER.md`,
-      `MEMORY.md`, `memory/YYYY-MM-DD.md`, optional `HEARTBEAT.md`.
+      `MEMORY.md`, `memory/YYYY-MM-DD.md`, optional `HEARTBEAT.md`, `ENVIRONMENT.md`.
       Lowercase root `memory.md` is legacy repair input only; `openclaw doctor --fix`
       can merge it into `MEMORY.md` when both files exist.
     - **State dir (`~/.openclaw`)**: config, channel/provider state, auth profiles, sessions, logs,
