@@ -198,3 +198,27 @@ export function normalizeCardMentionTags(text: string): string {
     .replace(/<at id="([^"]+)">/g, "<at id=$1>")
     .replace(/\\(?=[ou_])/g, "");
 }
+
+/**
+ * Normalize broken at-tag closing for the plain text send path.
+ * LLMs sometimes close at-tags with `</a>` (HTML-ish drift from training
+ * data) or omit the closing tag entirely. This function only fixes the
+ * high-frequency `</a>` → `</at>` drift. We intentionally do NOT
+ * auto-close missing `</at>` because the tag scope is ambiguous (could
+ * be 1 char or 1000 chars); the safest fallback is to leave the unclosed
+ * tag and let downstream extractors no-match gracefully (text still
+ * renders readably, just without the blue mention chip).
+ *
+ * Targeted patterns:
+ *   `<at user_id="ou_xxx">name</a>`  →  `<at user_id="ou_xxx">name</at>`
+ *   `<at id=ou_xxx>name</a>`         →  `<at id=ou_xxx>name</at>`
+ *
+ * Card path uses `normalizeCardMentionTags` (separate function, called
+ * from sendMarkdownCardFeishu / sendStructuredCardFeishu / streaming-card).
+ * This function is only called from `sendMessageFeishu` (plain text path).
+ */
+export function normalizeTextAtTagClosing(text: string): string {
+  return text
+    .replace(/<at\s+user_id="(ou_[A-Za-z0-9]+)"\s*>([^<]*)<\/a>/g, '<at user_id="$1">$2</at>')
+    .replace(/<at\s+id="?(ou_[A-Za-z0-9]+)"?\s*>([^<]*)<\/a>/g, '<at id="$1">$2</at>');
+}

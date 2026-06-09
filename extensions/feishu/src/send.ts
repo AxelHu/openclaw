@@ -18,7 +18,7 @@ import {
   extractMentionTagsFromText,
   mergeMentionsWithExtracted,
 } from "./mention.js";
-import { normalizeCardMentionTags } from "./mention.js";
+import { normalizeCardMentionTags, normalizeTextAtTagClosing } from "./mention.js";
 import { parsePostContent } from "./post.js";
 import {
   assertFeishuMessageApiSuccess,
@@ -598,6 +598,9 @@ export async function sendMessageFeishu(
 
   // Build message content (with @mention support)
   let rawText = text ?? "";
+  // Fix common LLM drift: at-tags closed with </a> instead of </at>.
+  // Card path uses normalizeCardMentionTags (separate); this is plain text only.
+  rawText = normalizeTextAtTagClosing(rawText);
   if (mentions && mentions.length > 0) {
     rawText = buildMentionedMessage(mentions, rawText);
   }
