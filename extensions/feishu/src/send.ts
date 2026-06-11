@@ -29,6 +29,22 @@ import { resolveFeishuSendTarget } from "./send-target.js";
 import type { FeishuChatType, FeishuMessageInfo, FeishuSendResult } from "./types.js";
 
 const WITHDRAWN_REPLY_ERROR_CODES = new Set([230011, 231003]);
+// Feishu card API error: card body has an <at id=...> whose open_id does
+// not resolve to a real user in the chat. Two main causes:
+//  1. LLM wrote a wrong open_id (typo / hallucination / chat-cross-contamination
+//     where the LLM grabbed a sender open_id from a different app/chat).
+//  2. LLM wrote a <at id=...> with a syntactically valid but never-seen
+//     open_id (e.g. made-up hex).
+// Both used to drop the entire message (with "no-visible-reply" fallback).
+// The 6/9 fix landed </a> → </at> drift in plain text; 6/10 routed it
+// through card send. The 6/11 follow-up (this commit) catches 230099
+// and retries the card WITHOUT the mentions array — the @name still
+// renders in the body text (extractMentionTagsFromText already rewrote
+// the tag to ` @AxelHu `), just no mention chip / notification.
+// Mirrors the WITHDRAWN_REPLY_ERROR_CODES → sendReplyOrFallbackDirect
+// pattern (send.ts:49-78): define a small codeset + helper, then wrap
+// the send call site with try/catch and a stripped retry.
+const INVALID_USER_RESOURCE_CODES = new Set([230099]);
 const INTERACTIVE_CARD_FALLBACK_TEXT = "[Interactive Card]";
 const POST_FALLBACK_TEXT = "[Rich text message]";
 const FEISHU_CARD_TEMPLATES = new Set([
@@ -77,6 +93,29 @@ function isWithdrawnReplyError(err: unknown): boolean {
   const cause = (err as { cause?: unknown }).cause;
   if (cause && cause !== err) {
     return isWithdrawnReplyError(cause);
+  }
+  return false;
+}
+
+/**
+ * Detect Feishu API 230099 ("invalid user resource (at/person) in your card").
+ * Mirrors isWithdrawnReplyError above — checks both SDK error shape
+ * (err.code) and AxiosError shape (err.response.data.code).
+ */
+function isInvalidUserResourceError(err: unknown): boolean {
+  if (typeof err !== "object" || err === null) {
+    return false;
+  }
+  const code = (err as { code?: number }).code;
+  if (typeof code === "number" && INVALID_USER_RESOURCE_CODES.has(code)) {
+    return true;
+  }
+  const response = (err as { response?: { data?: { code?: number; msg?: string } } }).response;
+  if (
+    typeof response?.data?.code === "number" &&
+    INVALID_USER_RESOURCE_CODES.has(response.data.code)
+  ) {
+    return true;
   }
   return false;
 }
@@ -852,15 +891,41 @@ export async function sendStructuredCardFeishu(params: {
     cardText = buildMentionedCardContent(combinedMentions, textWithoutInlineAt);
   }
   const card = buildStructuredCard(cardText, { header, note });
-  return sendCardFeishu({
-    cfg,
-    to,
-    card,
-    replyToMessageId,
-    replyInThread,
-    allowTopLevelReplyFallback,
-    accountId,
-  });
+  try {
+    return await sendCardFeishu({
+      cfg,
+      to,
+      card,
+      replyToMessageId,
+      replyInThread,
+      allowTopLevelReplyFallback,
+      accountId,
+    });
+  } catch (err) {
+    if (!isInvalidUserResourceError(err)) {
+      throw err;
+    }
+    // LLM wrote a bad open_id (typo / hallucination / chat-cross-mix).
+    // Retry the same body WITHOUT the @mentions prefix — the @AxelHu
+    // placeholder is already in the text from extractMentionTagsFromText
+    // so the message still reads as " @AxelHu ...", just without the
+    // mention chip or notification. Without this fallback the entire
+    // message would be lost to no-visible-reply.
+    console.error(
+      "[feishu] card send hit 230099 invalid user resource; retrying without @mentions (LLM likely wrote wrong open_id)",
+      { err, combinedMentionCount: combinedMentions?.length ?? 0 },
+    );
+    const fallbackCard = buildStructuredCard(textWithoutInlineAt, { header, note });
+    return sendCardFeishu({
+      cfg,
+      to,
+      card: fallbackCard,
+      replyToMessageId,
+      replyInThread,
+      allowTopLevelReplyFallback,
+      accountId,
+    });
+  }
 }
 
 /**
@@ -909,13 +974,39 @@ export async function sendMarkdownCardFeishu(params: {
     cardText = buildMentionedCardContent(combinedMentions, textWithoutInlineAt);
   }
   const card = buildMarkdownCard(cardText);
-  return sendCardFeishu({
-    cfg,
-    to,
-    card,
-    replyToMessageId,
-    replyInThread,
-    allowTopLevelReplyFallback,
-    accountId,
-  });
+  try {
+    return await sendCardFeishu({
+      cfg,
+      to,
+      card,
+      replyToMessageId,
+      replyInThread,
+      allowTopLevelReplyFallback,
+      accountId,
+    });
+  } catch (err) {
+    if (!isInvalidUserResourceError(err)) {
+      throw err;
+    }
+    // LLM wrote a bad open_id (typo / hallucination / chat-cross-mix).
+    // Retry the same body WITHOUT the @mentions prefix — the @AxelHu
+    // placeholder is already in the text from extractMentionTagsFromText
+    // so the message still reads as " @AxelHu ...", just without the
+    // mention chip or notification. Without this fallback the entire
+    // message would be lost to no-visible-reply.
+    console.error(
+      "[feishu] card send hit 230099 invalid user resource; retrying without @mentions (LLM likely wrote wrong open_id)",
+      { err, combinedMentionCount: combinedMentions?.length ?? 0 },
+    );
+    const fallbackCard = buildMarkdownCard(textWithoutInlineAt);
+    return sendCardFeishu({
+      cfg,
+      to,
+      card: fallbackCard,
+      replyToMessageId,
+      replyInThread,
+      allowTopLevelReplyFallback,
+      accountId,
+    });
+  }
 }
