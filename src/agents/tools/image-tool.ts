@@ -3,7 +3,7 @@
  *
  * Describes local, staged, web, and generated media through configured media-understanding providers.
  */
-import { resolve, isAbsolute } from "node:path";
+import { resolve, isAbsolute, extname } from "node:path";
 import { Type } from "typebox";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import type { MediaUnderstandingModelConfig } from "../../config/types.tools.js";
@@ -1031,6 +1031,45 @@ export function createImageTool(options?: {
                 ...(isHttpUrl ? { readIdleTimeoutMs: REMOTE_MEDIA_READ_IDLE_TIMEOUT_MS } : {}),
                 imageCompression,
               });
+        // video 分支：M3 (imageModel) 走 anthropic-messages 协议，content type 只支持
+        // text/image/document，没有 video content type。走"抽帧当多图"路线（路线 B）：
+        // ffmpeg 抽最多 6 帧（1 fps + 720p 宽 + q:v 3），每帧当成 image 推给 model。
+        // 零 API 兼容性风险，复用现有 image 链路。
+        if (media.kind === "video") {
+          const { extractVideoFrames } = await import("../../media/video-frames.js");
+          const videoBuffer = "buffer" in media ? media.buffer : null;
+          if (!videoBuffer || videoBuffer.length === 0) {
+            throw new Error("Video media has empty buffer");
+          }
+          const sourcePath = resolvedPath ?? resolvedImage ?? "video";
+          const sourceExt = extname(sourcePath) || ".mp4";
+          const frames = await extractVideoFrames({
+            buffer: videoBuffer,
+            inputExtension: sourceExt,
+            inputFileName: sourcePath,
+            maxFrames: 3,
+            fps: 1,
+            maxWidth: 720,
+          });
+          if (frames.length === 0) {
+            throw new Error(
+              `Video frame extraction produced 0 frames from ${sourcePath} ` +
+                `(ffmpeg may have failed or input is not a valid video)`,
+            );
+          }
+          for (const frame of frames) {
+            loadedImages.push({
+              buffer: frame.buffer,
+              mimeType: frame.mimeType,
+              resolvedImage: `${sourcePath}#frame-${frame.index}`,
+              ...(resolvedPathInfo.rewrittenFrom
+                ? { rewrittenFrom: resolvedPathInfo.rewrittenFrom }
+                : {}),
+            });
+          }
+          continue;
+        }
+
         if (media.kind !== "image") {
           throw new Error(`Unsupported media type: ${media.kind}`);
         }
