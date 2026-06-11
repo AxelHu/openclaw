@@ -11,7 +11,7 @@ import {
 import { fetchWithSsrFGuard } from "openclaw/plugin-sdk/ssrf-runtime";
 import { getFeishuUserAgent } from "./client.js";
 import { requestFeishuApi } from "./comment-shared.js";
-import { normalizeCardMentionTags } from "./mention.js";
+import { normalizeCardMentionTags, normalizeTextAtTagClosing } from "./mention.js";
 import { resolveFeishuCardTemplate, type CardHeaderConfig } from "./send.js";
 import type { FeishuDomain } from "./types.js";
 
@@ -362,7 +362,11 @@ export class FeishuStreamingSession {
     // The streaming card renderer only recognizes the card format
     // <at id=ou_xxx>name</at>, otherwise the @ silently disappears.
     // Same conversion `buildStructuredCard`/`buildMarkdownCard` apply.
-    const normalizedText = normalizeCardMentionTags(text);
+    // Also close any </a> drift first (LLM HTML-ish closing) — without
+    // this, the rendered text keeps malformed `<at id=ou_xxx>name</a>`
+    // which Feishu rejects with code 230099. Mirrors the f179cb5d122
+    // fix on the plain text + send-card paths.
+    const normalizedText = normalizeCardMentionTags(normalizeTextAtTagClosing(text));
     const apiBase = resolveApiBase(this.creds.domain);
     this.state.sequence += 1;
     try {

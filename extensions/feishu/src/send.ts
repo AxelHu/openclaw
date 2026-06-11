@@ -835,8 +835,16 @@ export async function sendStructuredCardFeishu(params: {
   // Capture any <at> tags the programmer wrote inline so the recipient
   // actually gets a mention notification (otherwise the tag renders as
   // raw text and Feishu's frontend silently drops the @ on the card).
-  const { text: textWithoutInlineAt, mentions: inlineAtMentions } =
-    extractMentionTagsFromText(text);
+  // First close any </a> drift (LLM HTML-ish closing) so the regex below
+  // actually matches — without this, the regex needs `</at>` and silently
+  // no-matches, leaving malformed `<at id=ou_xxx>name</a>` in the card
+  // body, which Feishu rejects with code 230099 "invalid user resource".
+  // Mirrors the plain-text path's call to normalizeTextAtTagClosing in
+  // sendMessageFeishu (added in f179cb5d122, which originally missed the
+  // card path).
+  const { text: textWithoutInlineAt, mentions: inlineAtMentions } = extractMentionTagsFromText(
+    normalizeTextAtTagClosing(text),
+  );
   const combinedMentions = mergeMentionsWithExtracted(mentions, inlineAtMentions);
 
   let cardText = textWithoutInlineAt;
@@ -884,8 +892,16 @@ export async function sendMarkdownCardFeishu(params: {
   // Capture any <at> tags the programmer wrote inline so the recipient
   // actually gets a mention notification (otherwise the tag renders as
   // raw text and Feishu's frontend silently drops the @ on the card).
-  const { text: textWithoutInlineAt, mentions: inlineAtMentions } =
-    extractMentionTagsFromText(text);
+  // First close any </a> drift (LLM HTML-ish closing) so the regex below
+  // actually matches — without this, the regex needs `</at>` and silently
+  // no-matches, leaving malformed `<at id=ou_xxx>name</a>` in the card
+  // body, which Feishu rejects with code 230099 "invalid user resource".
+  // Mirrors the plain-text path's call to normalizeTextAtTagClosing in
+  // sendMessageFeishu (added in f179cb5d122, which originally missed the
+  // card path).
+  const { text: textWithoutInlineAt, mentions: inlineAtMentions } = extractMentionTagsFromText(
+    normalizeTextAtTagClosing(text),
+  );
   const combinedMentions = mergeMentionsWithExtracted(mentions, inlineAtMentions);
 
   let cardText = textWithoutInlineAt;
