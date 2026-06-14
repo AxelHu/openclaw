@@ -237,6 +237,16 @@ const ModelCompatSchema = z
     toolCallArgumentsEncoding: z.string().optional(),
     requiresMistralToolIds: z.boolean().optional(),
     requiresOpenAiAnthropicToolPayload: z.boolean().optional(),
+    // AnthropicMessages compat fields. The TypeBox schema in
+    // model-registry.ts and the ModelCompatConfig type in types.models.ts
+    // have accepted these since 3/17, but the zod validator that
+    // `openclaw config validate` (and the strict startup path) reads was
+    // never updated to match. Restoring the schema-level support so users
+    // can declare `supportsLongCacheRetention: true` on a model entry
+    // without the strict validator rejecting it. Local fix for the
+    // follow-on from ca643ec5351; ships in the same change set.
+    supportsEagerToolInputStreaming: z.boolean().optional(),
+    supportsLongCacheRetention: z.boolean().optional(),
   })
   .strict()
   .optional();
