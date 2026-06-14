@@ -73,7 +73,8 @@ export type TraceAttempt = {
     | "rotate_profile"
     | "fallback_model"
     | "aborted"
-    | "error";
+    | "error"
+    | "transient_retry";
   reason?: string;
   stage?: "prompt" | "assistant";
   elapsedMs?: number;
