@@ -199,6 +199,11 @@ export async function handleAssistantFailover(params: {
     const failedProfileId = params.lastProfileId;
     const timeoutFailure = params.timedOut || params.idleTimedOut;
     const failureReason = params.assistantProfileFailureReason;
+    // Capture the raw error text so the failure-marker can detect
+    // long-window plan-exhausted payloads (e.g. minimax 2056 "Token Plan
+    // 用量上限") and apply a 5h cooldown instead of 30s. Local fork fix
+    // for #89758.
+    const failureRawError = params.lastAssistant?.errorMessage?.trim();
     const markFailedProfile = async () => {
       if (!failedProfileId || !failureReason) {
         return;
@@ -208,6 +213,7 @@ export async function handleAssistantFailover(params: {
           profileId: failedProfileId,
           reason: failureReason,
           modelId: params.modelId,
+          rawError: failureRawError,
         });
       } catch (err) {
         params.warn(`profile failure mark failed: ${String(err)}`);

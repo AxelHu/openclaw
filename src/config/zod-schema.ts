@@ -753,6 +753,7 @@ export const OpenClawSchema = z
             overloadedProfileRotations: z.number().int().nonnegative().optional(),
             overloadedBackoffMs: z.number().int().nonnegative().optional(),
             rateLimitedProfileRotations: z.number().int().nonnegative().optional(),
+            tokenPlanExhaustedHours: z.number().positive().max(24).optional(),
           })
           .strict()
           .optional(),

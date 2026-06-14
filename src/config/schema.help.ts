@@ -1117,6 +1117,8 @@ export const FIELD_HELP: Record<string, string> = {
     "Fixed delay in milliseconds before retrying an overloaded provider/profile rotation (default: 0).",
   "auth.cooldowns.rateLimitedProfileRotations":
     "Maximum same-provider auth-profile rotations allowed for rate-limit errors before switching to model fallback (default: 1).",
+  "auth.cooldowns.tokenPlanExhaustedHours":
+    'Cooldown (hours) for plan-exhausted rate-limit errors — e.g. minimax 2056 "Token Plan 用量上限" or Anthropic "subscription quota limit". Providers do not surface a reset timestamp for these, so the cooldown is best-effort. Set this to match the provider\'s known reset window. Default: 5. Max: 24.',
   "agents.defaults.workspace":
     "Default workspace path exposed to agent runtime tools for filesystem context and repo-aware behavior. Set this explicitly when running from wrappers so path resolution stays deterministic.",
   "agents.defaults.skipOptionalBootstrapFiles":
