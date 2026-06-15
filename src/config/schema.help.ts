@@ -1463,6 +1463,10 @@ export const FIELD_HELP: Record<string, string> = {
   "agents.defaults.imageQuality":
     'Image-tool media compression preference: "auto" adapts to provider/model limits and image count, "efficient" saves tokens and bytes, "balanced" keeps the current middle ground, and "high" preserves more detail for screenshots and document images.',
   "agents.defaults.cliBackends": "Optional CLI backends for text-only fallback (claude-cli, etc.).",
+  "agents.defaults.transientRetry":
+    "Same-profile transient-retry tuning for the embedded agent runner. Caps how many times the runner will retry the current auth profile on a transient reason (overloaded / timeout / format) before giving up on that profile for the current run. Independent of the outer run loop budget (agents.defaults.runRetries). Local fork fix for #89758.",
+  "agents.defaults.transientRetry.maxAttempts":
+    "Maximum same-profile retries on a transient reason before the runner falls through to profile rotation, fallback model, or surface_error. 0 disables the same-profile transient retry entirely. Default: 2. Each retry consumes one run-iteration slot (see agents.defaults.runRetries).",
   "agents.defaults.compaction":
     "Compaction tuning for when context nears token limits, including history share, reserve headroom, and pre-compaction memory flush behavior. Use this when long-running sessions need stable continuity under tight context windows.",
   "agents.defaults.compaction.mode":

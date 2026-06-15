@@ -155,6 +155,22 @@ export const AgentDefaultsSchema = z
       })
       .strict()
       .optional(),
+    // Same-profile transient retry tuning. Local fork fix for #89758.
+    // Caps the number of times the embedded agent will retry the current
+    // profile on a transient reason (overloaded / timeout / format) before
+    // falling through to profile rotation or surface_error. The cap is
+    // independent of MAX_RUN_LOOP_ITERATIONS (which is the outer run
+    // budget and is resolved from `runRetries` + profile count).
+    transientRetry: z
+      .object({
+        /**
+         * Maximum same-profile retries on a transient reason. 0 disables
+         * the same-profile transient retry entirely. Default: 2.
+         */
+        maxAttempts: z.number().int().min(0).max(10).optional(),
+      })
+      .strict()
+      .optional(),
     compaction: z
       .object({
         mode: z.union([z.literal("default"), z.literal("safeguard")]).optional(),

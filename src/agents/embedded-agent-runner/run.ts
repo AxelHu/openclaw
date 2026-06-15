@@ -171,6 +171,7 @@ import {
   resolveRateLimitProfileRotationLimit,
   resolveNextSameModelRateLimitRetryCount,
   resolveSameModelRateLimitRetryDelayMs,
+  resolveTransientRetryMaxAttempts,
   type RuntimeAuthState,
   scrubAnthropicRefusalMagic,
 } from "./run/helpers.js";
@@ -225,12 +226,6 @@ type ApiKeyInfo = ResolvedProviderAuth;
 const MAX_SAME_MODEL_IDLE_TIMEOUT_RETRIES = 1;
 // Per-run cap on same-profile retries for transient reasons (timeout,
 // overloaded, format, context_overflow). Mirrors the api-key-rotation
-// `transientRetry` shape so behavior is consistent across media-understanding
-// runner and the main embedded agent. 2 keeps the cost of a flaky profile
-// bounded (~3 LLM calls) without abandoning a healthy profile on a single
-// transient blip (#89758).
-const MAX_TRANSIENT_RETRY_PER_PROFILE = 2;
-
 // Reasons considered worth retrying on the *same* profile before falling
 // through to rotation. Auth/billing/rate_limit are intentionally excluded —
 // those signal profile- or plan-level state that retries will not change.
@@ -1358,11 +1353,20 @@ async function runEmbeddedAgentInternal(
       let compactionContinuationRetryAttempts = 0;
       let beforeAgentFinalizeRevisionAttempts = 0;
       let sameModelIdleTimeoutRetries = 0;
+      // Same-profile transient retry cap. Resolved per run from
+      // `agents.defaults.transientRetry.maxAttempts` (per-agent override
+      // also honored). Default 2 keeps the cost of a flaky profile
+      // bounded (~3 LLM calls) without abandoning a healthy profile on a
+      // single transient blip (#89758). Local fork fix.
+      const maxTransientRetryPerProfile = resolveTransientRetryMaxAttempts(
+        params.config,
+        sessionAgentId,
+      );
       // Same-profile transient retry counter (companion to #89758 / our
       // local fork fix). Bumps on every transient failure (timeout,
       // overloaded, format, context_overflow) on the *current* profile
       // and resets whenever the profile advances. Capped at
-      // MAX_TRANSIENT_RETRY_PER_PROFILE so a permanently bad profile does
+      // maxTransientRetryPerProfile so a permanently bad profile does
       // not eat the whole MAX_RUN_LOOP_ITERATIONS budget.
       let transientRetryCount = 0;
       // Cost-runaway breaker for #76293. State lives at the run-loop level
@@ -3089,17 +3093,17 @@ async function runEmbeddedAgentInternal(
           // context_overflow) and removes the "no fallback configured" gate
           // — having a fallback configured should not be a prerequisite for
           // retrying a profile that just hit a transient blip. Caps at
-          // MAX_TRANSIENT_RETRY_PER_PROFILE per profile so a permanently bad
+          // maxTransientRetryPerProfile per profile so a permanently bad
           // profile does not eat the whole run budget.
           if (
             assistantFailoverOutcome.action === "continue_normal" &&
             isTransientRetryableFailoverReason(assistantFailoverReason) &&
-            transientRetryCount < MAX_TRANSIENT_RETRY_PER_PROFILE &&
+            transientRetryCount < maxTransientRetryPerProfile &&
             runLoopIterations + 1 < MAX_RUN_LOOP_ITERATIONS
           ) {
             transientRetryCount += 1;
             log.warn(
-              `[transient-retry] ${provider}/${modelId} profile=${lastProfileId ?? "(unset)"} reason=${assistantFailoverReason ?? "unknown"} retrying same profile (${transientRetryCount}/${MAX_TRANSIENT_RETRY_PER_PROFILE})`,
+              `[transient-retry] ${provider}/${modelId} profile=${lastProfileId ?? "(unset)"} reason=${assistantFailoverReason ?? "unknown"} retrying same profile (${transientRetryCount}/${maxTransientRetryPerProfile})`,
             );
             traceAttempts.push({
               provider: activeErrorContext.provider,

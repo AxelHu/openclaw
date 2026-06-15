@@ -5,11 +5,13 @@ import { describe, expect, it } from "vitest";
 import { createUsageAccumulator } from "../usage-accumulator.js";
 import {
   buildErrorAgentMeta,
+  DEFAULT_TRANSIENT_RETRY_MAX_ATTEMPTS,
   resolveFinalAssistantRawText,
   resolveFinalAssistantVisibleText,
   resolveNextSameModelRateLimitRetryCount,
   resolveSameModelRateLimitBackoffMs,
   resolveSameModelRateLimitRetryDelayMs,
+  resolveTransientRetryMaxAttempts,
 } from "./helpers.js";
 
 function makeAssistantMessage(
@@ -178,5 +180,44 @@ describe("buildErrorAgentMeta", () => {
       sessionId: "session-rotated",
       sessionFile: "/tmp/session-rotated.jsonl",
     });
+  });
+});
+
+describe("resolveTransientRetryMaxAttempts", () => {
+  it("falls back to the default when no config is provided", () => {
+    expect(resolveTransientRetryMaxAttempts()).toBe(DEFAULT_TRANSIENT_RETRY_MAX_ATTEMPTS);
+    expect(resolveTransientRetryMaxAttempts(undefined, undefined)).toBe(
+      DEFAULT_TRANSIENT_RETRY_MAX_ATTEMPTS,
+    );
+  });
+
+  it("returns the configured agents.defaults value", () => {
+    const cfg = {
+      agents: {
+        defaults: {
+          transientRetry: { maxAttempts: 3 },
+        },
+      },
+    } as any;
+    expect(resolveTransientRetryMaxAttempts(cfg)).toBe(3);
+  });
+
+  it("clamps the configured value to the zod schema bounds (0..10)", () => {
+    const make = (n: number) =>
+      ({
+        agents: { defaults: { transientRetry: { maxAttempts: n } } },
+      }) as any;
+    expect(resolveTransientRetryMaxAttempts(make(-5))).toBe(0);
+    expect(resolveTransientRetryMaxAttempts(make(99))).toBe(10);
+    expect(resolveTransientRetryMaxAttempts(make(2.7))).toBe(2);
+  });
+
+  it("falls back to agents.defaults when per-agent override is missing", () => {
+    const cfg = {
+      agents: {
+        defaults: { transientRetry: { maxAttempts: 2 } },
+      },
+    } as any;
+    expect(resolveTransientRetryMaxAttempts(cfg, "agent-x")).toBe(2);
   });
 });
