@@ -1075,6 +1075,10 @@ function isLocalAttachmentPreviewAllowed(
   source: string,
   localMediaPreviewRoots: readonly string[],
 ): boolean {
+  // 6/15 user 拍板: 去掉所有 media 路径限制, 任何本地路径都允许
+  // 私有 fork 改动, 不可推 upstream (跟 commit 52966d2d434 后端 assertLocalMediaAllowed 禁了配套)
+  return true;
+  /* path whitelist disabled — preserved below for reference
   const normalizedSource = normalizeLocalAttachmentPath(source);
   const comparableSources = normalizedSource
     ? [canonicalizeLocalPathForComparison(normalizedSource)]
@@ -1096,6 +1100,7 @@ function isLocalAttachmentPreviewAllowed(
       )
     );
   });
+  */
 }
 
 function buildAssistantAttachmentUrl(
