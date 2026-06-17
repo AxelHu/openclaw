@@ -56,6 +56,12 @@ function isTokenPlanExhaustedMessage(rawError: string | undefined): boolean {
   return TOKEN_PLAN_EXHAUSTED_PATTERNS.some((pattern) => pattern.test(haystack));
 }
 
+/** Default 5-minute cooldown for plan-exhausted errors. Providers do not
+ *  surface a reset timestamp for "Token Plan 用量上限" /
+ *  "subscription quota limit" style errors, so the cooldown length is
+ *  best-effort — user-configurable via auth.cooldowns.tokenPlanExhaustedHours. */
+export const DEFAULT_TOKEN_PLAN_EXHAUSTED_MS = 5 * 60 * 1000;
+
 export {
   clearExpiredCooldowns,
   getSoonestCooldownExpiry,
@@ -477,12 +483,6 @@ function resolveAuthCooldownConfig(params: {
     authPermanentMaxMinutes: 60,
     failureWindowHours: 24,
   } as const;
-
-  // Default 5-minute cooldown for plan-exhausted errors. Providers do not
-  // surface a reset timestamp for "Token Plan 用量上限" /
-  // "subscription quota limit" style errors, so the cooldown length is
-  // best-effort — user-configurable via auth.cooldowns.tokenPlanExhaustedHours.
-  const DEFAULT_TOKEN_PLAN_EXHAUSTED_MS = 5 * 60 * 1000;
 
   const resolvePositiveNumber = (value: unknown, fallback: number) =>
     typeof value === "number" && Number.isFinite(value) && value > 0 ? value : fallback;

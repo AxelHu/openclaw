@@ -157,6 +157,13 @@ export async function handleAssistantFailover(params: {
     profileId?: string;
     reason?: AuthProfileFailureReason | null;
     modelId?: string;
+    /**
+     * Raw provider error text. Forwarded to markAuthProfileFailure so
+     * the cooldown calculator can detect long-window plan-exhausted
+     * payloads (e.g. minimax 2056 "Token Plan 用量上限") and apply a
+     * 5min cooldown. Local fork fix for #89758.
+     */
+    rawError?: string;
   }) => Promise<void>;
   maybeEscalateRateLimitProfileFallback: (params: {
     failoverProvider: string;
