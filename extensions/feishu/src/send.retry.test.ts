@@ -146,6 +146,10 @@ describe("getFeishuSendRateLimitCode — expanded rate-limit signals", () => {
     expect(getFeishuSendRateLimitCode(axiosError(11232))).toBe(11232);
   });
 
+  it("returns 2200 for observed transient send failures", () => {
+    expect(getFeishuSendRateLimitCode(axiosError(2200))).toBe(2200);
+  });
+
   // HTTP 429 is the Feishu Open API gateway-level limit (app-wide quota);
   // it short-circuits before hitting the message service so the body has no
   // Feishu business code. We must detect it from response.status alone.
@@ -173,6 +177,17 @@ describe("requestFeishuApi — retry on expanded rate-limit signals", () => {
 
     const result = await requestFeishuApi(request, "prefix", NO_DELAY);
     expect(result).toBe("ok-after-11232");
+    expect(request).toHaveBeenCalledTimes(2);
+  });
+
+  it("retries once and succeeds on second attempt (code 2200)", async () => {
+    const request = vi
+      .fn()
+      .mockRejectedValueOnce(axiosError(2200))
+      .mockResolvedValueOnce("ok-after-2200");
+
+    const result = await requestFeishuApi(request, "prefix", NO_DELAY);
+    expect(result).toBe("ok-after-2200");
     expect(request).toHaveBeenCalledTimes(2);
   });
 
@@ -236,6 +251,10 @@ describe("getFeishuSendRateLimitCodeFromResponse — fulfilled body classificati
 
   it("returns 11232 for a fulfilled tenant-level rate-limit body", () => {
     expect(getFeishuSendRateLimitCodeFromResponse({ code: 11232, msg: "rate limit" })).toBe(11232);
+  });
+
+  it("returns 2200 for a fulfilled transient send failure body", () => {
+    expect(getFeishuSendRateLimitCodeFromResponse({ code: 2200, msg: "transient" })).toBe(2200);
   });
 
   it("returns undefined for a successful body (code=0)", () => {
