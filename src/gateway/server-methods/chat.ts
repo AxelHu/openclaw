@@ -529,7 +529,7 @@ export {
 } from "../chat-display-projection.js";
 export { sanitizeChatSendMessageInput } from "../chat-input-sanitize.js";
 
-export const CHAT_HISTORY_MAX_SINGLE_MESSAGE_BYTES = 128 * 1024;
+export const CHAT_HISTORY_MAX_SINGLE_MESSAGE_BYTES = 256 * 1024;
 const CHAT_HISTORY_OVERSIZED_PLACEHOLDER = "[chat.history omitted: message too large]";
 const CHAT_STARTUP_OPTIONAL_MODEL_CATALOG_TIMEOUT_MS = 25;
 const MANAGED_OUTGOING_IMAGE_PATH_PREFIX = "/api/chat/media/outgoing/";
