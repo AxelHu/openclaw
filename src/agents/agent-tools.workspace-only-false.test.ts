@@ -237,7 +237,7 @@ describe("FS tools with workspaceOnly=false", () => {
     ).rejects.toThrow(/Path escapes (workspace|sandbox) root/);
   });
 
-  it("restricts memory-triggered writes to append-only canonical memory files", async () => {
+  it("restricts memory-triggered writes to append-only files under memory", async () => {
     const allowedRelativePath = "memory/2026-03-07.md";
     const allowedAbsolutePath = path.join(workspaceDir, allowedRelativePath);
     await fs.mkdir(path.dirname(allowedAbsolutePath), { recursive: true });
@@ -259,7 +259,7 @@ describe("FS tools with workspaceOnly=false", () => {
         path: outsideFile,
         content: "should not write here",
       }),
-    ).rejects.toThrow(/Memory flush writes are restricted to memory\/2026-03-07\.md/);
+    ).rejects.toThrow(/Memory flush writes are restricted to files under memory\//);
 
     const result = await writeTool.execute("test-call-memory-append", {
       path: allowedRelativePath,
@@ -274,6 +274,30 @@ describe("FS tools with workspaceOnly=false", () => {
       },
     });
     await expect(fs.readFile(allowedAbsolutePath, "utf-8")).resolves.toBe("seed\nnew note");
+  });
+
+  it("allows memory-triggered append-only writes to memory subdirectories", async () => {
+    const writeTool = wrapToolMemoryFlushAppendOnlyWrite(
+      createHostWorkspaceWriteTool(workspaceDir),
+      {
+        root: workspaceDir,
+        relativePath: "memory/2026-03-07.md",
+      },
+    );
+
+    const result = await writeTool.execute("test-call-memory-subdir", {
+      path: "memory/projects/p33.md",
+      content: "project note",
+    });
+
+    expect(hasToolError(result)).toBe(false);
+    expect(result.details).toStrictEqual({
+      path: "memory/projects/p33.md",
+      appendOnly: true,
+    });
+    await expect(
+      fs.readFile(path.join(workspaceDir, "memory/projects/p33.md"), "utf-8"),
+    ).resolves.toBe("project note");
   });
 
   it("accepts memory-triggered append-only writes with malformed XML arg-value path suffixes", async () => {
