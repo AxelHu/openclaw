@@ -28,6 +28,7 @@ import { cleanupAmbientCommentTypingReaction } from "./comment-reaction.js";
 import { parseFeishuCommentTarget } from "./comment-target.js";
 import { deliverCommentThreadText } from "./drive.js";
 import { sendMediaFeishu, shouldSuppressFeishuTextForVoiceMedia } from "./media.js";
+import { normalizeTextAtTagClosing } from "./mention.js";
 import { chunkTextForOutbound, type ChannelOutboundAdapter } from "./outbound-runtime-api.js";
 import { buildFeishuPresentationCardElements } from "./presentation-card.js";
 import {
@@ -234,7 +235,14 @@ function sanitizeNativeFeishuCardElements(element: unknown): Record<string, unkn
     return [
       {
         tag: "markdown",
-        content: escapeFeishuCardMarkdownPreservingMentions(element.content),
+        content: escapeFeishuCardMarkdownPreservingMentions(
+          // Close any </a> drift before the placeholder/protect pass so
+          // the regex (<at...>...</at>) actually matches; otherwise the
+          // drift tag gets HTML-escaped to literal text and Feishu
+          // drops the mention (230099). Mirrors the sendStructuredCard /
+          // sendMarkdownCard / streaming-card / presentation-card paths.
+          normalizeTextAtTagClosing(element.content),
+        ),
       },
     ];
   }

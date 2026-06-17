@@ -6,6 +6,7 @@ import {
   type MessagePresentationButton,
 } from "openclaw/plugin-sdk/interactive-runtime";
 import { createFeishuCardInteractionEnvelope } from "./card-interaction.js";
+import { normalizeTextAtTagClosing } from "./mention.js";
 
 type NormalizedMessagePresentation = NonNullable<ReturnType<typeof normalizeMessagePresentation>>;
 
@@ -138,13 +139,25 @@ export function buildFeishuCardElementsForBlock(
   block: MessagePresentationBlock,
 ): Record<string, unknown>[] {
   if (block.type === "text") {
-    return [{ tag: "markdown", content: escapeFeishuCardMarkdownPreservingMentions(block.text) }];
+    return [
+      {
+        tag: "markdown",
+        content: escapeFeishuCardMarkdownPreservingMentions(
+          // Close any </a> drift before the placeholder/protect pass so
+          // the regex (<at...>...</at>) actually matches; otherwise the
+          // drift tag gets HTML-escaped to literal text and Feishu
+          // drops the mention (230099). Mirrors the sendStructuredCard /
+          // sendMarkdownCard / streaming-card paths.
+          normalizeTextAtTagClosing(block.text),
+        ),
+      },
+    ];
   }
   if (block.type === "context") {
     return [
       {
         tag: "markdown",
-        content: `<font color='grey'>${escapeFeishuCardMarkdownPreservingMentions(block.text)}</font>`,
+        content: `<font color='grey'>${escapeFeishuCardMarkdownPreservingMentions(normalizeTextAtTagClosing(block.text))}</font>`,
       },
     ];
   }

@@ -218,6 +218,19 @@ export function normalizeCardMentionTags(text: string): string {
  * This function is only called from `sendMessageFeishu` (plain text path).
  */
 export function normalizeTextAtTagClosing(text: string): string {
+  // Conservative fix: only fix `</a>` drift when the text contains
+  // NO correctly-closed `<at ...>...</at>` spans.
+  //
+  // If any correct close exists, the LLM has already expressed at least
+  // one valid mention — fixing stray drift elsewhere in the same text
+  // can interact with the existing mentions in unexpected ways (e.g.
+  // producing `<at ...>...</at></at>` after a greedy match consumes the
+  // intervening `</at>`, which Feishu rejects with 230099). Leaving
+  // stray drift alone lets Feishu fall back to rendering the broken
+  // tag as literal text, which is harmless.
+  if (/<at\b[^>]*>[\s\S]*?<\/at>/i.test(text)) {
+    return text;
+  }
   return text
     .replace(/<at\s+user_id="(ou_[A-Za-z0-9]+)"\s*>([^<]*)<\/a>/g, '<at user_id="$1">$2</at>')
     .replace(/<at\s+id="?(ou_[A-Za-z0-9]+)"?\s*>([^<]*)<\/a>/g, '<at id="$1">$2</at>');

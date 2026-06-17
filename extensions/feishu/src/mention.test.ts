@@ -46,6 +46,31 @@ describe("normalizeTextAtTagClosing", () => {
     expect(normalizeTextAtTagClosing(input)).toBe(expected);
   });
 
+  it("does NOT over-match when a correct </at> precedes a stray </a> (user_id format)", () => {
+    // Regression: `[^<]*` is greedy and consumes any non-`<` chars,
+    // including the literal text `</at>`. Without the negative lookahead,
+    // the regex would swallow the existing correct close, then append a
+    // fresh </at> and produce `<at ...>...</at></at>` — Feishu rejects
+    // this with code 230099 ("invalid user resource").
+    const input = `<at user_id="${AXEL}">AxelHu</a></at>`;
+    expect(normalizeTextAtTagClosing(input)).toBe(input);
+  });
+
+  it("does NOT over-match when a correct </at> precedes a stray </a> (id format)", () => {
+    const input = `<at id="${HUNTER}">网格员二号</a></at>`;
+    expect(normalizeTextAtTagClosing(input)).toBe(input);
+  });
+
+  it("does NOT over-match across a correct </at> separating two tags (user_id format)", () => {
+    const input = `<at user_id="${AXEL}">AxelHu</at> 跟 <at user_id="${HUNTER}">网格员二号</a> 一起干活`;
+    expect(normalizeTextAtTagClosing(input)).toBe(input);
+  });
+
+  it("does NOT over-match across a correct </at> separating two tags (id format)", () => {
+    const input = `<at id="${AXEL}">AxelHu</at> 跟 <at id="${HUNTER}">网格员二号</a> 一起干活`;
+    expect(normalizeTextAtTagClosing(input)).toBe(input);
+  });
+
   it("does not touch at-tags with non-openid user_id (defensive)", () => {
     // user_id 不是 ou_ 前缀 → 不动（避免误改）
     const unknown = `<at user_id="not_an_openid">name</a>`;
