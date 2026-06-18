@@ -158,6 +158,23 @@ function contentHasInboundMetadataSentinel(content: unknown): boolean {
   });
 }
 
+function isCacheablePreInboundMetadataBlock(
+  blockRecord: Record<string, unknown>,
+  role: unknown,
+): boolean {
+  if (role === "assistant") {
+    return blockRecord.type === "text" || blockRecord.type === "tool_use";
+  }
+  if (role === "user") {
+    return (
+      blockRecord.type === "text" ||
+      blockRecord.type === "image" ||
+      blockRecord.type === "tool_result"
+    );
+  }
+  return false;
+}
+
 function applyAnthropicCacheControlToMessages(
   messages: unknown,
   cacheControl: AnthropicEphemeralCacheControl,
@@ -168,6 +185,7 @@ function applyAnthropicCacheControlToMessages(
   }
 
   let fallbackToolResult: Record<string, unknown> | undefined;
+  let crossedVolatileInboundMetadata = false;
 
   for (let i = messages.length - 1; i >= 0; i--) {
     const message = messages[i];
@@ -176,19 +194,24 @@ function applyAnthropicCacheControlToMessages(
     }
 
     const record = message as Record<string, unknown>;
-    if (record.role !== "user") {
+    if (record.role !== "user" && record.role !== "assistant") {
       continue;
     }
 
     const content = record.content;
-    const hasVolatileInboundMetadata = contentHasInboundMetadataSentinel(content);
+    const hasVolatileInboundMetadata =
+      record.role === "user" && contentHasInboundMetadataSentinel(content);
+    if (hasVolatileInboundMetadata) {
+      crossedVolatileInboundMetadata = true;
+      continue;
+    }
     if (typeof content === "string") {
-      if (fallbackToolResult && markerLimit === 1) {
+      if (record.role !== "user") {
+        continue;
+      }
+      if (fallbackToolResult && markerLimit === 1 && !crossedVolatileInboundMetadata) {
         fallbackToolResult.cache_control = cacheControl;
         return;
-      }
-      if (hasVolatileInboundMetadata) {
-        continue;
       }
       record.content = [
         {
@@ -206,9 +229,6 @@ function applyAnthropicCacheControlToMessages(
     if (!Array.isArray(content)) {
       continue;
     }
-    if (hasVolatileInboundMetadata) {
-      continue;
-    }
 
     for (let j = content.length - 1; j >= 0; j--) {
       const block = content[j];
@@ -217,8 +237,11 @@ function applyAnthropicCacheControlToMessages(
       }
 
       const blockRecord = block as Record<string, unknown>;
-      if (blockRecord.type === "text" || blockRecord.type === "image") {
-        if (fallbackToolResult && markerLimit === 1) {
+      const isPrimaryCandidate = crossedVolatileInboundMetadata
+        ? isCacheablePreInboundMetadataBlock(blockRecord, record.role)
+        : record.role === "user" && (blockRecord.type === "text" || blockRecord.type === "image");
+      if (isPrimaryCandidate) {
+        if (fallbackToolResult && markerLimit === 1 && !crossedVolatileInboundMetadata) {
           fallbackToolResult.cache_control = cacheControl;
           return;
         }
@@ -228,7 +251,11 @@ function applyAnthropicCacheControlToMessages(
         }
         return;
       }
-      if (blockRecord.type === "tool_result" && fallbackToolResult === undefined) {
+      if (
+        record.role === "user" &&
+        blockRecord.type === "tool_result" &&
+        fallbackToolResult === undefined
+      ) {
         fallbackToolResult = blockRecord;
       }
     }

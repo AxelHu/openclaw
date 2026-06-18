@@ -1261,7 +1261,7 @@ describe("Anthropic provider", () => {
     ]);
   });
 
-  it("places native message cache marker before volatile inbound metadata user text", async () => {
+  it("places native message cache marker on the block before volatile inbound metadata user text", async () => {
     let capturedPayload: unknown;
     const stream = streamAnthropic(
       makeAnthropicModel(),
@@ -1299,17 +1299,17 @@ describe("Anthropic provider", () => {
     expect((capturedPayload as { messages: unknown[] }).messages).toEqual([
       {
         role: "user",
-        content: [
-          {
-            type: "text",
-            text: "Stable historical question.",
-            cache_control: { type: "ephemeral" },
-          },
-        ],
+        content: "Stable historical question.",
       },
       {
         role: "assistant",
-        content: [{ type: "text", text: "Stable historical answer." }],
+        content: [
+          {
+            type: "text",
+            text: "Stable historical answer.",
+            cache_control: { type: "ephemeral" },
+          },
+        ],
       },
       {
         role: "user",

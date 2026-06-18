@@ -181,7 +181,7 @@ describe("anthropic payload policy", () => {
     });
   });
 
-  it("anchors message cache before a volatile inbound metadata user turn", () => {
+  it("anchors message cache on the block before a volatile inbound metadata user turn", () => {
     const policy = resolveAnthropicPayloadPolicy({
       provider: "anthropic",
       api: "anthropic-messages",
@@ -211,10 +211,14 @@ describe("anthropic payload policy", () => {
 
     expect(payload.messages[0]).toEqual({
       role: "user",
+      content: [{ type: "text", text: "Stable historical question." }],
+    });
+    expect(payload.messages[1]).toEqual({
+      role: "assistant",
       content: [
         {
           type: "text",
-          text: "Stable historical question.",
+          text: "Stable historical answer.",
           cache_control: { type: "ephemeral" },
         },
       ],
@@ -222,6 +226,75 @@ describe("anthropic payload policy", () => {
     expect(payload.messages[2]).toEqual({
       role: "user",
       content: [{ type: "text", text: inboundMetadataText("Live external-channel ask.") }],
+    });
+  });
+
+  it("uses the pre-metadata stable block before a trailing tool result when only one marker remains", () => {
+    const policy = resolveAnthropicPayloadPolicy({
+      provider: "anthropic",
+      api: "anthropic-messages",
+      baseUrl: "https://api.anthropic.com/v1",
+      cacheRetention: "short",
+      enableCacheControl: true,
+    });
+    const payload: TestPayload = {
+      system: [
+        { type: "text", text: "Claude Code identity." },
+        { type: "text", text: "Follow policy." },
+      ],
+      tools: [{ name: "Read", cache_control: { type: "ephemeral" } }],
+      messages: [
+        {
+          role: "user",
+          content: [{ type: "text", text: "Stable historical question." }],
+        },
+        {
+          role: "assistant",
+          content: [{ type: "text", text: "Stable historical answer." }],
+        },
+        {
+          role: "user",
+          content: [{ type: "text", text: inboundMetadataText("Live external-channel ask.") }],
+        },
+        {
+          role: "assistant",
+          content: [{ type: "text", text: "I'll inspect the log." }],
+        },
+        {
+          role: "user",
+          content: [{ type: "tool_result", tool_use_id: "tool_1", content: "log chunk" }],
+        },
+      ],
+    };
+
+    applyAnthropicPayloadPolicyToParams(payload, policy);
+
+    expect(payload.messages[0]).toEqual({
+      role: "user",
+      content: [
+        {
+          type: "text",
+          text: "Stable historical question.",
+        },
+      ],
+    });
+    expect(payload.messages[1]).toEqual({
+      role: "assistant",
+      content: [
+        {
+          type: "text",
+          text: "Stable historical answer.",
+          cache_control: { type: "ephemeral" },
+        },
+      ],
+    });
+    expect(payload.messages[2]).toEqual({
+      role: "user",
+      content: [{ type: "text", text: inboundMetadataText("Live external-channel ask.") }],
+    });
+    expect(payload.messages[4]).toEqual({
+      role: "user",
+      content: [{ type: "tool_result", tool_use_id: "tool_1", content: "log chunk" }],
     });
   });
 
@@ -263,10 +336,14 @@ describe("anthropic payload policy", () => {
 
     expect(payload.messages[0]).toEqual({
       role: "user",
+      content: [{ type: "text", text: "Stable historical question." }],
+    });
+    expect(payload.messages[1]).toEqual({
+      role: "assistant",
       content: [
         {
           type: "text",
-          text: "Stable historical question.",
+          text: "Use the tool.",
           cache_control: { type: "ephemeral" },
         },
       ],

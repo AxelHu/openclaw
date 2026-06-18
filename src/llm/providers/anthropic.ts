@@ -1338,22 +1338,32 @@ function convertMessages(
 
   if (cacheControl && params.length > 0 && messageCacheControlLimit > 0) {
     let fallbackToolResult: ContentBlockParam | undefined;
+    let crossedVolatileInboundMetadata = false;
 
     for (let i = params.length - 1; i >= 0; i--) {
       const message = params[i];
-      if (message.role !== "user") {
+      if (message.role !== "user" && message.role !== "assistant") {
         continue;
       }
-      const hasVolatileInboundMetadata = contentHasInboundMetadataSentinel(message.content);
+      const hasVolatileInboundMetadata =
+        message.role === "user" && contentHasInboundMetadataSentinel(message.content);
+      if (hasVolatileInboundMetadata) {
+        crossedVolatileInboundMetadata = true;
+        continue;
+      }
 
       if (Array.isArray(message.content)) {
-        if (hasVolatileInboundMetadata) {
-          continue;
-        }
         for (let j = message.content.length - 1; j >= 0; j--) {
           const block = message.content[j];
-          if (block.type === "text" || block.type === "image") {
-            if (fallbackToolResult && messageCacheControlLimit === 1) {
+          const isPrimaryCandidate = crossedVolatileInboundMetadata
+            ? isCacheablePreInboundMetadataBlock(block, message.role)
+            : message.role === "user" && (block.type === "text" || block.type === "image");
+          if (isPrimaryCandidate) {
+            if (
+              fallbackToolResult &&
+              messageCacheControlLimit === 1 &&
+              !crossedVolatileInboundMetadata
+            ) {
               applyContentBlockCacheControl(fallbackToolResult, cacheControl);
               return params;
             }
@@ -1363,7 +1373,11 @@ function convertMessages(
             }
             return params;
           }
-          if (block.type === "tool_result" && fallbackToolResult === undefined) {
+          if (
+            message.role === "user" &&
+            block.type === "tool_result" &&
+            fallbackToolResult === undefined
+          ) {
             fallbackToolResult = block;
           }
         }
@@ -1371,12 +1385,16 @@ function convertMessages(
       }
 
       if (typeof message.content === "string") {
-        if (fallbackToolResult && messageCacheControlLimit === 1) {
+        if (message.role !== "user") {
+          continue;
+        }
+        if (
+          fallbackToolResult &&
+          messageCacheControlLimit === 1 &&
+          !crossedVolatileInboundMetadata
+        ) {
           applyContentBlockCacheControl(fallbackToolResult, cacheControl);
           return params;
-        }
-        if (hasVolatileInboundMetadata) {
-          continue;
         }
         message.content = [
           {
@@ -1398,6 +1416,16 @@ function convertMessages(
   }
 
   return params;
+}
+
+function isCacheablePreInboundMetadataBlock(block: ContentBlockParam, role: string): boolean {
+  if (role === "assistant") {
+    return block.type === "text" || block.type === "tool_use";
+  }
+  if (role === "user") {
+    return block.type === "text" || block.type === "image" || block.type === "tool_result";
+  }
+  return false;
 }
 
 function contentHasInboundMetadataSentinel(content: unknown): boolean {
