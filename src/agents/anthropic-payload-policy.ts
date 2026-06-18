@@ -4,6 +4,7 @@
  * capabilities allow them.
  */
 import { resolveProviderRequestCapabilities } from "./provider-attribution.js";
+import { hasInboundMetadataSentinel } from "../auto-reply/reply/strip-inbound-meta.js";
 import {
   splitSystemPromptCacheBoundary,
   stripSystemPromptCacheBoundary,
@@ -141,6 +142,22 @@ function stripAnthropicSystemPromptBoundary(system: unknown): void {
   }
 }
 
+function contentHasInboundMetadataSentinel(content: unknown): boolean {
+  if (typeof content === "string") {
+    return hasInboundMetadataSentinel(content);
+  }
+  if (!Array.isArray(content)) {
+    return false;
+  }
+  return content.some((block) => {
+    if (!block || typeof block !== "object") {
+      return false;
+    }
+    const text = (block as { text?: unknown }).text;
+    return typeof text === "string" && hasInboundMetadataSentinel(text);
+  });
+}
+
 function applyAnthropicCacheControlToMessages(
   messages: unknown,
   cacheControl: AnthropicEphemeralCacheControl,
@@ -164,10 +181,14 @@ function applyAnthropicCacheControlToMessages(
     }
 
     const content = record.content;
+    const hasVolatileInboundMetadata = contentHasInboundMetadataSentinel(content);
     if (typeof content === "string") {
       if (fallbackToolResult && markerLimit === 1) {
         fallbackToolResult.cache_control = cacheControl;
         return;
+      }
+      if (hasVolatileInboundMetadata) {
+        continue;
       }
       record.content = [
         {
@@ -183,6 +204,9 @@ function applyAnthropicCacheControlToMessages(
     }
 
     if (!Array.isArray(content)) {
+      continue;
+    }
+    if (hasVolatileInboundMetadata) {
       continue;
     }
 

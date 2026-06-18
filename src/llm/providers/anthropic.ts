@@ -8,6 +8,7 @@ import type {
   RawMessageStreamEvent,
   TextBlockParam,
 } from "@anthropic-ai/sdk/resources/messages.js";
+import { hasInboundMetadataSentinel } from "../../auto-reply/reply/strip-inbound-meta.js";
 import {
   projectAnthropicTools,
   reconcileAnthropicToolChoice,
@@ -1343,8 +1344,12 @@ function convertMessages(
       if (message.role !== "user") {
         continue;
       }
+      const hasVolatileInboundMetadata = contentHasInboundMetadataSentinel(message.content);
 
       if (Array.isArray(message.content)) {
+        if (hasVolatileInboundMetadata) {
+          continue;
+        }
         for (let j = message.content.length - 1; j >= 0; j--) {
           const block = message.content[j];
           if (block.type === "text" || block.type === "image") {
@@ -1370,6 +1375,9 @@ function convertMessages(
           applyContentBlockCacheControl(fallbackToolResult, cacheControl);
           return params;
         }
+        if (hasVolatileInboundMetadata) {
+          continue;
+        }
         message.content = [
           {
             type: "text",
@@ -1390,6 +1398,22 @@ function convertMessages(
   }
 
   return params;
+}
+
+function contentHasInboundMetadataSentinel(content: unknown): boolean {
+  if (typeof content === "string") {
+    return hasInboundMetadataSentinel(content);
+  }
+  if (!Array.isArray(content)) {
+    return false;
+  }
+  return content.some((block) => {
+    if (!block || typeof block !== "object") {
+      return false;
+    }
+    const text = (block as { text?: unknown }).text;
+    return typeof text === "string" && hasInboundMetadataSentinel(text);
+  });
 }
 
 function applyContentBlockCacheControl(

@@ -49,6 +49,17 @@ function makeAnthropicModel(overrides: Partial<Model<"anthropic-messages">> = {}
   } satisfies Model<"anthropic-messages">;
 }
 
+function inboundMetadataText(prompt: string) {
+  return [
+    "Conversation info (untrusted metadata):",
+    "```json",
+    '{"message_id":"msg-live","sender":"Alice"}',
+    "```",
+    "",
+    prompt,
+  ].join("\n");
+}
+
 describe("Anthropic provider", () => {
   beforeEach(() => {
     anthropicMockState.configs = [];
@@ -1246,6 +1257,63 @@ describe("Anthropic provider", () => {
       {
         type: "text",
         text: "Stable prefix\nDynamic suffix",
+      },
+    ]);
+  });
+
+  it("places native message cache marker before volatile inbound metadata user text", async () => {
+    let capturedPayload: unknown;
+    const stream = streamAnthropic(
+      makeAnthropicModel(),
+      {
+        messages: [
+          { role: "user", content: "Stable historical question.", timestamp: 0 },
+          {
+            role: "assistant",
+            provider: "anthropic",
+            api: "anthropic-messages",
+            model: "claude-sonnet-4-6",
+            stopReason: "stop",
+            timestamp: 0,
+            content: [{ type: "text", text: "Stable historical answer." }],
+          },
+          {
+            role: "user",
+            content: inboundMetadataText("Live external-channel ask."),
+            timestamp: 0,
+          },
+        ],
+      },
+      {
+        apiKey: "sk-ant-provider",
+        onPayload: (payload) => {
+          capturedPayload = payload;
+          throw new Error("stop before network");
+        },
+      },
+    );
+
+    const result = await stream.result();
+
+    expect(result.stopReason).toBe("error");
+    expect((capturedPayload as { messages: unknown[] }).messages).toEqual([
+      {
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: "Stable historical question.",
+            cache_control: { type: "ephemeral" },
+          },
+        ],
+      },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "Stable historical answer." }],
+      },
+      {
+        role: "user",
+        content: inboundMetadataText("Live external-channel ask."),
       },
     ]);
   });
