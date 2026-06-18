@@ -229,7 +229,7 @@ describe("anthropic payload policy", () => {
     });
   });
 
-  it("uses the pre-metadata stable block before a trailing tool result when only one marker remains", () => {
+  it("keeps the trailing tool-result marker when only one marker remains", () => {
     const policy = resolveAnthropicPayloadPolicy({
       provider: "anthropic",
       api: "anthropic-messages",
@@ -284,7 +284,6 @@ describe("anthropic payload policy", () => {
         {
           type: "text",
           text: "Stable historical answer.",
-          cache_control: { type: "ephemeral" },
         },
       ],
     });
@@ -294,7 +293,14 @@ describe("anthropic payload policy", () => {
     });
     expect(payload.messages[4]).toEqual({
       role: "user",
-      content: [{ type: "tool_result", tool_use_id: "tool_1", content: "log chunk" }],
+      content: [
+        {
+          type: "tool_result",
+          tool_use_id: "tool_1",
+          content: "log chunk",
+          cache_control: { type: "ephemeral" },
+        },
+      ],
     });
   });
 

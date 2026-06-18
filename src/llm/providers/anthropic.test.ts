@@ -1317,4 +1317,87 @@ describe("Anthropic provider", () => {
       },
     ]);
   });
+
+  it("keeps native trailing tool-result marker when only one message marker remains", async () => {
+    let capturedPayload: unknown;
+    const stream = streamAnthropic(
+      makeAnthropicModel(),
+      {
+        systemPrompt: "Follow policy.",
+        tools: [
+          {
+            name: "lookup",
+            description: "lookup logs",
+            parameters: { type: "object", properties: {} },
+          } as Tool,
+        ],
+        messages: [
+          { role: "user", content: "Stable historical question.", timestamp: 0 },
+          {
+            role: "assistant",
+            provider: "anthropic",
+            api: "anthropic-messages",
+            model: "claude-sonnet-4-6",
+            stopReason: "stop",
+            timestamp: 0,
+            content: [{ type: "text", text: "Stable historical answer." }],
+          },
+          {
+            role: "user",
+            content: inboundMetadataText("Live external-channel ask."),
+            timestamp: 0,
+          },
+          {
+            role: "assistant",
+            provider: "anthropic",
+            api: "anthropic-messages",
+            model: "claude-sonnet-4-6",
+            stopReason: "toolUse",
+            timestamp: 0,
+            content: [{ type: "toolCall", id: "call_1", name: "lookup", arguments: {} }],
+          },
+          {
+            role: "toolResult",
+            toolCallId: "call_1",
+            toolName: "lookup",
+            content: [{ type: "text", text: "log chunk" }],
+            isError: false,
+            timestamp: 0,
+          },
+        ],
+      },
+      {
+        apiKey: "sk-ant-oat-provider",
+        onPayload: (payload) => {
+          capturedPayload = payload;
+          throw new Error("stop before network");
+        },
+      },
+    );
+
+    const result = await stream.result();
+
+    expect(result.stopReason).toBe("error");
+    const messages = (capturedPayload as { messages: Array<{ role: string; content: unknown }> })
+      .messages;
+    expect(messages[1]).toEqual({
+      role: "assistant",
+      content: [{ type: "text", text: "Stable historical answer." }],
+    });
+    expect(messages[2]).toEqual({
+      role: "user",
+      content: inboundMetadataText("Live external-channel ask."),
+    });
+    expect(messages[4]).toMatchObject({
+      role: "user",
+      content: [
+        {
+          type: "tool_result",
+          tool_use_id: "call_1",
+          is_error: false,
+          cache_control: { type: "ephemeral" },
+        },
+      ],
+    });
+  });
 });

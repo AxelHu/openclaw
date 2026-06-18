@@ -1359,11 +1359,7 @@ function convertMessages(
             ? isCacheablePreInboundMetadataBlock(block, message.role)
             : message.role === "user" && (block.type === "text" || block.type === "image");
           if (isPrimaryCandidate) {
-            if (
-              fallbackToolResult &&
-              messageCacheControlLimit === 1 &&
-              !crossedVolatileInboundMetadata
-            ) {
+            if (fallbackToolResult && messageCacheControlLimit === 1) {
               applyContentBlockCacheControl(fallbackToolResult, cacheControl);
               return params;
             }
@@ -1388,11 +1384,7 @@ function convertMessages(
         if (message.role !== "user") {
           continue;
         }
-        if (
-          fallbackToolResult &&
-          messageCacheControlLimit === 1 &&
-          !crossedVolatileInboundMetadata
-        ) {
+        if (fallbackToolResult && messageCacheControlLimit === 1) {
           applyContentBlockCacheControl(fallbackToolResult, cacheControl);
           return params;
         }

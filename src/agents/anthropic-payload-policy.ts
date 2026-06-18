@@ -209,7 +209,7 @@ function applyAnthropicCacheControlToMessages(
       if (record.role !== "user") {
         continue;
       }
-      if (fallbackToolResult && markerLimit === 1 && !crossedVolatileInboundMetadata) {
+      if (fallbackToolResult && markerLimit === 1) {
         fallbackToolResult.cache_control = cacheControl;
         return;
       }
@@ -241,7 +241,7 @@ function applyAnthropicCacheControlToMessages(
         ? isCacheablePreInboundMetadataBlock(blockRecord, record.role)
         : record.role === "user" && (blockRecord.type === "text" || blockRecord.type === "image");
       if (isPrimaryCandidate) {
-        if (fallbackToolResult && markerLimit === 1 && !crossedVolatileInboundMetadata) {
+        if (fallbackToolResult && markerLimit === 1) {
           fallbackToolResult.cache_control = cacheControl;
           return;
         }
