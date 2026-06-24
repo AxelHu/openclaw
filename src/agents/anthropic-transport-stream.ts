@@ -321,11 +321,14 @@ function toClaudeCodeName(name: string): string {
 
 function convertContentBlocks(
   content: Array<
-    { type: "text"; text: string } | { type: "image"; data: string; mimeType: string }
+    | { type: "text"; text: string }
+    | { type: "image"; data: string; mimeType: string }
+    | { type: "video"; mimeType: string; data?: string; url?: string }
   >,
 ) {
-  const hasImages = content.some((item) => item.type === "image");
-  if (!hasImages) {
+  // 6/24 PATCH: 加 video support
+  const hasMedia = content.some((item) => item.type === "image" || item.type === "video");
+  if (!hasMedia) {
     return sanitizeNonEmptyTransportPayloadText(
       content.map((item) => ("text" in item ? item.text : "")).join("\n"),
     );
@@ -336,6 +339,10 @@ function convertContentBlocks(
         type: "image";
         source: { type: "base64"; media_type: string; data: string };
       }
+    | {
+        type: "video";
+        source: { type: "base64" | "url"; media_type: string; data?: string; url?: string };
+      }
   > = [];
   let hasTextBlock = false;
   for (const block of content) {
@@ -345,7 +352,7 @@ function convertContentBlocks(
         blocks.push({ type: "text", text });
         hasTextBlock = true;
       }
-    } else {
+    } else if (block.type === "image") {
       blocks.push({
         type: "image" as const,
         source: {
@@ -354,10 +361,21 @@ function convertContentBlocks(
           data: block.data,
         },
       });
+    } else {
+      // video block (6/24 PATCH)
+      blocks.push({
+        type: "video" as const,
+        source: {
+          type: (block.data ? "base64" : "url") as "base64" | "url",
+          media_type: block.mimeType,
+          ...(block.data ? { data: block.data } : {}),
+          ...(block.url ? { url: block.url } : {}),
+        },
+      });
     }
   }
   if (!hasTextBlock) {
-    return [{ type: "text", text: "(see attached image)" }, ...blocks];
+    return [{ type: "text", text: "(see attached media)" }, ...blocks];
   }
   return blocks;
 }

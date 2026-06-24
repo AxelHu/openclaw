@@ -8,7 +8,6 @@ import type {
   RawMessageStreamEvent,
   TextBlockParam,
 } from "@anthropic-ai/sdk/resources/messages.js";
-import { hasInboundMetadataSentinel } from "../../auto-reply/reply/strip-inbound-meta.js";
 import {
   projectAnthropicTools,
   reconcileAnthropicToolChoice,
@@ -20,6 +19,7 @@ import {
   splitSystemPromptCacheBoundary,
   stripSystemPromptCacheBoundary,
 } from "../../agents/system-prompt-cache-boundary.js";
+import { hasInboundMetadataSentinel } from "../../auto-reply/reply/strip-inbound-meta.js";
 import {
   resolveClaudeNativeThinkingLevelMap,
   requiresClaudeAdaptiveThinking,
@@ -53,6 +53,7 @@ import type {
   Tool,
   ToolCall,
   ToolResultMessage,
+  VideoContent,
 } from "../types.js";
 import { AssistantMessageEventStream } from "../utils/event-stream.js";
 import { headersToRecord } from "../utils/headers.js";
@@ -132,8 +133,17 @@ const toClaudeCodeName = (name: string) => ccToolLookup.get(name.toLowerCase()) 
 
 /**
  * Convert content blocks to Anthropic API format
+ *
+ * 6/24 PATCH: 加 video support (6/24 14:23 实测 minimax /anthropic 端点 type=video)
+ * - minimax M3 文档明确支持 type=video
+ * - 老板原话: 视频理解工具 (抽帧) 是 fallback, M3 直接传 video 是默认
+ * - 按 video 大小分流:
+ *   - ≤50MB: base64 传 (minimax /anthropic 限制)
+ *   - >50MB: 用 minimax Files API 上传 + mm_file:// 引用
+ *
+ * 注意: minimax 接受 `type: "video"` 但 OpenClaw transport 之前完全没实现 (6/24 bug)
  */
-function convertContentBlocks(content: (TextContent | ImageContent)[]):
+function convertContentBlocks(content: (TextContent | ImageContent | VideoContent)[]):
   | string
   | Array<
       | { type: "text"; text: string }
@@ -145,14 +155,23 @@ function convertContentBlocks(content: (TextContent | ImageContent)[]):
             data: string;
           };
         }
+      | {
+          type: "video";
+          source: {
+            type: "base64" | "url";
+            media_type: string;
+            data?: string;
+            url?: string;
+          };
+        }
     > {
   // If only text blocks, return as concatenated string for simplicity
-  const hasImages = content.some((c) => c.type === "image");
-  if (!hasImages) {
+  const hasMedia = content.some((c) => c.type === "image" || c.type === "video");
+  if (!hasMedia) {
     return sanitizeSurrogates(content.map((c) => (c as TextContent).text).join("\n"));
   }
 
-  // If we have images, convert to content block array
+  // Convert all blocks
   const blocks = content.map((block) => {
     if (block.type === "text") {
       return {
@@ -160,22 +179,35 @@ function convertContentBlocks(content: (TextContent | ImageContent)[]):
         text: sanitizeSurrogates(block.text),
       };
     }
+    if (block.type === "image") {
+      return {
+        type: "image" as const,
+        source: {
+          type: "base64" as const,
+          media_type: block.mimeType as "image/jpeg" | "image/png" | "image/gif" | "image/webp",
+          data: block.data,
+        },
+      };
+    }
+    // video block (6/24 PATCH)
+    // data is optional; if absent, must have url (mm_file:// or https://)
     return {
-      type: "image" as const,
+      type: "video" as const,
       source: {
-        type: "base64" as const,
-        media_type: block.mimeType as "image/jpeg" | "image/png" | "image/gif" | "image/webp",
-        data: block.data,
+        type: (block.data ? "base64" : "url") as "base64" | "url",
+        media_type: block.mimeType,
+        ...(block.data ? { data: block.data } : {}),
+        ...(block.url ? { url: block.url } : {}),
       },
     };
   });
 
-  // If only images (no text), add placeholder text block
+  // If only media (no text), add placeholder text block
   const hasText = blocks.some((b) => b.type === "text");
   if (!hasText) {
     blocks.unshift({
       type: "text" as const,
-      text: "(see attached image)",
+      text: "(see attached media)",
     });
   }
 

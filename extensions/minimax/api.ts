@@ -26,3 +26,10 @@ export {
   applyMinimaxApiProviderConfig,
   applyMinimaxApiProviderConfigCn,
 } from "./onboard.js";
+// 6/24 PATCH: MiniMax Files API upload helper (for video_understanding + voice_clone + etc.)
+export {
+  uploadMinimaxFile,
+  type MinimaxFilePurpose,
+  type MinimaxUploadFileParams,
+  type MinimaxUploadFileResult,
+} from "./files-api.js";

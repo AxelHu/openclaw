@@ -247,6 +247,27 @@ export interface ImageContent {
   mimeType: string; // e.g., "image/jpeg", "image/png"
 }
 
+/**
+ * Video content block. 6/24 PATCH: 加 video support.
+ * - minimax M3 /anthropic 端点支持 type=video (6/24 14:23 实测)
+ * - OpenClaw transport 之前完全没实现 (6/24 bug)
+ * - video 字段大小策略:
+ *   - ≤50MB: data 字段传 base64 (minimax /anthropic 限制)
+ *   - >50MB: 上传 minimax Files API → url 字段传 mm_file://{file_id} (≤512MB)
+ *   - >512MB: 拒绝 (minimax Files API 上限 512MB)
+ */
+export interface VideoContent {
+  type: "video";
+  mimeType: string; // e.g., "video/mp4", "video/avi", "video/mov", "video/mkv"
+  /** Base64 encoded video data. Mutually exclusive with url. */
+  data?: string;
+  /**
+   * Reference to uploaded file: `mm_file://{file_id}` (minimax) or `https://...` (public).
+   * Required when video > 50MB (use minimax Files API).
+   */
+  url?: string;
+}
+
 /** Normalized assistant tool call emitted by providers or repaired from text. */
 export interface ToolCall {
   type: "toolCall";
@@ -279,7 +300,7 @@ export type StopReason = "stop" | "length" | "toolUse" | "error" | "aborted";
 /** User turn in a text-model conversation. */
 export interface UserMessage {
   role: "user";
-  content: string | (TextContent | ImageContent)[];
+  content: string | (TextContent | ImageContent | VideoContent)[];
   timestamp: number; // Unix timestamp in milliseconds
 }
 
@@ -307,7 +328,7 @@ export interface ToolResultMessage<TDetails = unknown> {
   role: "toolResult";
   toolCallId: string;
   toolName: string;
-  content: (TextContent | ImageContent)[]; // Supports text and images
+  content: (TextContent | ImageContent | VideoContent)[]; // Supports text, images, and videos
   details?: TDetails;
   isError: boolean;
   timestamp: number; // Unix timestamp in milliseconds
@@ -591,7 +612,11 @@ export interface Model<TApi extends Api = Api> {
    * Missing keys use provider defaults. null marks a level as unsupported.
    */
   thinkingLevelMap?: ThinkingLevelMap;
-  input: ("text" | "image")[];
+  // 6/24 PATCH: extend input to include "video" for minimax M3 (and any other
+  // model whose catalog advertises native video input). transform-messages.ts
+  // uses this array to decide whether to drop video blocks (when unsupported)
+  // vs preserve them (when supported).
+  input: ("text" | "image" | "video")[];
   cost: {
     input: number; // $/million tokens
     output: number; // $/million tokens
