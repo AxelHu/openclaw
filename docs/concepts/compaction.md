@@ -195,6 +195,28 @@ If the provider fails or returns an empty result, OpenClaw falls back to built-i
 
 For advanced configuration (reserve tokens, identifier preservation, custom context engines, OpenAI server-side compaction), see the [Session management deep dive](/reference/session-management-compaction).
 
+## Multimodal content block estimation
+
+The size estimators that feed both [pruning](/concepts/session-pruning) and compaction have a **silent-failure pattern**: if a new content block type is added to `Message.content` (e.g. `video`) but the estimator switch statement is not updated in the same commit, blocks of that type contribute **0 chars** to the context budget. The estimator is optimistic, so pruning/compaction never triggers proactively, and the model-side context limit is the first thing to fail.
+
+This has happened in practice:
+
+- 6/24 PATCH added `VideoContent` (50MB / `mm_file://` cap) but did not touch the estimators in `src/agents/agent-hooks/context-pruning/pruner.ts` or `packages/agent-core/src/harness/compaction/compaction.ts`. Result: video blocks estimated as 0 chars.
+- Symptom: a single inbound video silently took context from 0 to nearly full without any pruning/compaction firing, then the model rejected the request and the system panic-compacted.
+
+**Rule of thumb when adding a new content block type** (text/image/video/audio/...):
+
+1. Add the type to `Model.input` in `packages/llm-core/src/types.ts` (so the transport knows it exists).
+2. Add transport handling in `src/llm/providers/<provider>.ts` (e.g. `convertContentBlocks` for Anthropic).
+3. **Add an `else if (block.type === "<new>")` branch to every size estimator**:
+   - `src/agents/agent-hooks/context-pruning/pruner.ts::estimateTextAndImageChars`
+   - `packages/agent-core/src/harness/compaction/compaction.ts::estimateTokens` (all three message roles: user, custom, toolResult)
+   - `src/agents/embedded-agent-runner/tool-result-char-estimator.ts::estimateContentBlockChars`
+4. Prefer `block.data?.length` (raw base64 bytes) over `JSON.stringify(block).length` so you do not pay the stringify cost on every estimate.
+5. Mirror the same branch in `src/agents/anthropic-transport-stream.ts` for the streaming path.
+
+The current `VIDEO_CHAR_ESTIMATE` constants in those files are conservative placeholders (200K chars = 50K tokens for a 25MB clip). Once minimax publishes real per-frame / per-second video token costs, replace them with the actual numbers — but **do not leave them as 0**, that is the silent failure.
+
 ## Related
 
 - [Session](/concepts/session): session management and lifecycle.
