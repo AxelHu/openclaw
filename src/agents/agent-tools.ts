@@ -24,6 +24,10 @@ import {
 } from "../infra/exec-approvals.js";
 import { resolveMergedSafeBinProfileFixtures } from "../infra/exec-safe-bin-runtime-policy.js";
 import { logWarn } from "../logger.js";
+import {
+  buildMediaUnderstandingRegistry,
+  getMediaUnderstandingProvider,
+} from "../media-understanding/provider-registry.js";
 import { getPluginToolMeta } from "../plugins/tools.js";
 import { createLazyImportLoader } from "../shared/lazy-promise.js";
 import type { SkillSnapshot } from "../skills/types.js";
@@ -82,6 +86,7 @@ import { SANDBOX_AGENT_WORKSPACE_MOUNT } from "./sandbox/constants.js";
 import { resolveReadOnlyWorkspaceSkillMounts } from "./sandbox/workspace-mounts.js";
 import { resolveSenderToolPolicy } from "./sender-tool-policy.js";
 import { createCodingTools, createReadTool } from "./sessions/index.js";
+import type { ToolsOptions } from "./sessions/tools/index.js";
 import {
   isSubagentEnvelopeSession,
   resolveSubagentCapabilityStore,
@@ -234,6 +239,35 @@ function createLazyProcessTool(defaults?: ProcessToolDefaults): AnyAgentTool {
 }
 
 /** Resolve the process-tool isolation key for exec/process session state. */
+/**
+ * 6/25 PATCH: builds the tool-level options (e.g. readVideo upload helper)
+ * by resolving the media-understanding provider registry. Currently this
+ * resolves the first registered provider that exposes `uploadVideo` (e.g.
+ * the bundled minimax extension) so the readVideo tool can upload
+ * oversized videos to a hosted Files API instead of failing.
+ *
+ * Returns `undefined` when no suitable provider is configured so that the
+ * caller falls back to the default behaviour (inline ≤ 50MB, error > 50MB).
+ */
+function resolveCodingToolProviderOptions(cfg?: OpenClawConfig): ToolsOptions | undefined {
+  if (!cfg) return undefined;
+  const registry = buildMediaUnderstandingRegistry(undefined, cfg);
+  for (const id of ["minimax", "minimax-portal"] as const) {
+    const provider = getMediaUnderstandingProvider(id, registry);
+    if (!provider?.uploadVideo) continue;
+    return {
+      readVideo: {
+        uploadVideo: (req) =>
+          provider.uploadVideo!({
+            ...req,
+            cfg,
+          }),
+      },
+    };
+  }
+  return undefined;
+}
+
 export function resolveProcessToolScopeKey(params: {
   scopeKey?: string;
   sessionKey?: string;
@@ -754,7 +788,12 @@ export function createOpenClawCodingTools(options?: {
 
   const base: AnyAgentTool[] = [];
   if (includeBaseCodingTools) {
-    for (const tool of createCodingTools(codingRoot) as unknown as AnyAgentTool[]) {
+    // 6/25 PATCH: wire the media-understanding provider registry into the
+    // default coding tools so the readVideo tool can upload oversized
+    // videos (e.g. via the minimax extension's `uploadVideo` helper) instead
+    // of erroring out. The registry is built once per surface build.
+    const toolOptions = resolveCodingToolProviderOptions(options?.config);
+    for (const tool of createCodingTools(codingRoot, toolOptions) as unknown as AnyAgentTool[]) {
       if (tool.name === "read") {
         if (sandboxRoot) {
           const sandboxed = createSandboxedReadTool({

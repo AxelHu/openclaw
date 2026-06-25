@@ -3,6 +3,10 @@ import { normalizeOptionalString } from "@openclaw/normalization-core/string-coe
 import type { AcpTurnAttachment as AgentTurnAttachment } from "../../acp/control-plane/manager.types.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { logVerbose } from "../../globals.js";
+import {
+  buildMediaUnderstandingRegistry,
+  getMediaUnderstandingProvider,
+} from "../../media-understanding/provider-registry.js";
 import type { MediaAttachment } from "../../media-understanding/types.js";
 import { createLazyImportLoader } from "../../shared/lazy-promise.js";
 import type { MsgContext } from "../templating.js";
@@ -31,11 +35,29 @@ export type AgentTurnAttachmentRuntime = Pick<
 >;
 
 const AGENT_TURN_ATTACHMENT_MAX_BYTES = 10 * 1024 * 1024;
+const AGENT_TURN_ATTACHMENT_VIDEO_MAX_BYTES = 50 * 1024 * 1024;
 const AGENT_TURN_ATTACHMENT_TIMEOUT_MS = 1_000;
 
-function isImageAgentTurnAttachment(attachment: MediaAttachment): boolean {
-  return attachment.mime?.startsWith("image/") === true;
+type AttachmentKind = "image" | "video" | "unsupported";
+
+function classifyAttachment(attachment: MediaAttachment): AttachmentKind {
+  const mime = attachment.mime ?? "";
+  if (mime.startsWith("image/")) return "image";
+  if (mime.startsWith("video/")) return "video";
+  return "unsupported";
 }
+
+function attachmentMaxBytes(kind: AttachmentKind): number {
+  return kind === "video" ? AGENT_TURN_ATTACHMENT_VIDEO_MAX_BYTES : AGENT_TURN_ATTACHMENT_MAX_BYTES;
+}
+
+/**
+ * Provider ids that ship a hosted-files video upload helper compatible with
+ * `mm_file://{file_id}` style references for minimax M3 video input. The
+ * list is checked in order; the first provider that exposes `uploadVideo`
+ * wins. Extend this list when adding new provider integrations.
+ */
+const VIDEO_UPLOAD_PROVIDER_IDS = ["minimax", "minimax-portal"] as const;
 
 function hasInboundHistoryMedia(ctx: MsgContext): boolean {
   return (
@@ -100,18 +122,87 @@ export async function resolveAgentTurnAttachments(params: {
   });
   const results: AgentTurnAttachment[] = [];
   const resolvedHistoryImages: RecentInboundHistoryImage[] = [];
-  const resolveImageAttachment = async (attachment: MediaAttachment): Promise<boolean> => {
+
+  // Build the media-understanding provider registry once so we can route
+  // oversized video attachments through the provider's hosted Files API
+  // (e.g. minimax `uploadVideo` → `mm_file://{file_id}`) instead of dropping
+  // them.
+  const providerRegistry = buildMediaUnderstandingRegistry(undefined, params.cfg);
+
+  const resolveVideoViaUpload = async (attachment: MediaAttachment): Promise<boolean> => {
     const mediaType = attachment.mime ?? "application/octet-stream";
-    if (!isImageAgentTurnAttachment(attachment)) {
+    const path = normalizeOptionalString(attachment.path);
+    if (!path) {
       return false;
     }
+    let buffer: Buffer;
+    try {
+      const fetched = await cache.getBuffer({
+        attachmentIndex: attachment.index,
+        // Read up to 512MB (matches minimax Files API upload cap). If the
+        // file is larger we still want to surface the failure explicitly
+        // rather than silently truncating.
+        maxBytes: 512 * 1024 * 1024,
+        timeoutMs: AGENT_TURN_ATTACHMENT_TIMEOUT_MS,
+      });
+      buffer = fetched.buffer;
+    } catch (error) {
+      const errorName = error instanceof Error ? error.name : typeof error;
+      logVerbose(
+        `agent-turn-attachments: failed to read oversized video attachment #${attachment.index + 1} (${errorName})`,
+      );
+      return false;
+    }
+    for (const providerId of VIDEO_UPLOAD_PROVIDER_IDS) {
+      const provider = getMediaUnderstandingProvider(providerId, providerRegistry);
+      if (!provider?.uploadVideo) {
+        continue;
+      }
+      try {
+        const upload = await provider.uploadVideo({
+          buffer,
+          mimeType: mediaType,
+          fileName: path.split(/[\\/]/).pop(),
+          purpose: "video_understanding",
+          cfg: params.cfg,
+        });
+        // Encode the hosted file reference as data: URL with a special
+        // "video/hosted" mediaType so downstream consumers can detect it
+        // and forward it as a `{type: "video", source: {type: "url",
+        // url: "mm_file://..."}}` block to the model. The shape mirrors
+        // `resolveInlineAgentImageAttachments` but carries a hosted URL
+        // instead of base64 data.
+        results.push({
+          mediaType,
+          data: "",
+          hostedUrl: upload.url,
+        });
+        logVerbose(
+          `agent-turn-attachments: uploaded oversized video attachment #${attachment.index + 1} (${buffer.byteLength} bytes) via ${providerId} -> ${upload.url}`,
+        );
+        return true;
+      } catch (error) {
+        logVerbose(
+          `agent-turn-attachments: ${providerId} uploadVideo failed for attachment #${attachment.index + 1}: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    }
+    return false;
+  };
+
+  const resolveMultimodalAttachment = async (attachment: MediaAttachment): Promise<boolean> => {
+    const kind = classifyAttachment(attachment);
+    if (kind === "unsupported") {
+      return false;
+    }
+    const mediaType = attachment.mime ?? "application/octet-stream";
     if (!normalizeOptionalString(attachment.path)) {
       return false;
     }
     try {
       const { buffer } = await cache.getBuffer({
         attachmentIndex: attachment.index,
-        maxBytes: AGENT_TURN_ATTACHMENT_MAX_BYTES,
+        maxBytes: attachmentMaxBytes(kind),
         timeoutMs: AGENT_TURN_ATTACHMENT_TIMEOUT_MS,
       });
       results.push({
@@ -124,6 +215,16 @@ export async function resolveAgentTurnAttachments(params: {
       }
       return true;
     } catch (error) {
+      // Oversized video: fall back to provider-hosted Files API upload
+      // (e.g. minimax `uploadVideo` → `mm_file://{file_id}`) so the model
+      // still receives a video block instead of `[video]` placeholder.
+      if (
+        kind === "video" &&
+        runtime.isMediaUnderstandingSkipError(error) &&
+        /size|too large|exceeds/i.test(error.reason)
+      ) {
+        return await resolveVideoViaUpload(attachment);
+      }
       if (runtime.isMediaUnderstandingSkipError(error)) {
         logVerbose(
           `agent-turn-attachments: skipping attachment #${attachment.index + 1} (${error.reason})`,
@@ -138,20 +239,23 @@ export async function resolveAgentTurnAttachments(params: {
     }
   };
 
-  let currentImageResolved = false;
+  let currentMultimodalResolved = false;
   const hasCurrentMedia = currentAttachments.length > 0;
-  const hasCurrentImageCandidate = currentAttachments.some(isImageAgentTurnAttachment);
+  const hasCurrentMultimodalCandidate = currentAttachments.some(
+    (attachment) => classifyAttachment(attachment) !== "unsupported",
+  );
   for (const attachment of currentAttachments) {
-    currentImageResolved = (await resolveImageAttachment(attachment)) || currentImageResolved;
+    currentMultimodalResolved =
+      (await resolveMultimodalAttachment(attachment)) || currentMultimodalResolved;
   }
   if (
     includeRecentHistoryImages &&
-    !currentImageResolved &&
-    (!hasCurrentMedia || hasCurrentImageCandidate)
+    !currentMultimodalResolved &&
+    (!hasCurrentMedia || hasCurrentMultimodalCandidate)
   ) {
-    // History images are only used when the current turn did not already provide an image.
+    // History attachments are only used when the current turn did not already provide one.
     for (const attachment of historyAttachments) {
-      await resolveImageAttachment(attachment);
+      await resolveMultimodalAttachment(attachment);
     }
   }
   return { attachments: results, recentHistoryImages: resolvedHistoryImages };

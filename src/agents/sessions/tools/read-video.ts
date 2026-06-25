@@ -28,6 +28,8 @@ import { constants } from "node:fs";
 import { access as fsAccess, readFile as fsReadFile } from "node:fs/promises";
 import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
+import { logVerbose } from "../../../globals.js";
+import type { VideoUploadRequest, VideoUploadResult } from "../../../media-understanding/types.js";
 import type { AgentTool } from "../../runtime/index.js";
 import { detectSupportedVideoMimeTypeFromFile } from "../../utils/mime.js";
 import type { ToolDefinition } from "../extensions/types.js";
@@ -75,16 +77,28 @@ export interface ReadVideoToolOptions {
   defaultMaxBytes?: number;
   /** Custom operations for file reading. Default: local filesystem. */
   operations?: ReadVideoOperations;
+  /**
+   * 6/25 PATCH: optional hosted upload helper for oversized videos. When
+   * provided, files larger than the inline limit are uploaded via this
+   * helper (e.g. minimax `uploadMinimaxFile`) and returned as a
+   * `mm_file://{file_id}` video block instead of erroring out.
+   *
+   * Signature mirrors `MediaUnderstandingProvider.uploadVideo` (see
+   * `src/media-understanding/types.ts`). Callers that want to use a
+   * different provider can wrap their helper to match this shape.
+   */
+  uploadVideo?: (req: VideoUploadRequest) => Promise<VideoUploadResult>;
 }
 
 type ReadVideoRenderArgs = { path?: string; max_bytes?: number };
 
 type ReadVideoResultBlock =
   | { type: "text"; text: string }
-  | { type: "video"; mimeType: string; data: string; bytes: number };
+  | { type: "video"; mimeType: string; data: string; bytes: number }
+  | { type: "video"; mimeType: string; url: string; bytes: number };
 
 type ReadVideoDetails =
-  | { ok: true; mimeType: string; bytes: number; filePath: string }
+  | { ok: true; mimeType: string; bytes: number; filePath: string; hostedUrl?: string }
   | { ok: false; reason: string; filePath: string; bytes?: number; mimeType?: string };
 
 type ReadVideoToolResult = {
@@ -197,6 +211,51 @@ export function createReadVideoToolDefinition(
             if (aborted) return;
             if (buffer.byteLength > inlineMaxBytes) {
               const mb = Math.round(buffer.byteLength / 1024 / 1024);
+              // 6/25 PATCH: when an upload helper is configured (e.g. the
+              // OpenClaw runtime injects `MediaUnderstandingProvider.uploadVideo`
+              // from the minimax extension), upload oversized videos instead
+              // of failing. The model receives a `mm_file://{file_id}` block
+              // that the transport forwards as `{type: "video", source: {type:
+              // "url", url}}`.
+              if (options?.uploadVideo) {
+                try {
+                  const upload = await options.uploadVideo({
+                    buffer,
+                    mimeType,
+                    fileName: absolutePath.split(/[\\/]/).pop(),
+                    purpose: "video_understanding",
+                  });
+                  signal?.removeEventListener("abort", onAbort);
+                  resolve({
+                    content: [
+                      {
+                        type: "text",
+                        text: `Read video file [${mimeType}] (${buffer.byteLength} bytes) via hosted upload → ${upload.url}`,
+                      },
+                      {
+                        type: "video",
+                        mimeType,
+                        url: upload.url,
+                        bytes: buffer.byteLength,
+                      },
+                    ],
+                    details: {
+                      ok: true,
+                      bytes: buffer.byteLength,
+                      mimeType,
+                      filePath: absolutePath,
+                      hostedUrl: upload.url,
+                    },
+                  });
+                  return;
+                } catch (uploadErr) {
+                  // Fall through to the error path below so the agent gets a
+                  // helpful message explaining both options.
+                  logVerbose(
+                    `readVideo: hosted upload failed for ${absolutePath}: ${uploadErr instanceof Error ? uploadErr.message : String(uploadErr)}`,
+                  );
+                }
+              }
               signal?.removeEventListener("abort", onAbort);
               resolve({
                 content: [

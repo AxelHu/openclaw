@@ -55,6 +55,14 @@ export type AcpInitializeSessionInput = {
 export type AcpTurnAttachment = {
   mediaType: string;
   data: string;
+  /**
+   * 6/25 PATCH: optional hosted URL for oversized attachments that cannot
+   * fit inline (e.g. video > 50MB uploaded to a provider's Files API).
+   * When set, downstream consumers should forward it as a
+   * `{type: "video", source: {type: "url", url}}` block instead of a
+   * base64 inline block.
+   */
+  hostedUrl?: string;
 };
 
 /** Input for one ACP prompt turn routed through the manager. */
