@@ -145,6 +145,14 @@ export const DEFAULT_COMPACTION_SETTINGS: CompactionSettings = {
   keepRecentTokens: 20000,
 };
 
+// 6/25 PATCH: 视频块大小估算 (主人口令：先写死 50K token)
+//   50K tokens * 4 chars/token = 200_000 chars
+//   保守估算 — 不会让 video 永远传不进 1M context，
+//   但仍远超 0 估 (0 估会让 compaction 完全看不到 video 开销)。
+//   后面按 minimax 真实 video→token 计费再修正。
+//   之前 35_000_000 (按 25MB base64 算) 是错的: 那是传输层数据量，不是理解层 token 数
+const VIDEO_CHAR_ESTIMATE = 200_000;
+
 /** Calculate total context tokens from provider usage. */
 export function calculateContextTokens(usage: Usage): number {
   return usage.totalTokens || usage.input + usage.output + usage.cacheRead + usage.cacheWrite;
@@ -261,6 +269,10 @@ export function estimateTokens(message: AgentMessage): number {
           if (block.type === "text" && block.text) {
             chars += block.text.length;
           }
+          // 6/25 PATCH: video 块按 25MB 上限估算，否则 video 完全不进预算
+          if (block.type === "video") {
+            chars += VIDEO_CHAR_ESTIMATE;
+          }
         }
       }
       return Math.ceil(chars / 4);
@@ -289,6 +301,10 @@ export function estimateTokens(message: AgentMessage): number {
           }
           if (block.type === "image") {
             chars += 4800;
+          }
+          // 6/25 PATCH: video 块跟 image 同级估算 (按 25MB 上限)
+          if (block.type === "video") {
+            chars += VIDEO_CHAR_ESTIMATE;
           }
         }
       }
