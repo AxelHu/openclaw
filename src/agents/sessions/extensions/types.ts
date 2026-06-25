@@ -26,6 +26,7 @@ import type {
   Context,
   ImageContent,
   Model,
+  VideoContent,
   SimpleStreamOptions,
   TextContent,
   ToolResultMessage,
@@ -703,8 +704,11 @@ export interface BeforeAgentStartEvent {
   type: "before_agent_start";
   /** The raw user prompt text (after expansion). */
   prompt: string;
-  /** Images attached to the user prompt, if any. */
-  images?: ImageContent[];
+  /**
+   * 6/25 PATCH: multimodal attachment blocks (image + video). Video
+   * blocks carry inline base64 or hosted URL (e.g. `mm_file://{file_id}`).
+   */
+  images?: Array<ImageContent | VideoContent>;
   /** The fully assembled system prompt string. */
   systemPrompt: string;
   /** Structured options used to build the system prompt. Extensions can inspect this without re-discovering resources. */
@@ -830,8 +834,12 @@ export interface InputEvent {
   type: "input";
   /** The input text */
   text: string;
-  /** Attached images, if any */
-  images?: ImageContent[];
+  /**
+   * 6/25 PATCH: multimodal attachment blocks (image + video). Video
+   * blocks are forwarded as-is so extensions can decide how to route
+   * them (e.g. upload to a provider Files API for oversized files).
+   */
+  images?: Array<ImageContent | VideoContent>;
   /** Where the input came from */
   source: InputSource;
 }
@@ -839,7 +847,7 @@ export interface InputEvent {
 /** Result from input event handler */
 export type InputEventResult =
   | { action: "continue" }
-  | { action: "transform"; text: string; images?: ImageContent[] }
+  | { action: "transform"; text: string; images?: Array<ImageContent | VideoContent> }
   | { action: "handled" };
 
 // ============================================================================

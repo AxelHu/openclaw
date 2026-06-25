@@ -62,7 +62,17 @@ export type FollowupRun = {
   messageId?: string;
   summaryLine?: string;
   enqueuedAt: number;
-  images?: Array<{ type: "image"; data: string; mimeType: string }>;
+  /**
+   * 6/25 PATCH: multimodal current-turn content blocks. Accepts image
+   * blocks (inline base64) and video blocks (inline base64 or hosted URL
+   * such as `mm_file://{file_id}`). The shape mirrors
+   * `AgentToolResult.content` and is forwarded as multimodal content to
+   * providers that accept `ImageContent` / `VideoContent` (e.g. minimax M3).
+   */
+  images?: Array<
+    | { type: "image"; data: string; mimeType: string }
+    | { type: "video"; data?: string; mimeType: string; url?: string }
+  >;
   imageOrder?: PromptImageOrderEntry[];
   /**
    * Originating channel for reply routing.

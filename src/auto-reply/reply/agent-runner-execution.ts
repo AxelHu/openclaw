@@ -127,7 +127,7 @@ import {
   readCompactionHookMessages,
   shouldNotifyUserAboutCompaction,
 } from "./compaction-notice.js";
-import { resolveCurrentTurnImages } from "./current-turn-images.js";
+import { resolveCurrentTurnMedia } from "./current-turn-images.js";
 import { hasInboundAudio } from "./inbound-media.js";
 import { resolveOriginMessageProvider } from "./origin-routing.js";
 import {
@@ -1638,7 +1638,7 @@ export async function runAgentTurnWithFallback(params: {
     });
   }
   let replyMediaContext: ReplyMediaContext;
-  let currentTurnImages: Awaited<ReturnType<typeof resolveCurrentTurnImages>>;
+  let currentTurnImages: Awaited<ReturnType<typeof resolveCurrentTurnMedia>>;
   try {
     replyMediaContext =
       params.replyMediaContext ??
@@ -1660,10 +1660,10 @@ export async function runAgentTurnWithFallback(params: {
         }),
       );
     currentTurnImages = await agentTurnTiming.measure("current_turn_images", () =>
-      resolveCurrentTurnImages({
+      resolveCurrentTurnMedia({
         ctx: params.sessionCtx,
         cfg: runtimeConfig,
-        images: params.followupRun.images ?? params.opts?.images,
+        media: params.followupRun.images ?? params.opts?.images,
         imageOrder: params.followupRun.imageOrder ?? params.opts?.imageOrder,
       }),
     );
@@ -2276,7 +2276,7 @@ export async function runAgentTurnWithFallback(params: {
                       bootstrapPromptWarningSignaturesSeen[
                         bootstrapPromptWarningSignaturesSeen.length - 1
                       ],
-                    images: currentTurnImages.images,
+                    images: currentTurnImages.media,
                     imageOrder: currentTurnImages.imageOrder,
                     skillsSnapshot: params.followupRun.run.skillsSnapshot,
                     messageChannel: params.followupRun.originatingChannel ?? undefined,
@@ -2427,7 +2427,7 @@ export async function runAgentTurnWithFallback(params: {
                     forceHeartbeatTool: params.opts?.forceHeartbeatTool,
                     bootstrapContextMode: params.opts?.bootstrapContextMode,
                     bootstrapContextRunKind: params.opts?.isHeartbeat ? "heartbeat" : "default",
-                    images: currentTurnImages.images,
+                    images: currentTurnImages.media,
                     imageOrder: currentTurnImages.imageOrder,
                     abortSignal: runAbortSignal,
                     replyOperation: params.replyOperation,

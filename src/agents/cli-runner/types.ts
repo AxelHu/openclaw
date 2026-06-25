@@ -10,7 +10,7 @@ import type { SessionSystemPromptReport } from "../../config/sessions/types.js";
 import type { CliBackendConfig } from "../../config/types.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import type { ContextEngine } from "../../context-engine/types.js";
-import type { ImageContent } from "../../llm/types.js";
+import type { ImageContent, VideoContent } from "../../llm/types.js";
 import type { PromptImageOrderEntry } from "../../media/prompt-image-order.js";
 import type { CliBackendExecutionMode } from "../../plugins/cli-backend.types.js";
 import type { InputProvenance } from "../../sessions/input-provenance.js";
@@ -94,7 +94,13 @@ export type RunCliAgentParams = {
   bootstrapPromptWarningSignature?: string;
   bootstrapContextMode?: BootstrapContextMode;
   bootstrapContextRunKind?: "default" | "heartbeat" | "cron";
-  images?: ImageContent[];
+  /**
+   * 6/25 PATCH: multimodal current-turn content blocks (images + videos).
+   * Accepts `ImageContent` and `VideoContent` blocks so inbound video
+   * attachments (and oversized videos uploaded as `mm_file://{file_id}`)
+   * flow into the agent prompt without dropping the audio/video block.
+   */
+  images?: Array<ImageContent | VideoContent>;
   imageOrder?: PromptImageOrderEntry[];
   skillsSnapshot?: SkillSnapshot;
   messageChannel?: string;

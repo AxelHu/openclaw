@@ -27,6 +27,7 @@ import { streamSimple } from "../../llm/stream.js";
 import type {
   AssistantMessage,
   ImageContent,
+  VideoContent,
   Message,
   Model,
   TextContent,
@@ -240,8 +241,13 @@ export interface ExtensionBindings {
 export interface PromptOptions {
   /** Whether to expand file-based prompt templates (default: true) */
   expandPromptTemplates?: boolean;
-  /** Image attachments */
-  images?: ImageContent[];
+  /**
+   * 6/25 PATCH: multimodal content blocks (image + video). Inbound video
+   * attachments (inline base64 or hosted URL such as `mm_file://{file_id}`)
+   * flow through this field to the multimodal content assembly that
+   * forwards them to providers like minimax M3.
+   */
+  images?: Array<ImageContent | VideoContent>;
   /** When streaming, how to queue the message: "steer" (interrupt) or "followUp" (wait). Required if streaming. */
   streamingBehavior?: "steer" | "followUp";
   /** Source of input for extension input event handlers. Defaults to "interactive". */
@@ -1194,7 +1200,9 @@ export class AgentSession {
       messages = [];
 
       // Add user message
-      const userContent: (TextContent | ImageContent)[] = [{ type: "text", text: expandedText }];
+      const userContent: (TextContent | ImageContent | VideoContent)[] = [
+        { type: "text", text: expandedText },
+      ];
       if (currentImages) {
         userContent.push(...currentImages);
       }
@@ -1324,7 +1332,7 @@ export class AgentSession {
    * @param images Optional image attachments to include with the message
    * @throws Error if text is an extension command
    */
-  async steer(text: string, images?: ImageContent[]): Promise<void> {
+  async steer(text: string, images?: Array<ImageContent | VideoContent>): Promise<void> {
     // Check for extension commands (cannot be queued)
     if (text.startsWith("/")) {
       this.throwIfExtensionCommand(text);
@@ -1344,7 +1352,7 @@ export class AgentSession {
    * @param images Optional image attachments to include with the message
    * @throws Error if text is an extension command
    */
-  async followUp(text: string, images?: ImageContent[]): Promise<void> {
+  async followUp(text: string, images?: Array<ImageContent | VideoContent>): Promise<void> {
     // Check for extension commands (cannot be queued)
     if (text.startsWith("/")) {
       this.throwIfExtensionCommand(text);
@@ -1360,10 +1368,13 @@ export class AgentSession {
   /**
    * Internal: Queue a steering message (already expanded, no extension command check).
    */
-  private async queueSteer(text: string, images?: ImageContent[]): Promise<void> {
+  private async queueSteer(
+    text: string,
+    images?: Array<ImageContent | VideoContent>,
+  ): Promise<void> {
     this.steeringMessages.push(text);
     this.emitQueueUpdate();
-    const content: (TextContent | ImageContent)[] = [{ type: "text", text }];
+    const content: (TextContent | ImageContent | VideoContent)[] = [{ type: "text", text }];
     if (images) {
       content.push(...images);
     }
@@ -1377,10 +1388,13 @@ export class AgentSession {
   /**
    * Internal: Queue a follow-up message (already expanded, no extension command check).
    */
-  private async queueFollowUp(text: string, images?: ImageContent[]): Promise<void> {
+  private async queueFollowUp(
+    text: string,
+    images?: Array<ImageContent | VideoContent>,
+  ): Promise<void> {
     this.followUpMessages.push(text);
     this.emitQueueUpdate();
-    const content: (TextContent | ImageContent)[] = [{ type: "text", text }];
+    const content: (TextContent | ImageContent | VideoContent)[] = [{ type: "text", text }];
     if (images) {
       content.push(...images);
     }

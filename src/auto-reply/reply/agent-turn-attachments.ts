@@ -272,15 +272,46 @@ export async function resolveAgentAttachments(params: {
 
 /** Converts inline image content into ACP attachment payloads. */
 export function resolveInlineAgentImageAttachments(
-  images: Array<{ data: string; mimeType: string }> | undefined,
+  /**
+   * 6/25 PATCH: multimodal current-turn blocks (image + video). The legacy
+   * ACP attachment payload only carries `data` + `mimeType`; video blocks
+   * are forwarded with an empty `data` field so the downstream ACP runtime
+   * can attach the hosted URL (set via `hostedUrl` on the attachment)
+   * when assembling the final block. Image blocks pass through as before.
+   */
+  images:
+    | Array<
+        | { type?: "image"; data: string; mimeType: string }
+        | { type?: "video"; data?: string; mimeType: string; url?: string }
+      >
+    | undefined,
 ): AgentTurnAttachment[] {
   if (!Array.isArray(images)) {
     return [];
   }
   return images
-    .map((image) => ({
-      mediaType: image.mimeType,
-      data: image.data,
-    }))
+    .map((image) => {
+      const block = image as {
+        type?: "image" | "video";
+        mimeType: string;
+        data?: string;
+        url?: string;
+      };
+      // Video blocks carry a hosted URL (mm_file://{file_id}) instead of
+      // inline base64 data. Forward them with an empty `data` field and
+      // attach the hosted URL so the ACP runtime can include them in the
+      // multimodal content assembly.
+      if (block.type === "video") {
+        return {
+          mediaType: block.mimeType,
+          data: block.data ?? "",
+          hostedUrl: block.url,
+        };
+      }
+      return {
+        mediaType: block.mimeType,
+        data: block.data ?? "",
+      };
+    })
     .filter((image) => image.mediaType.startsWith("image/") && image.data.trim().length > 0);
 }

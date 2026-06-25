@@ -464,7 +464,16 @@ export type PluginHookReplyDispatchEvent = {
   runId?: string;
   sessionKey?: string;
   toolsAllow?: string[];
-  images?: Array<{ data: string; mimeType: string }>;
+  /**
+   * 6/25 PATCH: multimodal attachment blocks (images + videos). Hooks may
+   * inspect the `type` tag to distinguish `image` from `video` blocks.
+   * Video blocks carry an optional hosted `url` (e.g. `mm_file://{file_id}`)
+   * for oversized attachments that were uploaded to a provider Files API.
+   */
+  images?: Array<
+    | { type: "image"; data: string; mimeType: string }
+    | { type: "video"; data?: string; mimeType: string; url?: string }
+  >;
   inboundAudio: boolean;
   sessionTtsAuto?: TtsAutoMode;
   ttsChannel?: string;

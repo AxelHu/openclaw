@@ -5,7 +5,7 @@ import path from "node:path";
 import { normalizeLowercaseStringOrEmpty } from "@openclaw/normalization-core/string-coerce";
 import { formatErrorMessage } from "../../../infra/errors.js";
 import { assertNoWindowsNetworkPath, safeFileURLToPath } from "../../../infra/local-file-access.js";
-import type { ImageContent } from "../../../llm/types.js";
+import type { ImageContent, VideoContent } from "../../../llm/types.js";
 import { resolveMediaReferenceLocalPath } from "../../../media/media-reference.js";
 import type { PromptImageOrderEntry } from "../../../media/prompt-image-order.js";
 import { loadWebMedia } from "../../../media/web-media.js";
@@ -550,7 +550,11 @@ export async function detectAndLoadPromptImages(params: {
   prompt: string;
   workspaceDir: string;
   model: { input?: string[] };
-  existingImages?: ImageContent[];
+  /**
+   * 6/25 PATCH: multimodal current-turn blocks (image + video). Detection
+   * only inspects image blocks; video blocks are forwarded as-is.
+   */
+  existingImages?: Array<ImageContent | VideoContent>;
   imageOrder?: PromptImageOrderEntry[];
   maxBytes?: number;
   maxDimensionPx?: number;
@@ -558,8 +562,13 @@ export async function detectAndLoadPromptImages(params: {
   localRoots?: readonly string[];
   sandbox?: { root: string; bridge: SandboxFsBridge };
 }): Promise<{
-  /** Images for the current prompt (existingImages + detected in current prompt) */
-  images: ImageContent[];
+  /**
+   * 6/25 PATCH: multimodal current-turn blocks (image + video). The
+   * pipeline preserves both inline images and video blocks (inline or
+   * hosted URL) so the multimodal content assembly in `attempt.ts` can
+   * forward them to providers that accept `VideoContent` (e.g. minimax M3).
+   */
+  images: Array<ImageContent | VideoContent>;
   detectedRefs: DetectedImageRef[];
   loadedCount: number;
   skippedCount: number;
@@ -576,13 +585,23 @@ export async function detectAndLoadPromptImages(params: {
   const allRefs = detectImageReferences(params.prompt);
 
   if (allRefs.length === 0) {
+    // Filter to image-only for the legacy sanitization pipeline; video
+    // blocks pass through to the multimodal content assembly in
+    // `attempt.ts` and are not part of the legacy image sanitization path.
+    const existingImageOnly = (params.existingImages ?? []).filter(
+      (block): block is ImageContent => block.type === "image",
+    );
     const sanitizedExistingImages = await sanitizeImagesWithLog(
-      params.existingImages ?? [],
+      existingImageOnly,
       "prompt:images",
       { maxDimensionPx: params.maxDimensionPx },
     );
+    // Re-attach video blocks (not sanitized) so they reach the prompt as-is.
+    const videoBlocks = (params.existingImages ?? []).filter(
+      (block): block is VideoContent => block.type === "video",
+    );
     return {
-      images: sanitizedExistingImages,
+      images: [...sanitizedExistingImages, ...videoBlocks] as Array<ImageContent | VideoContent>,
       detectedRefs: [],
       loadedCount: 0,
       skippedCount: 0,
@@ -636,10 +655,17 @@ export async function detectAndLoadPromptImages(params: {
 
   const promptImages = mergePromptAttachmentImages({
     imageOrder: params.imageOrder,
-    existingImages: params.existingImages,
+    // Filter to image-only for the merge step; video blocks are passed
+    // through separately below to preserve order.
+    existingImages: (params.existingImages ?? []).filter(
+      (block): block is ImageContent => block.type === "image",
+    ),
     offloadedImages,
     promptRefImages,
   });
+  const videoBlocks = (params.existingImages ?? []).filter(
+    (block): block is VideoContent => block.type === "video",
+  );
 
   const imageSanitization: ImageSanitizationLimits = {
     maxDimensionPx: params.maxDimensionPx,
@@ -649,9 +675,10 @@ export async function detectAndLoadPromptImages(params: {
     "prompt:images",
     imageSanitization,
   );
+  const finalImages = [...sanitizedPromptImages, ...videoBlocks];
 
   return {
-    images: sanitizedPromptImages,
+    images: finalImages as Array<ImageContent | VideoContent>,
     detectedRefs: allRefs,
     loadedCount,
     skippedCount,
