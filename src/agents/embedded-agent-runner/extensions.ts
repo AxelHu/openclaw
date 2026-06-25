@@ -53,7 +53,18 @@ function hasErrorToolResultStatus(result: AgentToolResult<unknown>): boolean {
 function buildAgentToolResultMiddlewareFactory(): ExtensionFactory {
   const runner = createAgentToolResultMiddlewareRunner({ runtime: "openclaw" });
   return (agent) => {
-    agent.on("tool_result", async (rawEvent: unknown, ctx: { cwd?: string }) => {
+    // 6/24 PATCH: cast through `any` because the upstream AgentEvent
+    // type does not include the "tool_result" event literal that this
+    // extension hook subscribes to. The cast is safe at runtime; the
+    // listener is only invoked when the agent emits a tool_result event.
+    (
+      agent as unknown as {
+        on: (
+          event: string,
+          listener: (rawEvent: unknown, ctx: { cwd?: string }) => unknown,
+        ) => unknown;
+      }
+    ).on("tool_result", async (rawEvent: unknown, ctx: { cwd?: string }) => {
       const event = recordFromUnknown(rawEvent) as AgentToolResultEvent;
       if (!event.toolName) {
         return undefined;
@@ -63,10 +74,14 @@ function buildAgentToolResultMiddlewareFactory(): ExtensionFactory {
           ? event.toolCallId
           : `openclaw-${randomUUID()}`;
       const content = Array.isArray(event.content) ? event.content : [];
+      // 6/24 PATCH: AgentToolResult.content may now include video blocks,
+      // but the middleware runner was compiled from a pre-VideoContent
+      // build. Cast the whole result through `unknown` to forward the
+      // wider type; the middleware itself is a no-op for video blocks.
       const current = {
         content,
         details: event.details,
-      } satisfies AgentToolResult<unknown>;
+      } as unknown as AgentToolResult<unknown>;
       const inputHadErrorStatus = hasErrorToolResultStatus(current);
       const result = await runner.applyToolResultMiddleware({
         threadId: event.threadId,

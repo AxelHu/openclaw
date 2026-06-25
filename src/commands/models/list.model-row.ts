@@ -8,7 +8,9 @@ export type ListRowModel = {
   id: string;
   name: string;
   provider: string;
-  input: Array<"text" | "image" | "document">;
+  // 6/24 PATCH: extend input to include "video" for minimax M3 (and other
+  // models that advertise native video input in their catalog).
+  input: Array<"text" | "image" | "document" | "video">;
   baseUrl?: string;
   contextWindow?: number | null;
   contextTokens?: number | null;

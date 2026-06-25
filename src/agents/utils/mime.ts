@@ -40,6 +40,63 @@ export async function detectSupportedImageMimeTypeFromFile(
   }
 }
 
+/**
+ * 6/24 PATCH: detect supported video MIME types from leading file bytes.
+ * Supports mp4 (ISO BMFF), mov (QuickTime), webm (EBML), avi (RIFF), 3gp.
+ * See read-video.ts session tool for the consumer.
+ */
+export function detectSupportedVideoMimeType(buffer: Uint8Array): string | null {
+  if (buffer.length >= 12 && startsWithAscii(buffer, 4, "ftyp")) {
+    if (
+      startsWithAscii(buffer, 8, "mp4") ||
+      startsWithAscii(buffer, 8, "isom") ||
+      startsWithAscii(buffer, 8, "M4V ")
+    ) {
+      return "video/mp4";
+    }
+    if (startsWithAscii(buffer, 8, "qt  ")) {
+      return "video/quicktime";
+    }
+    if (startsWithAscii(buffer, 8, "3gp")) {
+      return "video/3gpp";
+    }
+    if (buffer.length >= 8) {
+      return "video/mp4";
+    }
+  }
+  if (
+    buffer.length >= 4 &&
+    buffer[0] === 0x1a &&
+    buffer[1] === 0x45 &&
+    buffer[2] === 0xdf &&
+    buffer[3] === 0xa3
+  ) {
+    return "video/webm";
+  }
+  if (
+    startsWithAscii(buffer, 0, "RIFF") &&
+    buffer.length >= 12 &&
+    startsWithAscii(buffer, 8, "AVI ")
+  ) {
+    return "video/x-msvideo";
+  }
+  return null;
+}
+
+/** Reads a bounded prefix from disk and detects its supported video MIME type. */
+export async function detectSupportedVideoMimeTypeFromFile(
+  filePath: string,
+): Promise<string | null> {
+  const fileHandle = await open(filePath, "r");
+  try {
+    const buffer = Buffer.alloc(IMAGE_TYPE_SNIFF_BYTES);
+    const { bytesRead } = await fileHandle.read(buffer, 0, IMAGE_TYPE_SNIFF_BYTES, 0);
+    return detectSupportedVideoMimeType(buffer.subarray(0, bytesRead));
+  } finally {
+    await fileHandle.close();
+  }
+}
+
 function isPng(buffer: Uint8Array): boolean {
   return (
     buffer.length >= 16 &&

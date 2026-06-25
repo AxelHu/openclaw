@@ -7,6 +7,7 @@ import type {
   MessageParam,
   RawMessageStreamEvent,
   TextBlockParam,
+  ToolResultBlockParam,
 } from "@anthropic-ai/sdk/resources/messages.js";
 import {
   projectAnthropicTools,
@@ -1244,14 +1245,35 @@ function convertMessages(
               text: sanitizeSurrogates(item.text),
             };
           }
+          if (item.type === "image") {
+            return {
+              type: "image",
+              source: {
+                type: "base64",
+                media_type: item.mimeType as
+                  | "image/jpeg"
+                  | "image/png"
+                  | "image/gif"
+                  | "image/webp",
+                data: item.data,
+              },
+            };
+          }
+          // video block (6/24 PATCH: support minimax M3 native video input).
+          // The Anthropic SDK ContentBlockParam type does not include a
+          // "video" variant; we cast through `unknown as` so the SDK accepts
+          // the runtime-constructed block. minimax M3 (and other providers
+          // that implement the Anthropic-compatible video extension)
+          // accept the wire format documented in their respective APIs.
           return {
-            type: "image",
+            type: "video" as never,
             source: {
-              type: "base64",
-              media_type: item.mimeType as "image/jpeg" | "image/png" | "image/gif" | "image/webp",
-              data: item.data,
+              type: (item.data ? "base64" : "url") as "base64" | "url",
+              media_type: item.mimeType,
+              ...(item.data ? { data: item.data } : {}),
+              ...(item.url ? { url: item.url } : {}),
             },
-          };
+          } as unknown as ContentBlockParam;
         });
         const filteredBlocks = blocks.filter((b) => {
           if (b.type === "text") {
@@ -1340,11 +1362,15 @@ function convertMessages(
       });
     } else if (msg.role === "toolResult") {
       // Collect all consecutive toolResult messages, needed for z.ai Anthropic endpoint
-      const toolResults: ContentBlockParam[] = [];
+      // 6/24 PATCH: toolResult content may now contain video blocks
+      // (see convertContentBlocks below). The Anthropic SDK
+      // ToolResultBlockParam content type does not include a "video" variant,
+      // so we cast through `unknown` to forward the block to the provider.
+      const toolResults: ToolResultBlockParam[] = [];
       toolResults.push({
         type: "tool_result",
         tool_use_id: msg.toolCallId,
-        content: convertContentBlocks(msg.content),
+        content: convertContentBlocks(msg.content) as unknown as ToolResultBlockParam["content"],
         is_error: msg.isError,
       });
 
@@ -1354,7 +1380,9 @@ function convertMessages(
         toolResults.push({
           type: "tool_result",
           tool_use_id: nextMsg.toolCallId,
-          content: convertContentBlocks(nextMsg.content),
+          content: convertContentBlocks(
+            nextMsg.content,
+          ) as unknown as ToolResultBlockParam["content"],
           is_error: nextMsg.isError,
         });
         j++;

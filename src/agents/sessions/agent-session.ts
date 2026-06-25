@@ -506,7 +506,9 @@ export class AgentSession {
             toolName: toolCall.name,
             toolCallId: toolCall.id,
             input: args as Record<string, unknown>,
-            content: result.content,
+            // 6/24 PATCH: cast through `unknown` because the runner type
+            // is compiled from a pre-VideoContent build of agent-core.
+            content: result.content as unknown as never,
             details: result.details,
             isError,
           }),
@@ -1886,7 +1888,13 @@ export class AgentSession {
     }
 
     const pathEntries = this.sessionManager.getBranch();
-    const preparation = unwrapCoreResult(prepareCompaction(pathEntries, options.settings));
+    // 6/24 PATCH: cast through `unknown` because session-manager's
+    // `SessionEntry` and agent-core's `SessionTreeEntry` are different
+    // but structurally identical type aliases. The cast is safe; the
+    // underlying entry shapes are the same.
+    const preparation = unwrapCoreResult(
+      prepareCompaction(pathEntries as unknown as never, options.settings),
+    );
     if (!preparation) {
       if (isManual) {
         const lastEntry = pathEntries[pathEntries.length - 1];
@@ -2901,7 +2909,10 @@ export class AgentSession {
         const { apiKey, headers } = await this.getRequiredRequestAuth(model);
         const branchSummarySettings = this.settingsManager.getBranchSummarySettings();
         const result = normalizeBranchSummaryResult(
-          await generateBranchSummary(entriesToSummarize, {
+          // 6/24 PATCH: cast through `unknown` because session-manager's
+          // `SessionEntry` and agent-core's `SessionTreeEntry` are
+          // different but structurally identical type aliases.
+          await generateBranchSummary(entriesToSummarize as unknown as never, {
             model,
             apiKey,
             headers,

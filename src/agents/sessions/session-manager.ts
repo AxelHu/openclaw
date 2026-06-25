@@ -23,7 +23,7 @@ import {
   writeJsonlEntriesSync,
 } from "../../config/sessions/transcript-jsonl.js";
 import { CURRENT_SESSION_VERSION } from "../../config/sessions/version.js";
-import type { ImageContent, Message, TextContent } from "../../llm/types.js";
+import type { ImageContent, Message, TextContent, VideoContent } from "../../llm/types.js";
 import { getAgentDir as getDefaultAgentDir, getSessionsDir } from "../config.js";
 import {
   type AgentMessage,
@@ -137,7 +137,9 @@ export interface SessionInfoEntry extends SessionEntryBase {
 export interface CustomMessageEntry<T = unknown> extends SessionEntryBase {
   type: "custom_message";
   customType: string;
-  content: string | (TextContent | ImageContent)[];
+  // 6/24 PATCH: custom message content may now also contain video blocks
+  // (e.g. readVideo session tool result stored as a custom message).
+  content: string | (TextContent | ImageContent | VideoContent)[];
   details?: T;
   display: boolean;
 }
@@ -1042,7 +1044,10 @@ export class SessionManager {
    */
   appendCustomMessageEntry(
     customType: string,
-    content: string | (TextContent | ImageContent)[],
+    // 6/24 PATCH: custom message content may now also contain video
+    // blocks (e.g. a readVideo session tool result stored as a custom
+    // transcript message).
+    content: string | (TextContent | ImageContent | VideoContent)[],
     display: boolean,
     details?: unknown,
   ): string {

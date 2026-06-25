@@ -418,24 +418,49 @@ function convertAnthropicMessages(
             type: "image";
             source: { type: "base64"; media_type: string; data: string };
           }
-      > = msg.content.map((item) =>
-        item.type === "text"
-          ? {
-              type: "text",
-              text: sanitizeTransportPayloadText(item.text),
-            }
-          : {
-              type: "image",
-              source: {
-                type: "base64",
-                media_type: item.mimeType,
-                data: item.data,
-              },
+        | {
+            type: "video";
+            source: {
+              type: "base64" | "url";
+              media_type: string;
+              data?: string;
+              url?: string;
+            };
+          }
+      > = msg.content.map((item) => {
+        if (item.type === "text") {
+          return {
+            type: "text" as const,
+            text: sanitizeTransportPayloadText(item.text),
+          };
+        }
+        if (item.type === "image") {
+          return {
+            type: "image" as const,
+            source: {
+              type: "base64" as const,
+              media_type: item.mimeType,
+              data: item.data,
             },
-      );
+          };
+        }
+        // video block (6/24 PATCH: support minimax M3 native video input)
+        return {
+          type: "video" as const,
+          source: {
+            type: (item.data ? "base64" : "url") as "base64" | "url",
+            media_type: item.mimeType,
+            ...(item.data ? { data: item.data } : {}),
+            ...(item.url ? { url: item.url } : {}),
+          },
+        };
+      });
       let filteredBlocks = model.input.includes("image")
         ? blocks
         : blocks.filter((block) => block.type !== "image");
+      filteredBlocks = model.input.includes("video")
+        ? filteredBlocks
+        : filteredBlocks.filter((block) => block.type !== "video");
       filteredBlocks = filteredBlocks.filter(
         (block) => block.type !== "text" || block.text.trim().length > 0,
       );

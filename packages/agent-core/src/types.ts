@@ -11,6 +11,7 @@ import type {
   TextContent,
   Tool,
   ToolResultMessage,
+  VideoContent,
 } from "../../llm-core/src/index.js";
 
 /**
@@ -78,7 +79,9 @@ export interface DeferredToolCallContext {
  * There is no deep merge for `content` or `details`.
  */
 export interface AfterToolCallResult {
-  content?: (TextContent | ImageContent)[];
+  // 6/24 PATCH: AfterToolCallResult.content may also contain video blocks
+  // (e.g. readVideo session tool returning a video file).
+  content?: (TextContent | ImageContent | VideoContent)[];
   details?: unknown;
   isError?: boolean;
   /**
@@ -337,7 +340,8 @@ export interface CustomMessage<T = unknown> {
   /** Application-defined discriminator for rendering or handling this message. */
   customType: string;
   /** Content replayed into model context when this message is included. */
-  content: string | (TextContent | ImageContent)[];
+  // 6/24 PATCH: CustomMessage.content may now also contain video blocks.
+  content: string | (TextContent | ImageContent | VideoContent)[];
   /** Whether UI surfaces should display this message. */
   display: boolean;
   /** Optional application-specific metadata. */
@@ -439,8 +443,10 @@ export interface AgentToolProgress {
 
 /** Final or partial result produced by a tool. */
 export interface AgentToolResult<T> {
-  /** Text or image content returned to the model. */
-  content: (TextContent | ImageContent)[];
+  /** Text, image, or video content returned to the model. */
+  // 6/24 PATCH: extend content to include video blocks (e.g. readVideo
+  // session tool returning a video file as a VideoContent block).
+  content: (TextContent | ImageContent | VideoContent)[];
   /** Arbitrary structured details for logs or UI rendering. */
   details: T;
   /** Optional public progress hint for partial tool updates; never model content. */

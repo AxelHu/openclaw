@@ -1,5 +1,10 @@
 /** Context-pruning planner that trims old assistant/tool content under token pressure. */
-import type { ImageContent, TextContent, ToolResultMessage } from "../../../llm/types.js";
+import type {
+  ImageContent,
+  TextContent,
+  ToolResultMessage,
+  VideoContent,
+} from "../../../llm/types.js";
 import { CHARS_PER_TOKEN_ESTIMATE, estimateStringChars } from "../../../utils/cjk-chars.js";
 import { dropThinkingBlocks } from "../../embedded-agent-runner/thinking.js";
 import type { AgentMessage } from "../../runtime/index.js";
@@ -40,7 +45,9 @@ function isImageBlock(block: unknown): boolean {
   );
 }
 
-function collectTextSegments(content: ReadonlyArray<TextContent | ImageContent>): string[] {
+function collectTextSegments(
+  content: ReadonlyArray<TextContent | ImageContent | VideoContent>,
+): string[] {
   const parts: string[] = [];
   for (const block of content) {
     const text = coerceTextBlock(block);
@@ -52,7 +59,7 @@ function collectTextSegments(content: ReadonlyArray<TextContent | ImageContent>)
 }
 
 function collectPrunableToolResultSegments(
-  content: ReadonlyArray<TextContent | ImageContent>,
+  content: ReadonlyArray<TextContent | ImageContent | VideoContent>,
 ): string[] {
   const parts: string[] = [];
   for (const block of content) {
@@ -131,7 +138,9 @@ function takeTailFromJoinedText(parts: string[], maxChars: number): string {
   return out.join("");
 }
 
-function hasImageBlocks(content: ReadonlyArray<TextContent | ImageContent>): boolean {
+function hasImageBlocks(
+  content: ReadonlyArray<TextContent | ImageContent | VideoContent>,
+): boolean {
   for (const block of content) {
     if (isImageBlock(block)) {
       return true;
@@ -144,7 +153,9 @@ function estimateWeightedTextChars(text: string): number {
   return estimateStringChars(text);
 }
 
-function estimateTextAndImageChars(content: ReadonlyArray<TextContent | ImageContent>): number {
+function estimateTextAndImageChars(
+  content: ReadonlyArray<TextContent | ImageContent | VideoContent>,
+): number {
   let chars = 0;
   for (const block of content) {
     const text = coerceTextBlock(block);
