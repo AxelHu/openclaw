@@ -36,6 +36,7 @@ import type { ToolDefinition } from "../extensions/types.js";
 import { resolveReadPath } from "./path-utils.js";
 import { invalidArgText, shortenPath, str } from "./render-utils.js";
 import { wrapToolDefinition } from "./tool-definition-wrapper.js";
+import { DEFAULT_VIDEO_INLINE_MAX_BYTES, decideVideoDeliveryMode } from "./video-inline-policy.js";
 
 const readVideoSchema = Type.Object({
   path: Type.String({ description: "Path to the video file to read (relative or absolute)" }),
@@ -47,8 +48,13 @@ const readVideoSchema = Type.Object({
   ),
 });
 
-/** 50MB matches the minimax /anthropic endpoint inline video limit. */
-export const DEFAULT_READ_VIDEO_MAX_BYTES = 50 * 1024 * 1024;
+/**
+ * Back-compat re-export. New callers should import
+ * {@link DEFAULT_VIDEO_INLINE_MAX_BYTES} from `./video-inline-policy.js` so the
+ * threshold is the single source of truth across all video attachment
+ * decisions.
+ */
+export const DEFAULT_READ_VIDEO_MAX_BYTES = DEFAULT_VIDEO_INLINE_MAX_BYTES;
 
 export interface ReadVideoOperations {
   /** Resolve a user-supplied path for this read backend. */
@@ -172,6 +178,9 @@ export function createReadVideoToolDefinition(
     async execute(toolCallId, params, signal) {
       void toolCallId;
       const { path, maxBytes: paramMaxBytes } = params;
+      // 6/26 PATCH: route the inline-vs-hosted decision through
+      // decideVideoDeliveryMode so this stays in lockstep with the chat-bridge
+      // attachment path (agent-turn-attachments.ts) and any future caller.
       const inlineMaxBytes = paramMaxBytes ?? defaultMaxBytes;
 
       return await new Promise<ReadVideoToolResult>((resolve, reject) => {
@@ -209,7 +218,15 @@ export function createReadVideoToolDefinition(
             }
             const buffer = await ops.readFile(absolutePath);
             if (aborted) return;
-            if (buffer.byteLength > inlineMaxBytes) {
+            if (
+              decideVideoDeliveryMode(buffer.byteLength, {
+                inlineMaxBytes,
+                // Caller-supplied uploadVideo helper wins: even small files go
+                // through the upload path when the runner injects one
+                // (e.g. minimax uploads everything to mm_file://).
+                forceUseHostedUrl: options?.uploadVideo !== undefined,
+              }) === "hosted_url"
+            ) {
               const mb = Math.round(buffer.byteLength / 1024 / 1024);
               // 6/25 PATCH: when an upload helper is configured (e.g. the
               // OpenClaw runtime injects `MediaUnderstandingProvider.uploadVideo`
