@@ -6,6 +6,7 @@
 import {
   sanitizeInlineImageBase64,
   sanitizeInlineImageDataUrlForStorage,
+  sanitizeInlineVideoBase64,
 } from "@openclaw/media-core/inline-image-data-url";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { readLoggingConfig } from "../logging/config.js";
@@ -106,31 +107,39 @@ function videoMimeTypeFieldsForRecord(value: Record<string, unknown>): string[] 
   return ["mimeType", "mediaType", "media_type"].filter((key) => isVideoMimeType(value[key]));
 }
 
-function sanitizeOpaqueImageBase64(
+// 6/26 PATCH: 重命名 sanitizeOpaqueImageBase64 → sanitizeOpaqueMediaBase64.
+// 行为扩展: dispatch 到 image 或 video 的 sanitize 函数 (audio 以后再加).
+// 重命名理由: 函数实际行为已超出 image 范围, 原名会误导读者.
+function sanitizeOpaqueMediaBase64(
   base64: string,
   mimeType: string | undefined,
 ): { mimeType: string; base64: string } | undefined {
-  return mimeType ? sanitizeInlineImageBase64({ mimeType, base64 }) : undefined;
+  if (!mimeType) return undefined;
+  if (mimeType.startsWith("image/")) return sanitizeInlineImageBase64({ mimeType, base64 });
+  if (mimeType.startsWith("video/")) return sanitizeInlineVideoBase64({ mimeType, base64 });
+  return undefined;
 }
 
-function isValidOpaqueImageBase64(base64: string, mimeType: string | undefined): boolean {
-  return sanitizeOpaqueImageBase64(base64, mimeType) !== undefined;
+// 6/26 PATCH: 重命名 isValidOpaqueImageBase64 → isValidOpaqueMediaBase64.
+// 旧名 (isValidOpaqueImageBase64) 已无 caller, 彻底删除, 不留 alias.
+function isValidOpaqueMediaBase64(base64: string, mimeType: string | undefined): boolean {
+  return sanitizeOpaqueMediaBase64(base64, mimeType) !== undefined;
 }
 
 function isTranscriptImageContentBlock(value: Record<string, unknown>): boolean {
   return (
     value.type === "image" &&
     typeof value.data === "string" &&
-    isValidOpaqueImageBase64(value.data, imageMimeTypeForRecord(value))
+    isValidOpaqueMediaBase64(value.data, imageMimeTypeForRecord(value))
   );
 }
 
-// 6/26 PATCH: video 块识别 (跟 isTranscriptImageContentBlock 同款)
+// 6/26 PATCH: video 块识别 (跟 isTranscriptImageContentBlock 同款, 走新的 media 判定)
 function isTranscriptVideoContentBlock(value: Record<string, unknown>): boolean {
   return (
     value.type === "video" &&
     typeof value.data === "string" &&
-    isValidOpaqueImageBase64(value.data, videoMimeTypeForRecord(value))
+    isValidOpaqueMediaBase64(value.data, videoMimeTypeForRecord(value))
   );
 }
 
@@ -138,7 +147,7 @@ function isImageBase64SourceBlock(value: Record<string, unknown>): boolean {
   return (
     value.type === "base64" &&
     typeof value.data === "string" &&
-    isValidOpaqueImageBase64(value.data, imageMimeTypeForRecord(value))
+    isValidOpaqueMediaBase64(value.data, imageMimeTypeForRecord(value))
   );
 }
 
@@ -152,7 +161,7 @@ function sanitizeImageRecord(source: Record<string, unknown>): Record<string, un
   if (mimeTypeFields.length === 0) {
     return undefined;
   }
-  const sanitized = sanitizeOpaqueImageBase64(source.data, imageMimeTypeForRecord(source));
+  const sanitized = sanitizeOpaqueMediaBase64(source.data, imageMimeTypeForRecord(source));
   if (!sanitized) {
     return undefined;
   }
@@ -167,9 +176,7 @@ function sanitizeImageRecord(source: Record<string, unknown>): Record<string, un
   return next;
 }
 
-// 6/26 PATCH: video 块 base64 sanitize (跟 sanitizeImageRecord 同款).
-// 复用 image 的 sanitizeInlineImageBase64 函数: 它检查 base64 字符是否合法
-// (只接受 [A-Za-z0-9+/=] 字符), 不依赖 MIME. video base64 损坏跟 image 同款.
+// 6/26 PATCH: video 块 base64 sanitize. 走新的 sanitizeOpaqueMediaBase64 (dispatch image/video).
 function sanitizeVideoRecord(source: Record<string, unknown>): Record<string, unknown> | undefined {
   if (source.type !== "video" || typeof source.data !== "string") {
     return undefined;
@@ -178,7 +185,7 @@ function sanitizeVideoRecord(source: Record<string, unknown>): Record<string, un
   if (mimeTypeFields.length === 0) {
     return undefined;
   }
-  const sanitized = sanitizeOpaqueImageBase64(source.data, videoMimeTypeForRecord(source));
+  const sanitized = sanitizeOpaqueMediaBase64(source.data, videoMimeTypeForRecord(source));
   if (!sanitized) {
     return undefined;
   }
@@ -212,7 +219,10 @@ function sanitizeImageDataUrlField(
   return isImageDataUrlField ? sanitizeInlineImageDataUrlForStorage(value) : undefined;
 }
 
-function shouldPreserveOpaqueImagePayload(
+// 6/26 PATCH: 重命名 shouldPreserveOpaqueImagePayload → shouldPreserveOpaqueMediaPayload.
+// 行为扩展: 加 video 块识别. 重命名理由: 函数现在覆盖 image + video (后续可能加 audio),
+// "Image" 这个名字会误导后续维护者, 改 Media 更准确.
+function shouldPreserveOpaqueMediaPayload(
   source: Record<string, unknown>,
   key: string,
   item: unknown,
@@ -223,7 +233,9 @@ function shouldPreserveOpaqueImagePayload(
   }
   if (
     key === "data" &&
-    (isTranscriptImageContentBlock(source) || isImageBase64SourceBlock(source))
+    (isTranscriptImageContentBlock(source) ||
+      isTranscriptVideoContentBlock(source) ||
+      isImageBase64SourceBlock(source))
   ) {
     return true;
   }
@@ -714,7 +726,7 @@ function redactTranscriptStructuredValue(
         continue;
       }
     }
-    if (shouldPreserveOpaqueImagePayload(source, key, item, preserveImageDataUrlFields)) {
+    if (shouldPreserveOpaqueMediaPayload(source, key, item, preserveImageDataUrlFields)) {
       continue;
     }
     const redacted = redactTranscriptStructuredValue(
