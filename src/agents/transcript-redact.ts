@@ -66,8 +66,18 @@ function isImageMimeType(value: unknown): value is string {
   return typeof value === "string" && /^image\//iu.test(value.trim());
 }
 
+// 6/26 PATCH: video MIME type 判断 (跟 isImageMimeType 同款)
+function isVideoMimeType(value: unknown): value is string {
+  return typeof value === "string" && /^video\//iu.test(value.trim());
+}
+
 function normalizeImageMimeType(value: unknown): string | undefined {
   return isImageMimeType(value) ? value.trim().toLowerCase() : undefined;
+}
+
+// 6/26 PATCH: video MIME normalize (跟 normalizeImageMimeType 同款)
+function normalizeVideoMimeType(value: unknown): string | undefined {
+  return isVideoMimeType(value) ? value.trim().toLowerCase() : undefined;
 }
 
 function imageMimeTypeForRecord(value: Record<string, unknown>): string | undefined {
@@ -78,8 +88,22 @@ function imageMimeTypeForRecord(value: Record<string, unknown>): string | undefi
   );
 }
 
+// 6/26 PATCH: video MIME 查找 (跟 imageMimeTypeForRecord 同款)
+function videoMimeTypeForRecord(value: Record<string, unknown>): string | undefined {
+  return (
+    normalizeVideoMimeType(value.mimeType) ??
+    normalizeVideoMimeType(value.mediaType) ??
+    normalizeVideoMimeType(value.media_type)
+  );
+}
+
 function imageMimeTypeFieldsForRecord(value: Record<string, unknown>): string[] {
   return ["mimeType", "mediaType", "media_type"].filter((key) => isImageMimeType(value[key]));
+}
+
+// 6/26 PATCH: video MIME fields 查找 (跟 imageMimeTypeFieldsForRecord 同款)
+function videoMimeTypeFieldsForRecord(value: Record<string, unknown>): string[] {
+  return ["mimeType", "mediaType", "media_type"].filter((key) => isVideoMimeType(value[key]));
 }
 
 function sanitizeOpaqueImageBase64(
@@ -98,6 +122,15 @@ function isTranscriptImageContentBlock(value: Record<string, unknown>): boolean 
     value.type === "image" &&
     typeof value.data === "string" &&
     isValidOpaqueImageBase64(value.data, imageMimeTypeForRecord(value))
+  );
+}
+
+// 6/26 PATCH: video 块识别 (跟 isTranscriptImageContentBlock 同款)
+function isTranscriptVideoContentBlock(value: Record<string, unknown>): boolean {
+  return (
+    value.type === "video" &&
+    typeof value.data === "string" &&
+    isValidOpaqueImageBase64(value.data, videoMimeTypeForRecord(value))
   );
 }
 
@@ -120,6 +153,32 @@ function sanitizeImageRecord(source: Record<string, unknown>): Record<string, un
     return undefined;
   }
   const sanitized = sanitizeOpaqueImageBase64(source.data, imageMimeTypeForRecord(source));
+  if (!sanitized) {
+    return undefined;
+  }
+  const hasCanonicalMimeTypes = mimeTypeFields.every((key) => source[key] === sanitized.mimeType);
+  if (source.data === sanitized.base64 && hasCanonicalMimeTypes) {
+    return source;
+  }
+  const next: Record<string, unknown> = { ...source, data: sanitized.base64 };
+  for (const field of mimeTypeFields) {
+    next[field] = sanitized.mimeType;
+  }
+  return next;
+}
+
+// 6/26 PATCH: video 块 base64 sanitize (跟 sanitizeImageRecord 同款).
+// 复用 image 的 sanitizeInlineImageBase64 函数: 它检查 base64 字符是否合法
+// (只接受 [A-Za-z0-9+/=] 字符), 不依赖 MIME. video base64 损坏跟 image 同款.
+function sanitizeVideoRecord(source: Record<string, unknown>): Record<string, unknown> | undefined {
+  if (source.type !== "video" || typeof source.data !== "string") {
+    return undefined;
+  }
+  const mimeTypeFields = videoMimeTypeFieldsForRecord(source);
+  if (mimeTypeFields.length === 0) {
+    return undefined;
+  }
+  const sanitized = sanitizeOpaqueImageBase64(source.data, videoMimeTypeForRecord(source));
   if (!sanitized) {
     return undefined;
   }
@@ -558,7 +617,10 @@ function redactTranscriptStructuredValue(
 
   seen.add(value);
   const sanitizedImageRecord = sanitizeImageRecord(value);
-  const source = sanitizedImageRecord ?? value;
+  // 6/26 PATCH: video 块也走 sanitize (跟 image 同款).
+  // 如果 image sanitize 没匹配上 (type 不是 "image" / "base64"), 再试 video sanitize.
+  const sanitizedVideoRecord = sanitizedImageRecord ?? sanitizeVideoRecord(value);
+  const source = sanitizedVideoRecord ?? value;
   const currentAssistantRoute =
     location === "root" && source.role === "assistant"
       ? {

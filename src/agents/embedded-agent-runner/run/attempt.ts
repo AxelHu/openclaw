@@ -550,17 +550,22 @@ function pluginMetadataSnapshotCoversProvider(
   });
 }
 
-function summarizeMessagePayload(msg: AgentMessage): { textChars: number; imageBlocks: number } {
+function summarizeMessagePayload(msg: AgentMessage): {
+  textChars: number;
+  imageBlocks: number;
+  videoBlocks: number;
+} {
   const content = (msg as { content?: unknown }).content;
   if (typeof content === "string") {
-    return { textChars: content.length, imageBlocks: 0 };
+    return { textChars: content.length, imageBlocks: 0, videoBlocks: 0 };
   }
   if (!Array.isArray(content)) {
-    return { textChars: 0, imageBlocks: 0 };
+    return { textChars: 0, imageBlocks: 0, videoBlocks: 0 };
   }
 
   let textChars = 0;
   let imageBlocks = 0;
+  let videoBlocks = 0;
   for (const block of content) {
     if (!block || typeof block !== "object") {
       continue;
@@ -570,23 +575,30 @@ function summarizeMessagePayload(msg: AgentMessage): { textChars: number; imageB
       imageBlocks++;
       continue;
     }
+    // 6/26 PATCH: video block 也要计入 display/log (跟 image 同款 pattern)
+    if (typedBlock.type === "video") {
+      videoBlocks++;
+      continue;
+    }
     if (typeof typedBlock.text === "string") {
       textChars += typedBlock.text.length;
     }
   }
 
-  return { textChars, imageBlocks };
+  return { textChars, imageBlocks, videoBlocks };
 }
 
 function summarizeSessionContext(messages: AgentMessage[]): {
   roleCounts: string;
   totalTextChars: number;
   totalImageBlocks: number;
+  totalVideoBlocks: number;
   maxMessageTextChars: number;
 } {
   const roleCounts = new Map<string, number>();
   let totalTextChars = 0;
   let totalImageBlocks = 0;
+  let totalVideoBlocks = 0;
   let maxMessageTextChars = 0;
 
   for (const msg of messages) {
@@ -596,6 +608,7 @@ function summarizeSessionContext(messages: AgentMessage[]): {
     const payload = summarizeMessagePayload(msg);
     totalTextChars += payload.textChars;
     totalImageBlocks += payload.imageBlocks;
+    totalVideoBlocks += payload.videoBlocks;
     if (payload.textChars > maxMessageTextChars) {
       maxMessageTextChars = payload.textChars;
     }
@@ -609,6 +622,7 @@ function summarizeSessionContext(messages: AgentMessage[]): {
         .join(",") || "none",
     totalTextChars,
     totalImageBlocks,
+    totalVideoBlocks,
     maxMessageTextChars,
   };
 }
@@ -4332,6 +4346,7 @@ export async function runEmbeddedAttempt(
             messageCount: msgCount,
             historyTextChars: sessionSummary.totalTextChars,
             historyImageBlocks: sessionSummary.totalImageBlocks,
+            historyVideoBlocks: sessionSummary.totalVideoBlocks,
             maxMessageTextChars: sessionSummary.maxMessageTextChars,
             systemPromptChars: systemLen,
             promptChars: promptLen,
@@ -4354,6 +4369,7 @@ export async function runEmbeddedAttempt(
                 `historyTextChars=${sessionSummary.totalTextChars} ` +
                 `maxMessageTextChars=${sessionSummary.maxMessageTextChars} ` +
                 `historyImageBlocks=${sessionSummary.totalImageBlocks} ` +
+                `historyVideoBlocks=${sessionSummary.totalVideoBlocks} ` +
                 `systemPromptChars=${systemLen} promptChars=${promptLen} ` +
                 `promptImages=${imageResult.images.length} ` +
                 `provider=${params.provider}/${params.modelId} sessionFile=${params.sessionFile}`,

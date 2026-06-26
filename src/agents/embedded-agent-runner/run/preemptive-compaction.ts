@@ -22,6 +22,10 @@ const JSON_PAYLOAD_CHARS_PER_TOKEN = 3;
 const MESSAGE_BOUNDARY_OVERHEAD_TOKENS = 12;
 const CONTENT_BLOCK_OVERHEAD_TOKENS = 6;
 const IMAGE_BLOCK_TOKENS = 2_000;
+// 6/26 PATCH: video block token 估算. 跟 harness/compaction.ts 的 VIDEO_CHAR_ESTIMATE = 200_000 chars 对齐
+// (200_000 / 3 chars-per-token ≈ 67K tokens/段, 跟 Anthropic/M3 视频按时长算的规则 1.3-1.6K/s 匹配).
+// 不再走 default case 的 JSON.stringify(base64) (54s 视频 base64 ≈ 36MB → 12M tokens 估算, 误报 overflow).
+const VIDEO_BLOCK_TOKENS = 67_000;
 const TRUNCATION_ROUTE_BUFFER_TOKENS = 512;
 
 export type { PreemptiveCompactionRoute } from "./preemptive-compaction.types.js";
@@ -103,6 +107,10 @@ function estimateContentBlockTokenPressure(
   }
   if (type === "image") {
     return IMAGE_BLOCK_TOKENS;
+  }
+  // 6/26 PATCH: video block 走固定估算, 不要 JSON.stringify base64
+  if (type === "video") {
+    return VIDEO_BLOCK_TOKENS;
   }
   return CONTENT_BLOCK_OVERHEAD_TOKENS + estimateJsonPayloadTokenPressure(block, charsPerToken);
 }

@@ -148,6 +148,22 @@ export function pruneProcessedHistoryImages(messages: AgentMessage[]): AgentMess
         } as (typeof message.content)[number];
         prunedMessages[i] = cloneMessageWithContent(message, nextContent);
       }
+      // 6/26 PATCH: video 也要 prune (跟 image 同款 pattern). 长期 context 里 video 块
+      // 不修剪会越堆越多, base64 体积大, transport token 估算会爆. 跟 image 一起 prune 即可.
+      if (blockType === "video") {
+        prunedMessages ??= messages.slice();
+        const baseMessage = prunedMessages[i];
+        const baseContent =
+          baseMessage && "content" in baseMessage && Array.isArray(baseMessage.content)
+            ? baseMessage.content
+            : message.content;
+        const nextContent = baseContent.slice() as typeof message.content;
+        nextContent[j] = {
+          type: "text",
+          text: PRUNED_HISTORY_IMAGE_MARKER,
+        } as (typeof message.content)[number];
+        prunedMessages[i] = cloneMessageWithContent(message, nextContent);
+      }
     }
   }
 
