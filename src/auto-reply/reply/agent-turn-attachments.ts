@@ -342,29 +342,45 @@ export function resolveInlineAgentImageAttachments(
   if (!Array.isArray(images)) {
     return [];
   }
-  return images
-    .map((image) => {
-      const block = image as {
-        type?: "image" | "video";
-        mimeType: string;
-        data?: string;
-        url?: string;
-      };
-      // Video blocks carry a hosted URL (mm_file://{file_id}) instead of
-      // inline base64 data. Forward them with an empty `data` field and
-      // attach the hosted URL so the ACP runtime can include them in the
-      // multimodal content assembly.
-      if (block.type === "video") {
+  return (
+    images
+      .map((image) => {
+        const block = image as {
+          type?: "image" | "video";
+          mimeType: string;
+          data?: string;
+          url?: string;
+        };
+        // Video blocks carry a hosted URL (mm_file://{file_id}) instead of
+        // inline base64 data. Forward them with an empty `data` field and
+        // attach the hosted URL so the ACP runtime can include them in the
+        // multimodal content assembly.
+        if (block.type === "video") {
+          return {
+            mediaType: block.mimeType,
+            data: block.data ?? "",
+            hostedUrl: block.url,
+          };
+        }
         return {
           mediaType: block.mimeType,
           data: block.data ?? "",
-          hostedUrl: block.url,
         };
-      }
-      return {
-        mediaType: block.mimeType,
-        data: block.data ?? "",
-      };
-    })
-    .filter((image) => image.mediaType.startsWith("image/") && image.data.trim().length > 0);
+      })
+      // 6/27 PATCH: keep video attachments through the same filter as
+      // images. The previous filter (`mediaType.startsWith("image/")`)
+      // silently dropped inline-base64 videos; only the hosted-URL path
+      // survived because it sets `hostedUrl`. With `media.video.mode`
+      // supporting inline base64 (commit 59d3106) and the transport
+      // routing video blocks (commit bdda47b), the multimodal-image
+      // helper needs to forward video blocks too. Symmetric with the
+      // attachment pipeline's `classifyAttachment` (which already
+      // recognises both image/* and video/*).
+      .filter((image) => {
+        const isImageOrVideo =
+          image.mediaType.startsWith("image/") || image.mediaType.startsWith("video/");
+        const hasPayload = image.data.trim().length > 0 || !!image.hostedUrl;
+        return isImageOrVideo && hasPayload;
+      })
+  );
 }
