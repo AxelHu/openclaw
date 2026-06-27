@@ -122,11 +122,13 @@ function isOpenClawCliImageCachePath(filePath: string): boolean {
  */
 export function mergePromptAttachmentImages(params: {
   imageOrder?: PromptImageOrderEntry[];
-  existingImages?: ImageContent[];
+  // 6/27 PATCH: video attachments pass through alongside image ones;
+  // the transport's video branch picks them up later.
+  existingImages?: Array<ImageContent | VideoContent>;
   offloadedImages?: Array<ImageContent | null>;
   promptRefImages?: ImageContent[];
-}): ImageContent[] {
-  const promptImages: ImageContent[] = [];
+}): Array<ImageContent | VideoContent> {
+  const promptImages: Array<ImageContent | VideoContent> = [];
   const existingImages = params.existingImages ?? [];
   const offloadedImages = params.offloadedImages ?? [];
 

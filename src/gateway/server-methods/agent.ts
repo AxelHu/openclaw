@@ -1505,7 +1505,12 @@ export const agentHandlers: GatewayRequestHandlers = {
       if (!isRawModelRun) {
         message = annotateInterSessionPromptText(message, inputProvenance);
       }
-      let images: Array<{ type: "image"; data: string; mimeType: string }> = [];
+      // 6/27 PATCH: agent.run accepts both image and video attachments
+      // now that chat-attachments.ts branches on isVideo/isImage.
+      let images: Array<
+        | { type: "image"; data: string; mimeType: string }
+        | { type: "video"; data: string; mimeType: string }
+      > = [];
       let imageOrder: PromptImageOrderEntry[] = [];
       if (normalizedAttachments.length > 0) {
         let baseProvider: string | undefined;
@@ -1548,10 +1553,12 @@ export const agentHandlers: GatewayRequestHandlers = {
             maxBytes: resolveChatAttachmentMaxBytes(cfg),
             log: context.logGateway,
             supportsInlineImages,
-            // agent.run does not yet wire a ctx.MediaPaths stage path, so reject
-            // non-image attachments explicitly (UnsupportedAttachmentError)
-            // instead of saving them where the agent cannot reach them.
-            acceptNonImage: false,
+            // 6/27 PATCH: allow video attachments through. The agent runner
+            // carries image AND video blocks via params.images and the
+            // attachment pipeline handles 5MB inline videos cleanly.
+            // Reject other non-image types (audio, document, etc.) so we
+            // still error early instead of silently dropping them.
+            acceptNonImage: true,
           });
           message = parsed.message.trim();
           images = parsed.images;

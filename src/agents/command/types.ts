@@ -51,8 +51,12 @@ export type AgentCommandOpts = {
   message: string;
   /** User-visible transcript body; defaults to message and excludes runtime-only context. */
   transcriptMessage?: string;
-  /** Optional image attachments for multimodal messages. */
-  images?: ImageContent[];
+  /**
+   * 6/27 PATCH: image and video attachments for multimodal messages.
+   * Video blocks flow through the same `images` array and the transport
+   * emits the correct `{type: "video", source: {base64}}` block.
+   */
+  images?: Array<ImageContent | VideoContent>;
   /** Original inline/offloaded attachment order for inbound images. */
   imageOrder?: PromptImageOrderEntry[];
   /** Optional client-provided tools (OpenResponses hosted tools). */
