@@ -1,8 +1,13 @@
 /** Resolves media attachments available to the current agent turn. */
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
 import type { AcpTurnAttachment as AgentTurnAttachment } from "../../acp/control-plane/manager.types.js";
+import {
+  type InlinePolicy,
+  resolveVideoDeliveryPolicy,
+} from "../../agents/sessions/tools/video-inline-policy.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { logVerbose } from "../../globals.js";
+import { logWarn } from "../../logger.js";
 import {
   buildMediaUnderstandingRegistry,
   getMediaUnderstandingProvider,
@@ -129,29 +134,37 @@ export async function resolveAgentTurnAttachments(params: {
   // them.
   const providerRegistry = buildMediaUnderstandingRegistry(undefined, params.cfg);
 
-  const resolveVideoViaUpload = async (attachment: MediaAttachment): Promise<boolean> => {
+  // 6/26 PATCH: helper that takes an already-read buffer so the hosted
+  // branch can re-use the inline read. Returns false on upload failure
+  // (no silent fallback to inline).
+  const resolveVideoViaUpload = async (
+    attachment: MediaAttachment,
+    preReadBuffer?: Buffer,
+  ): Promise<boolean> => {
     const mediaType = attachment.mime ?? "application/octet-stream";
     const path = normalizeOptionalString(attachment.path);
     if (!path) {
       return false;
     }
-    let buffer: Buffer;
-    try {
-      const fetched = await cache.getBuffer({
-        attachmentIndex: attachment.index,
-        // Read up to 512MB (matches minimax Files API upload cap). If the
-        // file is larger we still want to surface the failure explicitly
-        // rather than silently truncating.
-        maxBytes: 512 * 1024 * 1024,
-        timeoutMs: AGENT_TURN_ATTACHMENT_TIMEOUT_MS,
-      });
-      buffer = fetched.buffer;
-    } catch (error) {
-      const errorName = error instanceof Error ? error.name : typeof error;
-      logVerbose(
-        `agent-turn-attachments: failed to read oversized video attachment #${attachment.index + 1} (${errorName})`,
-      );
-      return false;
+    let buffer = preReadBuffer;
+    if (!buffer) {
+      try {
+        const fetched = await cache.getBuffer({
+          attachmentIndex: attachment.index,
+          // Read up to 512MB (matches minimax Files API upload cap). If the
+          // file is larger we still want to surface the failure explicitly
+          // rather than silently truncating.
+          maxBytes: 512 * 1024 * 1024,
+          timeoutMs: AGENT_TURN_ATTACHMENT_TIMEOUT_MS,
+        });
+        buffer = fetched.buffer;
+      } catch (error) {
+        const errorName = error instanceof Error ? error.name : typeof error;
+        logVerbose(
+          `agent-turn-attachments: failed to read oversized video attachment #${attachment.index + 1} (${errorName})`,
+        );
+        return false;
+      }
     }
     for (const providerId of VIDEO_UPLOAD_PROVIDER_IDS) {
       const provider = getMediaUnderstandingProvider(providerId, providerRegistry);
@@ -182,8 +195,11 @@ export async function resolveAgentTurnAttachments(params: {
         );
         return true;
       } catch (error) {
-        logVerbose(
-          `agent-turn-attachments: ${providerId} uploadVideo failed for attachment #${attachment.index + 1}: ${error instanceof Error ? error.message : String(error)}`,
+        // 6/26 PATCH: surface the real upload error so the failure is
+        // visible in the gateway log (not buried in `logVerbose` only).
+        const reason = error instanceof Error ? error.message : String(error);
+        logWarn(
+          `agent-turn-attachments: ${providerId} uploadVideo failed for video attachment #${attachment.index + 1} (${buffer.byteLength} bytes): ${reason}. Dropping the video; set \`models.providers.${providerId}.media.video.mode = "inline"\` in openclaw.json to fall back to inline base64.`,
         );
       }
     }
@@ -196,8 +212,31 @@ export async function resolveAgentTurnAttachments(params: {
       return false;
     }
     const mediaType = attachment.mime ?? "application/octet-stream";
-    if (!normalizeOptionalString(attachment.path)) {
+    const path = normalizeOptionalString(attachment.path);
+    if (!path) {
       return false;
+    }
+    // 6/26 PATCH: resolve the per-provider video delivery policy so
+    // `media.video.mode` flips the inline-vs-hosted branch. Image
+    // attachments are unaffected.
+    let videoPolicy: InlinePolicy | undefined;
+    if (kind === "video") {
+      for (const providerId of VIDEO_UPLOAD_PROVIDER_IDS) {
+        const provider = getMediaUnderstandingProvider(providerId, providerRegistry);
+        const hasUploadVideo = provider?.uploadVideo !== undefined;
+        const policy = resolveVideoDeliveryPolicy(params.cfg, providerId, { hasUploadVideo });
+        if (hasUploadVideo) {
+          videoPolicy = policy;
+          break;
+        }
+        if (policy.forceUseHostedUrl) {
+          // Hosted mode requested but no helper on this provider; keep
+          // looking so we don't pin to a provider that can't honour it.
+          continue;
+        }
+        videoPolicy = policy;
+        break;
+      }
     }
     try {
       const { buffer } = await cache.getBuffer({
@@ -205,6 +244,12 @@ export async function resolveAgentTurnAttachments(params: {
         maxBytes: attachmentMaxBytes(kind),
         timeoutMs: AGENT_TURN_ATTACHMENT_TIMEOUT_MS,
       });
+      // 6/26 PATCH: hosted mode forces the upload path even for small
+      // videos that fit the inline cap. Re-use the buffer we just read
+      // to avoid a second fs round trip.
+      if (kind === "video" && videoPolicy?.forceUseHostedUrl) {
+        return await resolveVideoViaUpload(attachment, buffer);
+      }
       results.push({
         mediaType,
         data: buffer.toString("base64"),
@@ -215,14 +260,22 @@ export async function resolveAgentTurnAttachments(params: {
       }
       return true;
     } catch (error) {
-      // Oversized video: fall back to provider-hosted Files API upload
-      // (e.g. minimax `uploadVideo` → `mm_file://{file_id}`) so the model
-      // still receives a video block instead of `[video]` placeholder.
+      // 6/26 PATCH: only fall back to the hosted upload for video when
+      // the per-provider policy allows it. Inline mode drops the
+      // attachment with a clear log instead of silently re-routing it
+      // (which previously hid real upload errors behind the misleading
+      // "5MB exceeds 50MB" message in the readVideo tool).
       if (
         kind === "video" &&
         runtime.isMediaUnderstandingSkipError(error) &&
         /size|too large|exceeds/i.test(error.reason)
       ) {
+        if (videoPolicy && !videoPolicy.forceUseHostedUrl) {
+          logWarn(
+            `agent-turn-attachments: video attachment #${attachment.index + 1} (${path}) exceeds inline cap and \`media.video.mode\` is "inline" — dropping attachment rather than uploading. Raise \`inlineMaxBytes\` or switch to mode "auto"/"hosted" in openclaw.json to keep the video in the prompt.`,
+          );
+          return false;
+        }
         return await resolveVideoViaUpload(attachment);
       }
       if (runtime.isMediaUnderstandingSkipError(error)) {

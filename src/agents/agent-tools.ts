@@ -87,6 +87,7 @@ import { resolveReadOnlyWorkspaceSkillMounts } from "./sandbox/workspace-mounts.
 import { resolveSenderToolPolicy } from "./sender-tool-policy.js";
 import { createCodingTools, createReadTool } from "./sessions/index.js";
 import type { ToolsOptions } from "./sessions/tools/index.js";
+import { resolveVideoDeliveryPolicy } from "./sessions/tools/video-inline-policy.js";
 import {
   isSubagentEnvelopeSession,
   resolveSubagentCapabilityStore,
@@ -246,6 +247,13 @@ function createLazyProcessTool(defaults?: ProcessToolDefaults): AnyAgentTool {
  * the bundled minimax extension) so the readVideo tool can upload
  * oversized videos to a hosted Files API instead of failing.
  *
+ * 6/26 PATCH: also translates `cfg.models.providers.<id>.media.video.mode`
+ * (auto/inline/hosted) into the readVideo tool's `forceUseHostedUrl`
+ * hint. The tool keeps both inline and hosted paths and uses the hint
+ * (plus file size for the `auto` case) to decide. We deliberately don't
+ * expose the full `InlinePolicy` on the tool — the cfg is the source of
+ * truth, the hint is just the projection.
+ *
  * Returns `undefined` when no suitable provider is configured so that the
  * caller falls back to the default behaviour (inline ≤ 50MB, error > 50MB).
  */
@@ -254,14 +262,37 @@ function resolveCodingToolProviderOptions(cfg?: OpenClawConfig): ToolsOptions | 
   const registry = buildMediaUnderstandingRegistry(undefined, cfg);
   for (const id of ["minimax", "minimax-portal"] as const) {
     const provider = getMediaUnderstandingProvider(id, registry);
-    if (!provider?.uploadVideo) continue;
+    const hasUploadVideo = provider?.uploadVideo !== undefined;
+    const policy = resolveVideoDeliveryPolicy(cfg, id, { hasUploadVideo });
+    if (!hasUploadVideo && policy.forceUseHostedUrl) {
+      // Hosted mode requested but no upload helper exposed. Skip so we
+      // don't shadow a working inline path on a different provider.
+      continue;
+    }
+    if (!hasUploadVideo && !provider) {
+      continue;
+    }
     return {
       readVideo: {
-        uploadVideo: (req) =>
-          provider.uploadVideo!({
-            ...req,
-            cfg,
-          }),
+        // 6/26 PATCH (3rd iter): pass `forceUseHostedUrl` + `defaultMaxBytes`
+        // as the readVideo tool's options. The new
+        // `models.providers.<id>.media.video.mode` cfg is the source of
+        // truth; the tool carries inline + hosted paths internally and
+        // uses this hint (plus file size for the `auto` case) to decide
+        // which one to run.
+        forceUseHostedUrl: policy.forceUseHostedUrl,
+        defaultMaxBytes: policy.inlineMaxBytes,
+        ...(hasUploadVideo
+          ? {
+              uploadVideo: (
+                req: Parameters<NonNullable<ToolsOptions["readVideo"]>["uploadVideo"]>[0],
+              ) =>
+                provider!.uploadVideo!({
+                  ...req,
+                  cfg,
+                }),
+            }
+          : {}),
       },
     };
   }

@@ -70,3 +70,76 @@ export function decideVideoDeliveryMode(
 export function shouldUseHostedVideoUpload(sizeBytes: number, policy: InlinePolicy = {}): boolean {
   return decideVideoDeliveryMode(sizeBytes, policy) === "hosted_url";
 }
+
+import type { ModelProviderVideoMode } from "../../../config/types.models.js";
+// 6/26 PATCH: helpers that resolve the readVideo/attachment inline-vs-hosted
+// policy from OpenClaw config, so deployments can flip the behaviour without
+// rebuilding. See `models.providers.<id>.media.video.mode` in openclaw.json.
+import type { OpenClawConfig } from "../../../config/types.openclaw.js";
+
+export type ResolveVideoPolicyInput = {
+  /**
+   * Whether the provider's media-understanding plugin exposes a working
+   * `uploadVideo` helper. When false, hosted mode degrades to inline because
+   * there's no other path. The caller decides what "working" means; the
+   * default is `true` so existing call sites stay opt-in.
+   */
+  hasUploadVideo?: boolean;
+  /**
+   * Override for the default 50MB inline cap. Useful for tests that want
+   * to push the boundary.
+   */
+  defaultInlineMaxBytes?: number;
+};
+
+/**
+ * Reads `cfg.models.providers.<providerId>.media.video.mode` and returns the
+ * corresponding `InlinePolicy`. Defaults to "auto", which preserves the
+ * pre-config behaviour: hosted when the provider exposes an upload helper,
+ * inline otherwise.
+ *
+ * The helper never throws on missing keys (providers may not be configured,
+ * or the user may have left the field unset). Unknown mode values fall
+ * through to "auto" with a log line so we don't silently break the world
+ * when the schema is loosened in the future.
+ */
+export function resolveVideoDeliveryPolicy(
+  cfg: OpenClawConfig | undefined,
+  providerId: string,
+  input: ResolveVideoPolicyInput = {},
+): InlinePolicy {
+  const hasUploadVideo = input.hasUploadVideo ?? true;
+  const inlineMaxBytes = input.defaultInlineMaxBytes ?? DEFAULT_VIDEO_INLINE_MAX_BYTES;
+  const fallbackPolicy: InlinePolicy = {
+    forceUseHostedUrl: hasUploadVideo,
+    inlineMaxBytes,
+  };
+  if (!cfg) return fallbackPolicy;
+  const mode = cfg.models?.providers?.[providerId]?.media?.video?.mode as
+    | ModelProviderVideoMode
+    | undefined;
+  const cfgInlineMaxBytes = cfg.models?.providers?.[providerId]?.media?.video?.inlineMaxBytes;
+  const resolvedInlineMaxBytes = cfgInlineMaxBytes ?? inlineMaxBytes;
+  switch (mode) {
+    case "inline":
+      return {
+        forceUseHostedUrl: false,
+        inlineMaxBytes: resolvedInlineMaxBytes,
+      };
+    case "hosted":
+      // If there's no upload helper we can't actually host; fall back to
+      // inline so the caller at least sees a clear "size > cap" error
+      // rather than a generic upload failure.
+      return {
+        forceUseHostedUrl: hasUploadVideo,
+        inlineMaxBytes: resolvedInlineMaxBytes,
+      };
+    case "auto":
+    case undefined:
+    default:
+      return {
+        forceUseHostedUrl: hasUploadVideo,
+        inlineMaxBytes: resolvedInlineMaxBytes,
+      };
+  }
+}

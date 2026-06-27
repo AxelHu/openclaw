@@ -94,6 +94,21 @@ export interface ReadVideoToolOptions {
    * different provider can wrap their helper to match this shape.
    */
   uploadVideo?: (req: VideoUploadRequest) => Promise<VideoUploadResult>;
+  /**
+   * 6/26 PATCH: hint that drives the inline-vs-hosted branch. The new
+   * `models.providers.<id>.media.video.mode` config (auto/inline/hosted)
+   * is the source of truth; the caller translates it into this boolean.
+   *
+   * Semantics:
+   * - `true`  → always use the hosted branch (requires `uploadVideo`)
+   * - `false` → always use inline base64, even if `uploadVideo` is set
+   * - `undefined` (auto) → tool decides: use `uploadVideo` when it's
+   *   present AND the file exceeds `defaultMaxBytes`; otherwise inline
+   *
+   * The "auto" case is implemented inside the tool because the decision
+   * depends on the file size, which is only known after reading.
+   */
+  forceUseHostedUrl?: boolean;
 }
 
 type ReadVideoRenderArgs = { path?: string; max_bytes?: number };
@@ -181,6 +196,8 @@ export function createReadVideoToolDefinition(
       // 6/26 PATCH: route the inline-vs-hosted decision through
       // decideVideoDeliveryMode so this stays in lockstep with the chat-bridge
       // attachment path (agent-turn-attachments.ts) and any future caller.
+      // `forceUseHostedUrl` is the cfg-derived hint; per-call `maxBytes`
+      // overrides `defaultMaxBytes`.
       const inlineMaxBytes = paramMaxBytes ?? defaultMaxBytes;
 
       return await new Promise<ReadVideoToolResult>((resolve, reject) => {
@@ -218,16 +235,20 @@ export function createReadVideoToolDefinition(
             }
             const buffer = await ops.readFile(absolutePath);
             if (aborted) return;
+            // 6/26 PATCH: `forceUseHostedUrl` (from cfg.mode) drives the
+            // inline-vs-hosted branch. When undefined, `decideVideoDeliveryMode`
+            // falls back to the auto rule: use `uploadVideo` when present
+            // and the file exceeds the cap. When `true`/`false`, the tool
+            // follows the hint unconditionally.
+            const forceUseHostedUrl = options?.forceUseHostedUrl;
             if (
               decideVideoDeliveryMode(buffer.byteLength, {
                 inlineMaxBytes,
-                // Caller-supplied uploadVideo helper wins: even small files go
-                // through the upload path when the runner injects one
-                // (e.g. minimax uploads everything to mm_file://).
-                forceUseHostedUrl: options?.uploadVideo !== undefined,
+                forceUseHostedUrl,
               }) === "hosted_url"
             ) {
               const mb = Math.round(buffer.byteLength / 1024 / 1024);
+              const inlineCapMb = Math.round(inlineMaxBytes / 1024 / 1024);
               // 6/25 PATCH: when an upload helper is configured (e.g. the
               // OpenClaw runtime injects `MediaUnderstandingProvider.uploadVideo`
               // from the minimax extension), upload oversized videos instead
@@ -266,29 +287,58 @@ export function createReadVideoToolDefinition(
                   });
                   return;
                 } catch (uploadErr) {
-                  // Fall through to the error path below so the agent gets a
-                  // helpful message explaining both options.
-                  logVerbose(
-                    `readVideo: hosted upload failed for ${absolutePath}: ${uploadErr instanceof Error ? uploadErr.message : String(uploadErr)}`,
-                  );
+                  // 6/26 PATCH: surface the real upload error instead of
+                  // falling through to the misleading "size > cap" message.
+                  // The old behaviour dropped the upload error on the floor
+                  // and the user saw a fake "5MB exceeds 50MB" even when the
+                  // file was well under the cap.
+                  const reason = uploadErr instanceof Error ? uploadErr.message : String(uploadErr);
+                  logVerbose(`readVideo: hosted upload failed for ${absolutePath}: ${reason}`);
+                  signal?.removeEventListener("abort", onAbort);
+                  resolve({
+                    content: [
+                      {
+                        type: "text",
+                        text:
+                          `readVideo: hosted video upload failed (${mb}MB, ${mimeType}). ` +
+                          `Provider upload error: ${reason}. ` +
+                          'Tip: set `models.providers.<id>.media.video.mode = "inline"` ' +
+                          "in openclaw.json to fall back to inline base64, or pass a smaller " +
+                          "file (maxBytes override).",
+                      },
+                    ],
+                    details: {
+                      ok: false,
+                      reason: "hosted video upload failed",
+                      bytes: buffer.byteLength,
+                      mimeType,
+                      filePath: absolutePath,
+                    },
+                  });
+                  return;
                 }
               }
+              // No upload helper available. The file is over the inline cap
+              // (or the caller set `forceUseHostedUrl: true` without
+              // supplying an `uploadVideo` helper) and we have no other
+              // path. Tell the user exactly that, instead of the
+              // generic "exceeds inline limit" message.
               signal?.removeEventListener("abort", onAbort);
               resolve({
                 content: [
                   {
                     type: "text",
                     text:
-                      `readVideo: file is ${mb}MB which exceeds the inline limit of ${Math.round(
-                        inlineMaxBytes / 1024 / 1024,
-                      )}MB. ` +
-                      "Upload the video through the chat channel (e.g. Feishu inbound preflight will upload to the provider's Files API), " +
+                      `readVideo: file is ${mb}MB which exceeds the inline limit of ${inlineCapMb}MB ` +
+                      "and no hosted video upload helper is configured for this provider. " +
+                      "Either raise `inlineMaxBytes` in the provider config, switch " +
+                      '`models.providers.<id>.media.video.mode` to "inline" with a larger cap, ' +
                       "or pass a smaller file (maxBytes override).",
                   },
                 ],
                 details: {
                   ok: false,
-                  reason: "video too large for inline base64",
+                  reason: "video too large for inline base64 and no upload helper",
                   bytes: buffer.byteLength,
                   mimeType,
                   filePath: absolutePath,

@@ -502,6 +502,25 @@ export function isBuiltInModelProviderOverlayId(providerId: string): boolean {
   return BUILT_IN_MODEL_PROVIDER_OVERLAY_IDS.has(normalizeProviderId(providerId));
 }
 
+const ModelProviderVideoModeSchema = z
+  .union([z.literal("auto"), z.literal("inline"), z.literal("hosted")])
+  .optional();
+
+const ModelProviderVideoSchema = z
+  .object({
+    mode: ModelProviderVideoModeSchema,
+    inlineMaxBytes: z.number().int().positive().optional(),
+  })
+  .strict()
+  .optional();
+
+const ModelProviderMediaSchema = z
+  .object({
+    video: ModelProviderVideoSchema,
+  })
+  .strict()
+  .optional();
+
 const ModelProviderSchema = z
   .object({
     baseUrl: z.string().min(1).optional(),
@@ -523,6 +542,9 @@ const ModelProviderSchema = z
     authHeader: z.boolean().optional(),
     request: ConfiguredModelProviderRequestSchema,
     models: z.array(ModelDefinitionSchema).optional(),
+    // 6/26 PATCH: per-provider media delivery overrides (e.g. video
+    // inline-vs-hosted switch). See ModelProviderMediaConfig.
+    media: ModelProviderMediaSchema,
   })
   .strict();
 
