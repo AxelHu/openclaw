@@ -122,14 +122,20 @@ export function resolveVideoDeliveryPolicy(
   const resolvedInlineMaxBytes = cfgInlineMaxBytes ?? inlineMaxBytes;
   switch (mode) {
     case "inline":
+      // Force inline base64 even when the file exceeds the cap. The
+      // `allowBase64Override` flag tells `decideVideoDeliveryMode` to
+      // skip the "size > cap → hosted" branch, so readVideo tool calls
+      // return base64 regardless of file size.
       return {
         forceUseHostedUrl: false,
+        allowBase64Override: true,
         inlineMaxBytes: resolvedInlineMaxBytes,
       };
     case "hosted":
-      // If there's no upload helper we can't actually host; fall back to
-      // inline so the caller at least sees a clear "size > cap" error
-      // rather than a generic upload failure.
+      // Force hosted upload even when the file is small. If there's no
+      // upload helper we can't actually host; fall through to inline so
+      // the caller at least sees a clear "size > cap" error rather than
+      // a generic upload failure.
       return {
         forceUseHostedUrl: hasUploadVideo,
         inlineMaxBytes: resolvedInlineMaxBytes,
@@ -137,8 +143,18 @@ export function resolveVideoDeliveryPolicy(
     case "auto":
     case undefined:
     default:
+      // 6/27 PATCH: `auto` returns `forceUseHostedUrl: false` so the
+      // caller (readVideo tool or attachment pipeline) goes through
+      // `decideVideoDeliveryMode`'s size-based default: ≤ cap inline,
+      // > cap hosted (provided the provider exposes an `uploadVideo`
+      // helper, otherwise the caller reports "no helper"). This matches
+      // the 6/25 legacy behaviour where small videos stay inline and
+      // large ones upload. Previously this branch returned
+      // `forceUseHostedUrl: hasUploadVideo` which forced all videos
+      // through the upload path and dropped them on a minimax API
+      // regression (response missing `file_id`).
       return {
-        forceUseHostedUrl: hasUploadVideo,
+        forceUseHostedUrl: false,
         inlineMaxBytes: resolvedInlineMaxBytes,
       };
   }
