@@ -66,12 +66,22 @@ function hasImageMime(record: Record<string, unknown>): boolean {
   return candidates.some((value) => value.startsWith("image/"));
 }
 
+// 6/28 PATCH: video MIME 判定 (跟 hasImageMime 同款, 限定 video/ 前缀).
+function hasVideoMime(record: Record<string, unknown>): boolean {
+  const candidates = [
+    normalizeLowercaseStringOrEmpty(record.mimeType),
+    normalizeLowercaseStringOrEmpty(record.media_type),
+    normalizeLowercaseStringOrEmpty(record.mime_type),
+  ];
+  return candidates.some((value) => value.startsWith("video/"));
+}
+
 function shouldRedactImageData(record: Record<string, unknown>): record is Record<string, string> {
   if (typeof record.data !== "string") {
     return false;
   }
   const type = normalizeLowercaseStringOrEmpty(record.type);
-  return type === "image" || hasImageMime(record);
+  return type === "image" || type === "video" || hasImageMime(record) || hasVideoMime(record);
 }
 
 function digestBase64Payload(data: string): string {
@@ -121,8 +131,8 @@ function visitDiagnosticPayload(
 }
 
 /**
- * Removes credential-like fields and image/base64 payload data from diagnostic
- * objects before persistence.
+ * Removes credential-like fields and image/video base64 payload data from
+ * diagnostic objects before persistence.
  */
 export function sanitizeDiagnosticPayload(value: unknown): unknown {
   return visitDiagnosticPayload(value, { omitField: isCredentialFieldName });

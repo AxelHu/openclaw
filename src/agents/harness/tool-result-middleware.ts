@@ -16,6 +16,9 @@ const log = createSubsystemLogger("agents/harness");
 const MAX_MIDDLEWARE_CONTENT_BLOCKS = 200;
 const MAX_MIDDLEWARE_TEXT_CHARS = 100_000;
 const MAX_MIDDLEWARE_IMAGE_DATA_CHARS = 5_000_000;
+// 6/28 PATCH: video block 跟 image 同等规模限制 (M3 inline cap 50MB 之内的防御性 cap,
+// 跟 IMAGE_DATA_CHARS 对齐; 超过 50MB 走 mm_file:// hosted URL, 不是 inline base64).
+const MAX_MIDDLEWARE_VIDEO_DATA_CHARS = 5_000_000;
 const MAX_MIDDLEWARE_CONTENT_DEPTH = 20;
 const MAX_MIDDLEWARE_DETAILS_BYTES = 100_000;
 const MAX_MIDDLEWARE_DETAILS_DEPTH = 20;
@@ -39,6 +42,20 @@ function isValidMiddlewareContentBlock(value: unknown): boolean {
       typeof value.data === "string" &&
       value.data.length <= MAX_MIDDLEWARE_IMAGE_DATA_CHARS
     );
+  }
+  // 6/28 PATCH: video block support (跟 image 同款 pattern, 但 data 是 optional —
+  // 大视频走 hosted URL (mm_file://{file_id}) 就只传 url 不传 data, 跟 image 不一样).
+  if (value.type === "video") {
+    if (typeof value.mimeType !== "string" || value.mimeType.trim().length === 0) {
+      return false;
+    }
+    if (typeof value.data === "string") {
+      return value.data.length <= MAX_MIDDLEWARE_VIDEO_DATA_CHARS;
+    }
+    if (typeof value.url === "string" && value.url.length > 0) {
+      return true;
+    }
+    return false;
   }
   return false;
 }

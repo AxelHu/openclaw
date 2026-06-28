@@ -1,10 +1,10 @@
+import { hasInboundMetadataSentinel } from "../auto-reply/reply/strip-inbound-meta.js";
 /**
  * Anthropic-family request payload policy helpers.
  * Applies service-tier and cache-control markers only when provider endpoint
  * capabilities allow them.
  */
 import { resolveProviderRequestCapabilities } from "./provider-attribution.js";
-import { hasInboundMetadataSentinel } from "../auto-reply/reply/strip-inbound-meta.js";
 import {
   splitSystemPromptCacheBoundary,
   stripSystemPromptCacheBoundary,
@@ -169,6 +169,7 @@ function isCacheablePreInboundMetadataBlock(
     return (
       blockRecord.type === "text" ||
       blockRecord.type === "image" ||
+      blockRecord.type === "video" ||
       blockRecord.type === "tool_result"
     );
   }
@@ -239,7 +240,10 @@ function applyAnthropicCacheControlToMessages(
       const blockRecord = block as Record<string, unknown>;
       const isPrimaryCandidate = crossedVolatileInboundMetadata
         ? isCacheablePreInboundMetadataBlock(blockRecord, record.role)
-        : record.role === "user" && (blockRecord.type === "text" || blockRecord.type === "image");
+        : record.role === "user" &&
+          (blockRecord.type === "text" ||
+            blockRecord.type === "image" ||
+            blockRecord.type === "video");
       if (isPrimaryCandidate) {
         if (fallbackToolResult && markerLimit === 1) {
           fallbackToolResult.cache_control = cacheControl;

@@ -127,6 +127,9 @@ function collectBtwMessageText(content: Message["content"]): string {
       if (part.type === "image") {
         return "[Image content omitted from CLI side-question context.]";
       }
+      if (part.type === "video") {
+        return "[Video content omitted from CLI side-question context.]";
+      }
       return [];
     })
     .join("\n")
@@ -186,6 +189,22 @@ function isBtwImageBlock(block: unknown): block is ImageContent {
   );
 }
 
+// 6/28 PATCH: video 块也走同样检查 (跟 isBtwImageBlock 同款, 用于 sanitization
+// 时跟 image 一起用 placeholder 替身, 避免 base64 进 btw prompt).
+function isBtwVideoBlock(
+  block: unknown,
+): block is { type: "video"; data: string; mimeType: string } {
+  if (!block || typeof block !== "object") {
+    return false;
+  }
+  const record = block as { type?: unknown; data?: unknown; mimeType?: unknown };
+  return (
+    normalizeLowercaseStringOrEmpty(record.type) === "video" &&
+    typeof record.data === "string" &&
+    typeof record.mimeType === "string"
+  );
+}
+
 async function sanitizeBtwUserMessage(params: {
   message: Extract<Message, { role: "user" }>;
   imageLimits: ImageSanitizationLimits;
@@ -211,6 +230,13 @@ async function sanitizeBtwUserMessage(params: {
     const image = images[0];
     if (image) {
       content.push(image);
+    }
+    // 6/28 PATCH: video 块在 btw context 里 drop 掉 (跟 image 不同: btw 是 side-question
+    // text-only prompt, video base64 不能塞进去, 但也不能静默 drop 留个空 block, 所以
+    // 直接 continue skip. 调用方 collectBtwMessageText 会把 video 替成 placeholder
+    // 文字, 保证文本里至少能看到 [Video content omitted] 标记).
+    if (isBtwVideoBlock(block)) {
+      continue;
     }
   }
 

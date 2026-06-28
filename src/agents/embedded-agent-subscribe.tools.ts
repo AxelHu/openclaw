@@ -233,7 +233,7 @@ export function sanitizeToolResult(result: unknown): unknown {
         return item;
       }
       const entry = item as Record<string, unknown>;
-      if (readStringValue(entry.type) === "image") {
+      if (readStringValue(entry.type) === "image" || readStringValue(entry.type) === "video") {
         const data = readStringValue(entry.data);
         const bytes = data ? data.length : undefined;
         const cleaned = { ...entry };
@@ -637,7 +637,7 @@ function hasImageContentBlock(content: unknown[]): boolean {
       continue;
     }
     const entry = item as Record<string, unknown>;
-    if (entry.type === "image") {
+    if (entry.type === "image" || entry.type === "video") {
       return true;
     }
   }
