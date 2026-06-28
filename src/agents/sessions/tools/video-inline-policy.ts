@@ -6,9 +6,18 @@
  * `mm_file://{file_id}`).
  *
  * Why this exists: base64 video attachments bloat the session jsonl (5MB mp4 →
- * ~7MB base64), and WSL fs sync can corrupt large base64 writes (we've seen
- * 19 segments of video base64 replaced with `…` U+2026 by fs sync). Hosted
- * URL references stay compact (a few hundred bytes) and survive fs sync.
+ * ~7MB base64) and historically were corrupted by *transcript redaction*,
+ * not by fs sync. `maskToken` in `src/logging/redact.ts:340` scans text
+ * content for secret-shaped patterns (API keys, bearer tokens, etc.) and
+ * replaces matches with `${start}…${end}` where `…` is U+2026 ELLIPSIS.
+ * Before commit 318d6aabfc4 (6/26 PATCH), video blocks fell through to
+ * maskToken and the regex pass over binary base64 produced ~19 false
+ * positives per 5MB clip — every match was replaced with `…`, the base64
+ * was no longer decodable, and the model only saw the first ~8s of a 53s
+ * MP4. The fix was `shouldPreserveOpaqueMediaPayload` in
+ * `src/agents/transcript-redact.ts` skipping the `data` field of image
+ * and video content blocks. Hosted URL references stay compact (a few
+ * hundred bytes) and contain no base64, so they were never affected.
  *
  * Owner plan: once we've validated that hosted URL works for video across the
  * pipeline, flip `forceUseHostedUrl` (or set the inline max to 0) to migrate

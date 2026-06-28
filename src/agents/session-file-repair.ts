@@ -149,8 +149,13 @@ function isCorruptedImageContentBlock(block: unknown): boolean {
 }
 
 // 6/26 PATCH: video 块 corruption 修复 (跟 isCorruptedImageContentBlock 同款 pattern).
-// video base64 跟 image 一样会因 fs sync / 传输 / OCR 损坏, 损坏的 video 块会让后续 LLM 请求炸.
-// 检测条件: type==="video" + 合法 video MIME + base64 含非 ASCII 或 sanitize 失败.
+// 历史背景: 这不是 fs sync 造成的. 之前 (commit 318d6aabfc4 修复前) `maskToken`
+// 在 transcript-redact.ts 里没跳过 video base64, 把 base64 子串当成 token pattern
+// 替换成 `…` (U+2026) 替身, ~5MB mp4 一般有 19+ 处 false positive, 整段 base64
+// 失码. 修复后 maskToken 跳过 video base64 (`shouldPreserveOpaqueMediaPayload`),
+// 但旧 session jsonl 里这些 corrupted 块还会被这个 detection 检出, 防止后续
+// replay 炸 model. 检测条件: type==="video" + 合法 video MIME + base64 含非 ASCII
+// 或 sanitize 失败.
 function isCorruptedVideoContentBlock(block: unknown): boolean {
   if (!block || typeof block !== "object" || Array.isArray(block)) {
     return false;
