@@ -20,6 +20,12 @@ import { extractToolCallsFromAssistant, extractToolResultId } from "./tool-call-
  */
 export const BLANK_USER_FALLBACK_TEXT = "(continue)";
 export const CORRUPTED_IMAGE_FALLBACK_TEXT = "[image omitted: corrupted base64 payload]";
+// 6/28 PATCH: separate placeholder for video blocks. Previously the video
+// repair path reused CORRUPTED_IMAGE_FALLBACK_TEXT ("[image omitted: ...]"),
+// which (a) told the model the wrong media kind and (b) made it harder to
+// reason about whether a particular [image omitted] in a transcript was
+// really an image or a video. Now image and video have distinct strings.
+export const CORRUPTED_VIDEO_FALLBACK_TEXT = "[video omitted: corrupted base64 payload]";
 
 type RepairReport = {
   repaired: boolean;
@@ -201,7 +207,7 @@ function repairEntryWithCorruptedImageBlocks(entry: SessionMessageEntry): {
     // 6/26 PATCH: video 块 corruption 检测跟 image 同款
     if (isCorruptedVideoContentBlock(block)) {
       removedCorruptedVideoBlocks += 1;
-      return { type: "text", text: CORRUPTED_IMAGE_FALLBACK_TEXT };
+      return { type: "text", text: CORRUPTED_VIDEO_FALLBACK_TEXT };
     }
     return block;
   });
