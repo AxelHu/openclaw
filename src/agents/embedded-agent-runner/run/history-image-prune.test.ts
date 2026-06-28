@@ -5,8 +5,10 @@ import type { ImageContent } from "openclaw/plugin-sdk/llm";
 import { describe, expect, it } from "vitest";
 import { castAgentMessage } from "../../test-helpers/agent-message-fixtures.js";
 import {
+  PRUNED_HISTORY_AUDIO_MARKER,
   PRUNED_HISTORY_IMAGE_MARKER,
   PRUNED_HISTORY_MEDIA_REFERENCE_MARKER,
+  PRUNED_HISTORY_VIDEO_MARKER,
   installHistoryImagePruneContextTransform,
   pruneProcessedHistoryImages,
 } from "./history-image-prune.js";
@@ -101,6 +103,84 @@ describe("pruneProcessedHistoryImages", () => {
 
     const content = expectPrunedImageMessage(messages, "expected user array content");
     expect(content[0]?.type).toBe("text");
+  });
+
+  it("prunes video blocks from user messages older than 3 assistant turns (6/28 PATCH)", () => {
+    // Same shape as image prune but with a video block. Marker text must be
+    // the VIDEO marker, not the IMAGE marker (6/26 PATCH used the wrong
+    // marker and the model would have read "image data removed" on a video
+    // block).
+    const video = { type: "video", data: "base64video", mimeType: "video/mp4" };
+    const messages: AgentMessage[] = [
+      castAgentMessage({
+        role: "user",
+        content: [{ type: "text", text: "See /tmp/clip.mp4" }, video],
+      }),
+      assistantTurn(),
+      userText(),
+      assistantTurn(),
+      userText(),
+      assistantTurn(),
+      userText(),
+      assistantTurn(),
+    ];
+
+    const pruned = pruneProcessedHistoryImages(messages);
+    expect(Array.isArray(pruned)).toBe(true);
+    if (!pruned) throw new Error("expected pruned history");
+    const content = expectArrayMessageContent(pruned[0], "expected user array content");
+    expect(content).toHaveLength(2);
+    expectContentBlock(content[1], { type: "text", text: PRUNED_HISTORY_VIDEO_MARKER });
+  });
+
+  it("prunes audio blocks from user messages older than 3 assistant turns (6/28 PATCH)", () => {
+    // Audio is the third multimodal kind added in the 6/28 PATCH. The
+    // shared MEDIA_BLOCK_TO_MARKER map drives the same prune logic for
+    // all three kinds.
+    const audio = { type: "audio", data: "base64audio", mimeType: "audio/mpeg" };
+    const messages: AgentMessage[] = [
+      castAgentMessage({
+        role: "user",
+        content: [{ type: "text", text: "Listen to /tmp/clip.mp3" }, audio],
+      }),
+      assistantTurn(),
+      userText(),
+      assistantTurn(),
+      userText(),
+      assistantTurn(),
+      userText(),
+      assistantTurn(),
+    ];
+
+    const pruned = pruneProcessedHistoryImages(messages);
+    expect(Array.isArray(pruned)).toBe(true);
+    if (!pruned) throw new Error("expected pruned history");
+    const content = expectArrayMessageContent(pruned[0], "expected user array content");
+    expect(content).toHaveLength(2);
+    expectContentBlock(content[1], { type: "text", text: PRUNED_HISTORY_AUDIO_MARKER });
+  });
+
+  it("keeps recent video blocks within 3-turn window (6/28 PATCH)", () => {
+    // Recent turns (within PRESERVE_RECENT_COMPLETED_TURNS=3) must keep
+    // their inline base64 — the model needs to reference them in the
+    // current run. Same shape as expectImageMessagePreserved but for video.
+    const video = { type: "video", data: "base64video", mimeType: "video/mp4" };
+    const messages: AgentMessage[] = [
+      assistantTurn(),
+      userText(),
+      assistantTurn(),
+      userText(),
+      assistantTurn(),
+      castAgentMessage({
+        role: "user",
+        content: [{ type: "text", text: "See /tmp/recent.mp4" }, video],
+      }),
+    ];
+
+    const pruned = pruneProcessedHistoryImages(messages);
+    expect(pruned).toBeNull();
+    const content = expectArrayMessageContent(messages[5], "expected user array content");
+    expectContentBlock(content[1], { type: "video", data: "base64video" });
   });
 
   it("scrubs old media attachment markers from text blocks", () => {
