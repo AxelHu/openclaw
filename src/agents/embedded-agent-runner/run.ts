@@ -202,7 +202,7 @@ import type { RunEmbeddedAgentParams } from "./run/params.js";
 import { buildEmbeddedRunPayloads } from "./run/payloads.js";
 import { handleRetryLimitExhaustion } from "./run/retry-limit.js";
 import {
-  buildBeforeModelResolveAttachments,
+  buildBeforeModelResolveMedia,
   resolveEffectiveRuntimeModel,
   resolveHookModelSelection,
 } from "./run/setup.js";
@@ -809,7 +809,7 @@ async function runEmbeddedAgentInternal(
 
       const hookSelection = await resolveHookModelSelection({
         prompt: params.prompt,
-        attachments: buildBeforeModelResolveAttachments(params.images),
+        attachments: buildBeforeModelResolveMedia(params.images),
         provider,
         modelId,
         hookRunner,

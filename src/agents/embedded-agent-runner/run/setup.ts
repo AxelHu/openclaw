@@ -112,20 +112,30 @@ export async function resolveHookModelSelection(params: {
 }
 
 /**
- * Converts prompt image refs into the minimal attachment shape exposed to
- * before-model-resolve hooks. Empty image lists stay undefined so hook payloads
+ * Converts prompt media refs (image / video / audio) into the minimal
+ * attachment shape exposed to before-model-resolve hooks. The `kind` field
+ * is derived from the MIME type so video attachments stop being smuggled
+ * into hooks as `kind: "image"`. Empty input stays undefined so hook payloads
  * do not grow a meaningless attachments field.
  */
-export function buildBeforeModelResolveAttachments(
-  images: readonly { mimeType?: string }[] | undefined,
+export function buildBeforeModelResolveMedia(
+  media: readonly { mimeType?: string }[] | undefined,
 ): PluginHookBeforeModelResolveAttachment[] | undefined {
-  if (!images?.length) {
+  if (!media?.length) {
     return undefined;
   }
-  return images.map((img) => ({
-    kind: "image",
-    mimeType: img.mimeType,
+  return media.map((item) => ({
+    kind: deriveMediaKindFromMime(item.mimeType),
+    mimeType: item.mimeType,
   }));
+}
+
+function deriveMediaKindFromMime(mime?: string): PluginHookBeforeModelResolveAttachment["kind"] {
+  if (!mime) return "other";
+  if (mime.startsWith("image/")) return "image";
+  if (mime.startsWith("video/")) return "video";
+  if (mime.startsWith("audio/")) return "audio";
+  return "other";
 }
 
 /**

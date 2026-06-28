@@ -455,15 +455,16 @@ function convertAnthropicMessages(
           },
         };
       });
-      let filteredBlocks = model.input.includes("image")
-        ? blocks
-        : blocks.filter((block) => block.type !== "image");
-      filteredBlocks = model.input.includes("video")
-        ? filteredBlocks
-        : filteredBlocks.filter((block) => block.type !== "video");
-      filteredBlocks = filteredBlocks.filter(
-        (block) => block.type !== "text" || block.text.trim().length > 0,
-      );
+      // Per-block kind check against model.input — supports image / video /
+      // audio independently. Block is kept iff its kind is allowed.
+      const supportedInputs = new Set(model.input);
+      const filteredBlocks = blocks.filter((block) => {
+        if (block.type === "text") return block.text.trim().length > 0;
+        if (block.type === "image") return supportedInputs.has("image");
+        if (block.type === "video") return supportedInputs.has("video");
+        if (block.type === "audio") return supportedInputs.has("audio");
+        return false;
+      });
       if (filteredBlocks.length === 0) {
         continue;
       }

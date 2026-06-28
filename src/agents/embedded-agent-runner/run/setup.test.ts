@@ -5,7 +5,7 @@ import type { ModelDefinitionConfig } from "../../../config/types.models.js";
 import type { OpenClawConfig } from "../../../config/types.openclaw.js";
 import type { ProviderRuntimeModel } from "../../../plugins/provider-runtime-model.types.js";
 import {
-  buildBeforeModelResolveAttachments,
+  buildBeforeModelResolveMedia,
   resolveEffectiveRuntimeModel,
   resolveHookModelSelection,
 } from "./setup.js";
@@ -15,19 +15,40 @@ const hookContext = {
   workspaceDir: "/tmp/workspace",
 };
 
-describe("buildBeforeModelResolveAttachments", () => {
+describe("buildBeforeModelResolveMedia", () => {
   it("maps prompt image metadata to before_model_resolve attachments", () => {
     expect(
-      buildBeforeModelResolveAttachments([{ mimeType: "image/png" }, { mimeType: "image/jpeg" }]),
+      buildBeforeModelResolveMedia([{ mimeType: "image/png" }, { mimeType: "image/jpeg" }]),
     ).toEqual([
       { kind: "image", mimeType: "image/png" },
       { kind: "image", mimeType: "image/jpeg" },
     ]);
   });
 
+  it("derives video kind from video MIME type instead of hardcoding image", () => {
+    expect(
+      buildBeforeModelResolveMedia([{ mimeType: "video/mp4" }, { mimeType: "video/webm" }]),
+    ).toEqual([
+      { kind: "video", mimeType: "video/mp4" },
+      { kind: "video", mimeType: "video/webm" },
+    ]);
+  });
+
+  it("derives audio kind from audio MIME type", () => {
+    expect(buildBeforeModelResolveMedia([{ mimeType: "audio/mpeg" }])).toEqual([
+      { kind: "audio", mimeType: "audio/mpeg" },
+    ]);
+  });
+
+  it("falls back to 'other' for unknown MIME types", () => {
+    expect(buildBeforeModelResolveMedia([{ mimeType: "application/pdf" }])).toEqual([
+      { kind: "other", mimeType: "application/pdf" },
+    ]);
+  });
+
   it("omits attachments when there are no images", () => {
-    expect(buildBeforeModelResolveAttachments(undefined)).toBeUndefined();
-    expect(buildBeforeModelResolveAttachments([])).toBeUndefined();
+    expect(buildBeforeModelResolveMedia(undefined)).toBeUndefined();
+    expect(buildBeforeModelResolveMedia([])).toBeUndefined();
   });
 });
 

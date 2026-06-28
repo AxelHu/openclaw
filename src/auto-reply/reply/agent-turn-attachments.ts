@@ -183,7 +183,7 @@ export async function resolveAgentTurnAttachments(params: {
         // "video/hosted" mediaType so downstream consumers can detect it
         // and forward it as a `{type: "video", source: {type: "url",
         // url: "mm_file://..."}}` block to the model. The shape mirrors
-        // `resolveInlineAgentImageAttachments` but carries a hosted URL
+        // `resolveInlineAgentMediaAttachments` but carries a hosted URL
         // instead of base64 data.
         results.push({
           mediaType,
@@ -324,7 +324,7 @@ export async function resolveAgentAttachments(params: {
 }
 
 /** Converts inline image content into ACP attachment payloads. */
-export function resolveInlineAgentImageAttachments(
+export function resolveInlineAgentMediaAttachments(
   /**
    * 6/25 PATCH: multimodal current-turn blocks (image + video). The legacy
    * ACP attachment payload only carries `data` + `mimeType`; video blocks

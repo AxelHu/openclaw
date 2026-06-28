@@ -25,7 +25,7 @@ import { resolvePreferredOpenClawTmpDir } from "../../infra/tmp-openclaw-dir.js"
 import type { ImageContent, VideoContent } from "../../llm/types.js";
 import { listRegisteredPluginAgentPromptGuidance } from "../../plugins/command-registry-state.js";
 import type { EmbeddedContextFile } from "../embedded-agent-helpers.js";
-import { detectImageReferences, loadImageFromRef } from "../embedded-agent-runner/run/images.js";
+import { detectMediaReferences, loadMediaFromRef } from "../embedded-agent-runner/run/images.js";
 import { resolveDefaultModelForAgent } from "../model-selection.js";
 import type { AgentTool } from "../runtime/index.js";
 import type { SandboxFsBridge } from "../sandbox/fs-bridge.js";
@@ -314,7 +314,7 @@ export async function loadPromptRefImages(params: {
   workspaceOnly?: boolean;
   sandbox?: { root: string; bridge: SandboxFsBridge };
 }): Promise<ImageContent[]> {
-  const refs = detectImageReferences(params.prompt);
+  const refs = detectMediaReferences(params.prompt);
   if (refs.length === 0) {
     return [];
   }
@@ -328,7 +328,7 @@ export async function loadPromptRefImages(params: {
       continue;
     }
     seen.add(key);
-    const image = await loadImageFromRef(ref, params.workspaceDir, {
+    const image = await loadMediaFromRef(ref, params.workspaceDir, {
       maxBytes,
       workspaceOnly: params.workspaceOnly,
       sandbox: params.sandbox,

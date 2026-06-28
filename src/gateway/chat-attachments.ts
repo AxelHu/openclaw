@@ -6,7 +6,7 @@ import { extensionForMime, mimeTypeFromFilePath } from "@openclaw/media-core/mim
 import { normalizeOptionalLowercaseString } from "@openclaw/normalization-core/string-coerce";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { formatErrorMessage } from "../infra/errors.js";
-import type { PromptImageOrderEntry } from "../media/prompt-image-order.js";
+import type { PromptMediaOrderEntry } from "../media/prompt-image-order.js";
 import { sniffMimeFromBase64 } from "../media/sniff-mime-from-base64.js";
 import { deleteMediaBuffer, saveMediaBuffer } from "../media/store.js";
 
@@ -49,7 +49,7 @@ type ParsedMessageWithImages = {
   // (the attachment pipeline hands video in as a base64 block, and the
   // transport emits a video block via its existing branch).
   images: ChatAttachmentContent[];
-  imageOrder: PromptImageOrderEntry[];
+  imageOrder: PromptMediaOrderEntry[];
   offloadedRefs: OffloadedRef[];
 };
 
@@ -282,7 +282,7 @@ export async function parseMessageWithAttachments(
   }
 
   const images: ChatImageContent[] = [];
-  const imageOrder: PromptImageOrderEntry[] = [];
+  const imageOrder: PromptMediaOrderEntry[] = [];
   const offloadedRefs: OffloadedRef[] = [];
   let updatedMessage = message;
   let textOnlyImageOffloadCount = 0;
@@ -359,7 +359,7 @@ export async function parseMessageWithAttachments(
           `attachment ${label}: non-image attachments (${finalMime}) are not supported on this entrypoint`,
         );
       }
-      // Agent-side hydration (loadImageFromRef via optimizeAndClampImage / GIF
+      // Agent-side hydration (loadMediaFromRef via optimizeAndClampImage / GIF
       // direct compare) caps at MAX_IMAGE_BYTES. Accepting images above that
       // would offload a file the runner later drops to null — a successful
       // response with a silently missing image. Reject here so the client
