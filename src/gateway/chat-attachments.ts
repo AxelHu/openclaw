@@ -281,7 +281,7 @@ export async function parseMessageWithAttachments(
     return { message, images: [], imageOrder: [], offloadedRefs: [] };
   }
 
-  const images: ChatImageContent[] = [];
+  const images: ChatAttachmentContent[] = [];
   const imageOrder: PromptMediaOrderEntry[] = [];
   const offloadedRefs: OffloadedRef[] = [];
   let updatedMessage = message;

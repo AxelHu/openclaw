@@ -321,6 +321,10 @@ export async function loadPromptRefImages(params: {
 
   const maxBytes = params.maxBytes ?? MAX_IMAGE_BYTES;
   const seen = new Set<string>();
+  // 6/28 PATCH: typed as ImageContent[] because CLI backends (Codex / Claude
+  // Code) cannot consume video (see line ~420 imageOnlyBlocks filter). The
+  // loadMediaFromRef image | video result is narrowed to image inside the
+  // loop below; video blocks are dropped at the cli-runner boundary.
   const images: ImageContent[] = [];
   for (const ref of refs) {
     const key = `${ref.type}:${ref.resolved}`;
@@ -333,7 +337,13 @@ export async function loadPromptRefImages(params: {
       workspaceOnly: params.workspaceOnly,
       sandbox: params.sandbox,
     });
-    if (image) {
+    // 6/28 PATCH: filter out video blocks at the cli-runner boundary. The CLI
+    // backends (Codex / Claude Code) can't consume video (see line ~420
+    // imageOnlyBlocks filter), so we drop video blocks here before passing
+    // to sanitizeImageBlocks (which is image-only). The cli-runner flow
+    // never forwards video to the model — it goes through the embedded
+    // runner instead.
+    if (image && image.type === "image") {
       images.push(image);
     }
   }

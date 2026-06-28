@@ -136,8 +136,11 @@ export function mergePromptAttachmentImages(params: {
   // 6/27 PATCH: video attachments pass through alongside image ones;
   // the transport's video branch picks them up later.
   existingImages?: Array<ImageContent | VideoContent>;
-  offloadedImages?: Array<ImageContent | null>;
-  promptRefImages?: ImageContent[];
+  // 6/28 PATCH: widened from ImageContent | null to ImageContent | VideoContent | null
+  // so the video path can pass through this merge function too.
+  offloadedImages?: Array<ImageContent | VideoContent | null>;
+  // 6/28 PATCH: same widening — loadMediaFromRef returns image | video.
+  promptRefImages?: Array<ImageContent | VideoContent>;
 }): Array<ImageContent | VideoContent> {
   const promptImages: Array<ImageContent | VideoContent> = [];
   const existingImages = params.existingImages ?? [];
@@ -489,7 +492,10 @@ export async function loadMediaFromRef(
     localRoots?: readonly string[];
     sandbox?: { root: string; bridge: SandboxFsBridge };
   },
-): Promise<ImageContent | null> {
+  // 6/28 PATCH: return type widened from ImageContent to ImageContent | VideoContent
+  // so the ternary at line 550 can return video blocks (loadWebMedia returns
+  // kind="video" for mp4/mov/webm/avi/3gp). Caller side already handles both.
+): Promise<ImageContent | VideoContent | null> {
   try {
     let targetPath = ref.resolved;
 
@@ -634,8 +640,12 @@ export async function detectAndLoadPromptImages(params: {
     imageOrder: params.imageOrder,
     existingImageCount: params.existingImages?.length,
   });
-  const promptRefImages: ImageContent[] = [];
-  const offloadedImages: Array<ImageContent | null> = [];
+  // 6/28 PATCH: widened to include VideoContent. loadMediaFromRef now returns
+  // ImageContent | VideoContent (the loadWebMedia kind==="video" path
+  // produces a {type:"video", data, mimeType} block).
+  const promptRefImages: Array<ImageContent | VideoContent> = [];
+  // 6/28 PATCH: same widening as promptRefImages.
+  const offloadedImages: Array<ImageContent | VideoContent | null> = [];
 
   let loadedCount = 0;
   let skippedCount = 0;

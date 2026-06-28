@@ -455,14 +455,17 @@ function convertAnthropicMessages(
           },
         };
       });
-      // Per-block kind check against model.input — supports image / video /
-      // audio independently. Block is kept iff its kind is allowed.
+      // Per-block kind check against model.input — supports image / video
+      // independently. Block is kept iff its kind is allowed.
+      // 6/28 PATCH: dropped the unreachable `audio` branch — the block union
+      // here is text|image|video, no audio variant (LLM-core doesn't define
+      // AudioContent), so `block.type === "audio"` was always false and
+      // caused TS to narrow `block` to `never`.
       const supportedInputs = new Set(model.input);
       const filteredBlocks = blocks.filter((block) => {
         if (block.type === "text") return block.text.trim().length > 0;
         if (block.type === "image") return supportedInputs.has("image");
         if (block.type === "video") return supportedInputs.has("video");
-        if (block.type === "audio") return supportedInputs.has("audio");
         return false;
       });
       if (filteredBlocks.length === 0) {

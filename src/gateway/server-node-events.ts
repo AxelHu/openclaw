@@ -485,7 +485,11 @@ export const handleNodeEvent = async (
       const normalizedAttachments = normalizeRpcAttachmentsToChatAttachments(
         link?.attachments ?? undefined,
       );
-      let images: Array<{ type: "image"; data: string; mimeType: string }> = [];
+      // 6/28 PATCH: widened from image-only to image|video so the assignment
+      // from parsed.images (which carries ChatAttachmentContent = image | video)
+      // typechecks. Server node events pass through the same inbound media as
+      // the agent.request flow.
+      let images: Array<{ type: "image" | "video"; data: string; mimeType: string }> = [];
       let imageOrder: PromptImageOrderEntry[] = [];
       if (!message && normalizedAttachments.length === 0) {
         return undefined;

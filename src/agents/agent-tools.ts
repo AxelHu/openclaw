@@ -28,6 +28,10 @@ import {
   buildMediaUnderstandingRegistry,
   getMediaUnderstandingProvider,
 } from "../media-understanding/provider-registry.js";
+// 6/28 PATCH: VideoUploadRequest was inferred via Parameters<NonNullable<...>>
+// but the inner uploadVideo property is also optional, so the result type was
+// '... | undefined' and Parameters<> rejected it. Import the type directly.
+import type { VideoUploadRequest } from "../media-understanding/types.js";
 import { getPluginToolMeta } from "../plugins/tools.js";
 import { createLazyImportLoader } from "../shared/lazy-promise.js";
 import type { SkillSnapshot } from "../skills/types.js";
@@ -284,9 +288,7 @@ function resolveCodingToolProviderOptions(cfg?: OpenClawConfig): ToolsOptions | 
         defaultMaxBytes: policy.inlineMaxBytes,
         ...(hasUploadVideo
           ? {
-              uploadVideo: (
-                req: Parameters<NonNullable<ToolsOptions["readVideo"]>["uploadVideo"]>[0],
-              ) =>
+              uploadVideo: (req: VideoUploadRequest) =>
                 provider!.uploadVideo!({
                   ...req,
                   cfg,
