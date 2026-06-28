@@ -307,7 +307,10 @@ function sanitizeChatHistoryContentBlock(
     changed = true;
   }
   const type = typeof entry.type === "string" ? entry.type : "";
-  if (type === "image" && typeof entry.data === "string") {
+  // 6/28 PATCH: video block 跟 image 同款 strip (跟 sessions-history-tool.ts
+  // /sanitizeToolResult 一样的 pattern). 之前 type guard 只匹配 image, video
+  // base64 会被全量透传到 chat display, OBSERVER 看到 5MB+ base64.
+  if ((type === "image" || type === "video") && typeof entry.data === "string") {
     const bytes = Buffer.byteLength(entry.data, "utf8");
     delete entry.data;
     entry.omitted = true;

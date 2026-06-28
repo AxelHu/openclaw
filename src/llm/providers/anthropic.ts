@@ -1415,9 +1415,14 @@ function convertMessages(
       if (Array.isArray(message.content)) {
         for (let j = message.content.length - 1; j >= 0; j--) {
           const block = message.content[j];
+          // 6/28 PATCH: video block 也要算 cacheable primary candidate.
+          // 跟 isCacheablePreInboundMetadataBlock 同款 cast pattern (Anthropic
+          // SDK ContentBlockParam type 不含 video, 这里 cast to wider type).
+          const blockType = (block as { type: string }).type;
           const isPrimaryCandidate = crossedVolatileInboundMetadata
             ? isCacheablePreInboundMetadataBlock(block, message.role)
-            : message.role === "user" && (block.type === "text" || block.type === "image");
+            : message.role === "user" &&
+              (blockType === "text" || blockType === "image" || blockType === "video");
           if (isPrimaryCandidate) {
             if (fallbackToolResult && messageCacheControlLimit === 1) {
               applyContentBlockCacheControl(fallbackToolResult, cacheControl);
@@ -1475,7 +1480,18 @@ function isCacheablePreInboundMetadataBlock(block: ContentBlockParam, role: stri
     return block.type === "text" || block.type === "tool_use";
   }
   if (role === "user") {
-    return block.type === "text" || block.type === "image" || block.type === "tool_result";
+    // 6/28 PATCH: video block 在 cache_control 标记里也算 primary candidate.
+    // Anthropic SDK ContentBlockParam 不含 "video" type (minimax M3 通过
+    // `as never` 铸造塞进去的, 跟 1265 行的 video block 同款 pattern).
+    // 这里用 wider type cast 来比较, 跟 isCacheablePreInboundMetadataBlock
+    // 的 runtime 检查对齐.
+    const blockType = (block as { type: string }).type;
+    return (
+      blockType === "text" ||
+      blockType === "image" ||
+      blockType === "video" ||
+      block.type === "tool_result"
+    );
   }
   return false;
 }
