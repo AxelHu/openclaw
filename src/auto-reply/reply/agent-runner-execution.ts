@@ -1674,9 +1674,19 @@ export async function runAgentTurnWithFallback(params: {
     // (duration / framerate / resolution) into `params.prompt` itself,
     // which is the text body of the user message. The model reads both
     // the metadata and the user's question in the same user message.
-    if (currentTurnImages.videoMetadataText) {
+    //
+    // 6/29 PATCH (2nd): prefer the value forwarded on `followupRun`
+    // first. The outer `resolveCurrentTurnMedia` call in
+    // `get-reply-run.ts` builds the metadata text, but the inner call
+    // here short-circuits at `current-turn-images.ts:130` because
+    // `params.media` is already populated by `followupRun.images` —
+    // it never re-probes. `followupRun.videoMetadataText` is the
+    // bridge that keeps the text alive across the two calls.
+    const videoMetadataText =
+      currentTurnImages.videoMetadataText ?? params.followupRun?.videoMetadataText;
+    if (videoMetadataText) {
       const sep = params.prompt.length > 0 ? "\n\n" : "";
-      params.prompt = currentTurnImages.videoMetadataText + sep + params.prompt;
+      params.prompt = videoMetadataText + sep + params.prompt;
     }
   } catch (error) {
     clearAgentRunContext(runId, lifecycleGeneration);

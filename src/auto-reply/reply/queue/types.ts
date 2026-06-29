@@ -75,6 +75,26 @@ export type FollowupRun = {
   >;
   imageOrder?: PromptImageOrderEntry[];
   /**
+   * 6/29 PATCH (2nd): the outer `resolveCurrentTurnMedia` call in
+   * `get-reply-run.ts` builds `videoMetadataText` (a calibration block
+   * carrying real video duration / framerate / resolution), but the
+   * inner call inside `runAgentTurnWithFallback` short-circuits at the
+   * early-return in `current-turn-images.ts:130` because `params.media`
+   * is already populated — it never re-probes. The text would otherwise
+   * be lost between the two calls. Forward it on the `FollowupRun`
+   * payload so `runAgentTurnWithFallback` can inject it into
+   * `params.prompt` without depending on the inner call regenerating it.
+   *
+   * Naming kept `video*` (not `media*`) on purpose: this is the first
+   * attachment-metadata injection pattern in the reply pipeline, only
+   * video probes real frames for now, and `getImageMetadata()` is used
+   * for sanitization only (no prompt injection). If/when image metadata
+   * gets injected into the prompt, consolidate at that time with a
+   * single rename — keeping a misleading `media*` name today would be
+   * worse than the video-specific name.
+   */
+  videoMetadataText?: string;
+  /**
    * Originating channel for reply routing.
    * When set, replies should be routed back to this provider
    * instead of using the session's lastChannel.
