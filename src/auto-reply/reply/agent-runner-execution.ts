@@ -1671,9 +1671,16 @@ export async function runAgentTurnWithFallback(params: {
     // The `images` field in the embedded agent runtime is typed
     // `Array<ImageContent | VideoContent>` and drops text blocks via a
     // downstream type filter. So we concatenate the calibration text
-    // (duration / framerate / resolution) into `params.prompt` itself,
-    // which is the text body of the user message. The model reads both
-    // the metadata and the user's question in the same user message.
+    // (duration / framerate / resolution) into the user message body
+    // itself, which is `params.commandBody` here (the explicit arg
+    // passed by agent-runner.ts at line 1655; `followupRun.prompt`
+    // carries the same value but the function does NOT take a `prompt`
+    // field directly — the original commit 763e440 wrote `params.prompt`
+    // which was undefined; the body never ran because the if-guard was
+    // always false. Once we activate the guard via
+    // `followupRun.videoMetadataText` we must mutate the real string,
+    // not an undefined placeholder). The model reads both the metadata
+    // and the user's question in the same user message.
     //
     // 6/29 PATCH (2nd): prefer the value forwarded on `followupRun`
     // first. The outer `resolveCurrentTurnMedia` call in
@@ -1685,8 +1692,7 @@ export async function runAgentTurnWithFallback(params: {
     const videoMetadataText =
       currentTurnImages.videoMetadataText ?? params.followupRun?.videoMetadataText;
     if (videoMetadataText) {
-      const sep = params.prompt.length > 0 ? "\n\n" : "";
-      params.prompt = videoMetadataText + sep + params.prompt;
+      params.commandBody = videoMetadataText + "\n\n" + params.commandBody;
     }
   } catch (error) {
     clearAgentRunContext(runId, lifecycleGeneration);
