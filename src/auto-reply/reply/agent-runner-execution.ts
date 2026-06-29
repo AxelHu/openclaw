@@ -1693,6 +1693,21 @@ export async function runAgentTurnWithFallback(params: {
       currentTurnImages.videoMetadataText ?? params.followupRun?.videoMetadataText;
     if (videoMetadataText) {
       params.commandBody = videoMetadataText + "\n\n" + params.commandBody;
+      // 6/29 PATCH (4th): also prepend to `transcriptCommandBody`. The
+      // embedded-agent runner builds `modelPromptText` as
+      // `modelPrompt?.text ?? transcriptPrompt ?? extracted.text` and
+      // `modelPrompt` is only set when before_prompt_build hooks
+      // returned content (see `hasPromptBuildContext`). For most
+      // sessions (incl. Hunter) no hook context is produced, so the
+      // model falls back to `transcriptPrompt` (= `params.transcriptCommandBody`)
+      // and any metadata hint that only mutated `params.commandBody`
+      // never reaches the LLM. Prepending here keeps both channels
+      // in sync. Verified via Hunter session `8f520a3a` on 2026-06-29
+      // 23:02 CST: model reply now correctly identifies total length
+      // as `53.92s` after this fix (was hallucinating `8.8s` before).
+      if (params.transcriptCommandBody !== undefined) {
+        params.transcriptCommandBody = videoMetadataText + "\n\n" + params.transcriptCommandBody;
+      }
     }
   } catch (error) {
     clearAgentRunContext(runId, lifecycleGeneration);
