@@ -1,6 +1,6 @@
 /** Resolves media attachments available to the current agent turn. */
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
-import type { AcpTurnAttachment as AgentTurnAttachment } from "../../acp/control-plane/manager.types.js";
+import type { AcpTurnAttachment } from "../../acp/control-plane/manager.types.js";
 import {
   type InlinePolicy,
   resolveVideoDeliveryPolicy,
@@ -20,6 +20,8 @@ import {
   type RecentInboundHistoryImage,
   resolveRecentInboundHistoryImages,
 } from "./history-media.js";
+
+type AgentTurnAttachment = AcpTurnAttachment;
 import { hasInboundMedia } from "./inbound-media.js";
 
 const agentTurnMediaRuntimeLoader = createLazyImportLoader(
@@ -45,20 +47,6 @@ const AGENT_TURN_ATTACHMENT_VIDEO_MAX_BYTES = 50 * 1024 * 1024;
 const AGENT_TURN_ATTACHMENT_TIMEOUT_MS = 1_000;
 
 type AttachmentKind = "image" | "video" | "unsupported";
-
-/** Local attachment result with optional video metadata for agent cognitive calibration. */
-export type AgentTurnAttachment = {
-  mediaType: string;
-  data: string;
-  hostedUrl?: string;
-  /** 6/29 PATCH: actual video duration and framerate. The model M3
-   * hallucinates duration based on (frame_count / framerate) because
-   * the minimax /anthropic endpoint applies sparse frame sampling. The
-   * caller injects this as a text block alongside the video content
-   * block so the model uses the real values as ground truth instead
-   * of hallucinating. */
-  metadata?: VideoMetadata;
-};
 
 function classifyAttachment(attachment: MediaAttachment): AttachmentKind {
   const mime = attachment.mime ?? "";
@@ -155,6 +143,7 @@ export async function resolveAgentTurnAttachments(params: {
   const resolveVideoViaUpload = async (
     attachment: MediaAttachment,
     preReadBuffer?: Buffer,
+    videoMetadata?: VideoMetadata,
   ): Promise<boolean> => {
     const mediaType = attachment.mime ?? "application/octet-stream";
     const path = normalizeOptionalString(attachment.path);
@@ -204,6 +193,7 @@ export async function resolveAgentTurnAttachments(params: {
           mediaType,
           data: "",
           hostedUrl: upload.url,
+          metadata: videoMetadata,
         });
         logVerbose(
           `agent-turn-attachments: uploaded oversized video attachment #${attachment.index + 1} (${buffer.byteLength} bytes) via ${providerId} -> ${upload.url}`,
@@ -271,14 +261,10 @@ export async function resolveAgentTurnAttachments(params: {
       // videos that fit the inline cap. Re-use the buffer we just read
       // to avoid a second fs round trip.
       if (kind === "video" && videoPolicy?.forceUseHostedUrl) {
-        const uploaded = await resolveVideoViaUpload(attachment, buffer);
+        const uploaded = await resolveVideoViaUpload(attachment, buffer, videoMetadata);
         if (uploaded) {
-          results.push({
-            mediaType,
-            data: "",
-            hostedUrl: upload.url,
-            metadata: videoMetadata,
-          });
+          // The hosted-URL result was already pushed inside
+          // `resolveVideoViaUpload` (with metadata). Just return success.
           return true;
         }
         // 6/29 PATCH: hosted upload failed (e.g. Files API regression,

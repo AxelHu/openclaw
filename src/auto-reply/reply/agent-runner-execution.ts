@@ -1667,6 +1667,17 @@ export async function runAgentTurnWithFallback(params: {
         imageOrder: params.followupRun.imageOrder ?? params.opts?.imageOrder,
       }),
     );
+    // 6/29 PATCH: inject video metadata text into the user message prompt.
+    // The `images` field in the embedded agent runtime is typed
+    // `Array<ImageContent | VideoContent>` and drops text blocks via a
+    // downstream type filter. So we concatenate the calibration text
+    // (duration / framerate / resolution) into `params.prompt` itself,
+    // which is the text body of the user message. The model reads both
+    // the metadata and the user's question in the same user message.
+    if (currentTurnImages.videoMetadataText) {
+      const sep = params.prompt.length > 0 ? "\n\n" : "";
+      params.prompt = currentTurnImages.videoMetadataText + sep + params.prompt;
+    }
   } catch (error) {
     clearAgentRunContext(runId, lifecycleGeneration);
     throw error;

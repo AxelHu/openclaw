@@ -63,6 +63,21 @@ export type AcpTurnAttachment = {
    * base64 inline block.
    */
   hostedUrl?: string;
+  /**
+   * 6/29 PATCH: optional real-world video metadata (duration /
+   * framerate / resolution) extracted via ffprobe. The agent-runner
+   * reads this and injects a calibration text block into the user
+   * message prompt, because the M3 model hallucinates duration based
+   * on (sampled_frames / framerate) when only sparse frame samples
+   * are forwarded. Without this hint, M3 reports wildly wrong
+   * totals (e.g. 8.8s for a 53s video, 0.4s for a 4.7s video).
+   */
+  metadata?: {
+    duration?: number;
+    framerate?: number;
+    width?: number;
+    height?: number;
+  };
 };
 
 /** Input for one ACP prompt turn routed through the manager. */

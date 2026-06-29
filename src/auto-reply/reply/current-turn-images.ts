@@ -112,6 +112,18 @@ export async function resolveCurrentTurnMedia(params: {
 }): Promise<{
   media?: CurrentTurnMediaBlock[];
   imageOrder?: PromptImageOrderEntry[];
+  /**
+   * 6/29 PATCH: video metadata lines (duration / framerate / resolution)
+   * for the agent-runner to inject into the user message prompt
+   * (concatenated with the user's text). The `media` array is typed
+   * `Array<ImageContent | VideoContent>` which silently drops text
+   * blocks via a downstream type filter, so we cannot piggyback on
+   * `media` to inject the calibration text — the agent-runner has to
+   * concatenate these into `params.prompt` directly. Without this hint
+   * the model M3 hallucinates duration based on (sampled_frames /
+   * framerate) and reports wildly wrong totals (8.8s for a 53s video).
+   */
+  videoMetadataText?: string;
 }> {
   if (Array.isArray(params.media) && params.media.length > 0) {
     return { media: params.media, imageOrder: params.imageOrder };
@@ -137,6 +149,7 @@ export async function resolveCurrentTurnMedia(params: {
       includeRecentHistoryImages: false,
     });
     const media: CurrentTurnMediaBlock[] = [];
+    const videoMetadataLines: string[] = [];
     for (const attachment of resolved.attachments) {
       if (attachment.metadata) {
         // 6/29 PATCH: inject a text block with the real video metadata
@@ -157,11 +170,30 @@ export async function resolveCurrentTurnMedia(params: {
           bits.push(`resolution=${m.width}x${m.height}`);
         }
         const metaLine = `[视频元数据] ${bits.join(", ")}. minimax M3 端点对该视频做 sparse frame sampling, model 看到的 frames 跨整个时长范围, 而不是集中在某个子窗口. 请以本 metadata 时长为 ground truth, 时间点位置只是模型推测, 不是绝对准确.`;
-        media.push({ type: "text", text: metaLine });
+        videoMetadataLines.push(metaLine);
+        // 6/29 PATCH: do NOT push the text block into the `media` array.
+        // The `images` field in the embedded agent runtime is typed
+        // `Array<ImageContent | VideoContent>` and a downstream type
+        // filter drops text blocks before they reach the model. The
+        // text is returned via `videoMetadataText` instead so the
+        // agent-runner can concatenate it into `params.prompt` (the
+        // text body of the user message), where it survives alongside
+        // the user's question.
+        // Push the video content block as before.
+        if (attachment.hostedUrl) {
+          media.push({ type: "video", mimeType: attachment.mediaType, url: attachment.hostedUrl });
+        } else {
+          media.push({ type: "video", data: attachment.data, mimeType: attachment.mediaType });
+        }
+        continue;
       }
       if (attachment.mediaType.startsWith("video/")) {
-        // Hosted (oversized) video attachments carry a `hostedUrl` instead
-        // of base64 data; forward as a URL-style video block.
+        // 6/29 PATCH: the inner `if (attachment.metadata) { ... continue; }`
+        // branch above already pushed the video block (and routed the
+        // metadata text into `videoMetadataLines`). If we fell through
+        // to here, the attachment is a video WITHOUT metadata (probe
+        // failed) — still emit the content block so the model at least
+        // sees the video, even without the duration hint.
         if (attachment.hostedUrl) {
           media.push({
             type: "video",
@@ -189,9 +221,11 @@ export async function resolveCurrentTurnMedia(params: {
       );
       return { media: params.media, imageOrder: params.imageOrder };
     }
+    const videoMetadataText =
+      videoMetadataLines.length > 0 ? videoMetadataLines.join("\n") : undefined;
     return media.length > 0
-      ? { media, imageOrder: media.map(() => "inline" as const) }
-      : { media: params.media, imageOrder: params.imageOrder };
+      ? { media, imageOrder: media.map(() => "inline" as const), videoMetadataText }
+      : { media: params.media, imageOrder: params.imageOrder, videoMetadataText };
   } catch (error) {
     logVerbose(
       `agent-runner: media attachment resolution failed, proceeding without native media: ${formatErrorMessage(error)}`,
