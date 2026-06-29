@@ -248,7 +248,22 @@ export async function resolveAgentTurnAttachments(params: {
       // videos that fit the inline cap. Re-use the buffer we just read
       // to avoid a second fs round trip.
       if (kind === "video" && videoPolicy?.forceUseHostedUrl) {
-        return await resolveVideoViaUpload(attachment, buffer);
+        const uploaded = await resolveVideoViaUpload(attachment, buffer);
+        if (uploaded) {
+          return true;
+        }
+        // 6/29 PATCH: hosted upload failed (e.g. Files API regression,
+        // rate limit, network glitch). Fall back to inline base64 so the
+        // model can still see the video. Previously this branch returned
+        // false on failure, silently dropping the video and leaving only
+        // a text placeholder in the prompt (Hunter session 6/29 00:20 was
+        // the production case). Note: the 16MB inline cap is applied to
+        // the raw read, so a true size-exceeded upload already errored
+        // earlier in `cache.getBuffer`.
+        logWarn(
+          `agent-turn-attachments: video upload failed for #${attachment.index + 1} (${path}); falling back to inline base64`,
+        );
+        // Fall through to the inline push below.
       }
       results.push({
         mediaType,
