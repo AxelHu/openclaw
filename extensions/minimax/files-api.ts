@@ -57,6 +57,10 @@ export type MinimaxUploadFileParams = {
 };
 
 export type MinimaxUploadFileResult = {
+  // minimax returns `file_id` as a NUMBER (e.g. 414244194570579) per
+  // observed response on 2026-06-29. We coerce to string in the parser
+  // below to keep the public type stable for callers that build
+  // `mm_file://${file_id}` URLs.
   file_id: string;
   bytes?: number;
   filename?: string;
@@ -159,17 +163,24 @@ function parseMinimaxUploadResponse(value: unknown): MinimaxUploadFileResult {
     throw new Error(`MiniMax file upload failed: ${msg}`);
   }
 
-  // File ID may be at the top level or under `file`
+  // File ID may be at the top level or under `file`. 6/29 PATCH: minimax
+  // returns `file_id` as a NUMBER (e.g. 414244194570579), not a string.
+  // Previous type check `typeof === "string"` rejected numeric IDs and
+  // always fell through to "missing file_id", which caused every
+  // video upload to fail and made the hosted URL pipeline unusable.
+  // Accept both shapes; coerce to string on return so callers can
+  // build `mm_file://${file_id}` URLs without further conversion.
   const file = obj.file as Record<string, unknown> | undefined;
-  const fileId =
-    typeof obj.file_id === "string"
+  const rawFileId =
+    obj.file_id !== undefined
       ? obj.file_id
-      : typeof file?.file_id === "string"
+      : file !== undefined && file.file_id !== undefined
         ? file.file_id
         : null;
-  if (!fileId) {
+  if (rawFileId === null || (typeof rawFileId !== "string" && typeof rawFileId !== "number")) {
     throw new Error("MiniMax file upload response missing file_id");
   }
+  const fileId = String(rawFileId);
 
   const filename =
     typeof obj.filename === "string"

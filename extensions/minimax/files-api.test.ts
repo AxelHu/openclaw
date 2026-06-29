@@ -35,6 +35,61 @@ describe("uploadMinimaxFile - purpose required", () => {
   });
 });
 
+describe("parseMinimaxUploadResponse - numeric file_id (6/29 PATCH)", () => {
+  // Owner 8:48 主人报 Hunter 看不到视频 → 8:36:08 logWarn 触发 fallback 但
+  // 实际 minimax API 真的返回了 file_id (414244194570579), 只是 type 是
+  // number 不是 string. 旧 typeof === "string" 拒 number → throw missing
+  // file_id → 永远走 inline fallback → hosted URL 管线彻底坏. 修法：接受
+  // string | number, return 时 coerce 成 string.
+  it("accepts numeric file_id at top level", () => {
+    const result = parseMinimaxUploadResponse({
+      file_id: 414244194570579,
+      bytes: 5196262,
+      base_resp: { status_code: 0, status_msg: "success" },
+    });
+    expect(result.file_id).toBe("414244194570579");
+    expect(result.bytes).toBe(5196262);
+  });
+  it("accepts numeric file_id nested under file", () => {
+    const result = parseMinimaxUploadResponse({
+      file: {
+        file_id: 414244194570579,
+        bytes: 5196262,
+        filename: "test.mp4",
+        purpose: "video_understanding",
+      },
+      base_resp: { status_code: 0, status_msg: "success" },
+    });
+    expect(result.file_id).toBe("414244194570579");
+    expect(result.filename).toBe("test.mp4");
+  });
+  it("accepts string file_id (legacy shape)", () => {
+    const result = parseMinimaxUploadResponse({
+      file_id: "abc123",
+      base_resp: { status_code: 0 },
+    });
+    expect(result.file_id).toBe("abc123");
+  });
+  it("throws when file_id is missing entirely", () => {
+    expect(() =>
+      parseMinimaxUploadResponse({
+        base_resp: { status_code: 0 },
+      }),
+    ).toThrow(/missing file_id/);
+  });
+  it("throws when file_id is wrong type (boolean / object)", () => {
+    expect(() =>
+      parseMinimaxUploadResponse({ file_id: true, base_resp: { status_code: 0 } }),
+    ).toThrow(/missing file_id/);
+    expect(() =>
+      parseMinimaxUploadResponse({
+        file: { file_id: { nested: "object" } },
+        base_resp: { status_code: 0 },
+      }),
+    ).toThrow(/missing file_id/);
+  });
+});
+
 describe("uploadMinimaxFile - parameter validation", () => {
   it("rejects when API key is missing", async () => {
     const cfg = { models: { providers: { minimax: { baseUrl: "https://api.minimaxi.com" } } } };
