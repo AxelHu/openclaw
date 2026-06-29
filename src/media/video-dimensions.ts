@@ -71,6 +71,21 @@ function parsePositiveFramerate(value: unknown): number | undefined {
 }
 
 function parsePositiveDuration(value: unknown): number | undefined {
+  // 6/29 PATCH (3rd): ffprobe always emits duration as a *string* in JSON
+  // (e.g. `"53.916667"` / `"53.930000"` for stream/format). The previous
+  // `typeof value !== "number"` short-circuit silently dropped that case,
+  // so `m.duration` was always undefined → the `[视频元数据]` text shipped
+  // to the model only carried framerate + resolution but no total length,
+  // and M3 hallucinated duration (e.g. 8.8s for a 53s video). Coerce
+  // strings via Number() and validate the result. Numbers still pass
+  // through unchanged so any future numeric input is preserved.
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (trimmed === "") return undefined;
+    const parsed = Number(trimmed);
+    if (!Number.isFinite(parsed) || parsed <= 0) return undefined;
+    return parsed;
+  }
   if (typeof value !== "number" || value <= 0 || !Number.isFinite(value)) {
     return undefined;
   }
