@@ -13,6 +13,7 @@ import {
   getMediaUnderstandingProvider,
 } from "../../media-understanding/provider-registry.js";
 import type { MediaAttachment } from "../../media-understanding/types.js";
+import { probeVideoMetadata, type VideoMetadata } from "../../media/media-services.js";
 import { createLazyImportLoader } from "../../shared/lazy-promise.js";
 import type { MsgContext } from "../templating.js";
 import {
@@ -44,6 +45,20 @@ const AGENT_TURN_ATTACHMENT_VIDEO_MAX_BYTES = 50 * 1024 * 1024;
 const AGENT_TURN_ATTACHMENT_TIMEOUT_MS = 1_000;
 
 type AttachmentKind = "image" | "video" | "unsupported";
+
+/** Local attachment result with optional video metadata for agent cognitive calibration. */
+export type AgentTurnAttachment = {
+  mediaType: string;
+  data: string;
+  hostedUrl?: string;
+  /** 6/29 PATCH: actual video duration and framerate. The model M3
+   * hallucinates duration based on (frame_count / framerate) because
+   * the minimax /anthropic endpoint applies sparse frame sampling. The
+   * caller injects this as a text block alongside the video content
+   * block so the model uses the real values as ground truth instead
+   * of hallucinating. */
+  metadata?: VideoMetadata;
+};
 
 function classifyAttachment(attachment: MediaAttachment): AttachmentKind {
   const mime = attachment.mime ?? "";
@@ -244,12 +259,26 @@ export async function resolveAgentTurnAttachments(params: {
         maxBytes: attachmentMaxBytes(kind),
         timeoutMs: AGENT_TURN_ATTACHMENT_TIMEOUT_MS,
       });
+      // 6/29 PATCH: probe video metadata so the caller can inject
+      // duration / framerate as a text block alongside the video. The
+      // model M3 hallucinates duration based on (sampled_frames /
+      // framerate) — the actual metadata is the only way to give the
+      // model the real total duration. ffprobe runs in a few ms on a
+      // small buffer so the cost is acceptable per attachment.
+      const videoMetadata: VideoMetadata | undefined =
+        kind === "video" ? await probeVideoMetadata(buffer) : undefined;
       // 6/26 PATCH: hosted mode forces the upload path even for small
       // videos that fit the inline cap. Re-use the buffer we just read
       // to avoid a second fs round trip.
       if (kind === "video" && videoPolicy?.forceUseHostedUrl) {
         const uploaded = await resolveVideoViaUpload(attachment, buffer);
         if (uploaded) {
+          results.push({
+            mediaType,
+            data: "",
+            hostedUrl: upload.url,
+            metadata: videoMetadata,
+          });
           return true;
         }
         // 6/29 PATCH: hosted upload failed (e.g. Files API regression,
@@ -268,6 +297,7 @@ export async function resolveAgentTurnAttachments(params: {
       results.push({
         mediaType,
         data: buffer.toString("base64"),
+        metadata: videoMetadata,
       });
       const historyImage = historyAttachmentByIndex.get(attachment.index);
       if (historyImage) {

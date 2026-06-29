@@ -8,7 +8,7 @@ import { normalizeOptionalString } from "@openclaw/normalization-core/string-coe
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { logVerbose } from "../../globals.js";
 import { formatErrorMessage } from "../../infra/errors.js";
-import type { ImageContent, VideoContent } from "../../llm/types.js";
+import type { ImageContent, TextContent, VideoContent } from "../../llm/types.js";
 import type { PromptImageOrderEntry } from "../../media/prompt-image-order.js";
 import type { MsgContext } from "../templating.js";
 import { resolveAgentTurnAttachments } from "./agent-turn-attachments.js";
@@ -20,7 +20,12 @@ type CurrentMultimodalAttachment = {
 };
 
 /** Per-attachment block that may be inline-injected into the agent prompt. */
-export type CurrentTurnMediaBlock = ImageContent | VideoContent;
+// 6/29 PATCH: text block added so we can inject video metadata
+// (duration / framerate / resolution) alongside the video content
+// block. The model M3 hallucinates duration based on (sampled_frames
+// / framerate) without this hint, so the metadata text acts as a
+// ground-truth calibration.
+export type CurrentTurnMediaBlock = ImageContent | VideoContent | TextContent;
 
 function isGenericMediaType(mediaType: string | undefined): boolean {
   if (!mediaType) {
@@ -131,29 +136,53 @@ export async function resolveCurrentTurnMedia(params: {
       cfg: params.cfg,
       includeRecentHistoryImages: false,
     });
-    const media = resolved.attachments.map((attachment): CurrentTurnMediaBlock => {
+    const media: CurrentTurnMediaBlock[] = [];
+    for (const attachment of resolved.attachments) {
+      if (attachment.metadata) {
+        // 6/29 PATCH: inject a text block with the real video metadata
+        // (duration / framerate / resolution) so the model uses the
+        // correct total duration instead of hallucinating one based on
+        // (sampled_frames / framerate). The minimax /anthropic
+        // endpoint applies sparse frame sampling so without this hint
+        // the model reports a wildly wrong duration (e.g. 8.8s for a
+        // 53s video, 0.4s for a 4.7s video). The text is also where we
+        // tell the model that sampled frames cover the full time range
+        // (not a sub-window) and that precise timestamps within the
+        // sampled sequence are not guaranteed.
+        const m = attachment.metadata;
+        const bits: string[] = [];
+        if (m.duration !== undefined) bits.push(`duration=${m.duration.toFixed(2)}s`);
+        if (m.framerate !== undefined) bits.push(`framerate=${m.framerate.toFixed(2)}fps`);
+        if (m.width !== undefined && m.height !== undefined) {
+          bits.push(`resolution=${m.width}x${m.height}`);
+        }
+        const metaLine = `[视频元数据] ${bits.join(", ")}. minimax M3 端点对该视频做 sparse frame sampling, model 看到的 frames 跨整个时长范围, 而不是集中在某个子窗口. 请以本 metadata 时长为 ground truth, 时间点位置只是模型推测, 不是绝对准确.`;
+        media.push({ type: "text", text: metaLine });
+      }
       if (attachment.mediaType.startsWith("video/")) {
         // Hosted (oversized) video attachments carry a `hostedUrl` instead
         // of base64 data; forward as a URL-style video block.
         if (attachment.hostedUrl) {
-          return {
+          media.push({
             type: "video",
             mimeType: attachment.mediaType,
             url: attachment.hostedUrl,
-          };
+          });
+        } else {
+          media.push({
+            type: "video",
+            data: attachment.data,
+            mimeType: attachment.mediaType,
+          });
         }
-        return {
-          type: "video",
-          data: attachment.data,
-          mimeType: attachment.mediaType,
-        };
+        continue;
       }
-      return {
+      media.push({
         type: "image",
         data: attachment.data,
         mimeType: attachment.mediaType,
-      };
-    });
+      });
+    }
     if (media.length < undescribedAttachments.length) {
       logVerbose(
         `agent-runner: native OpenClaw media resolution produced ${media.length}/${undescribedAttachments.length} current attachment(s); falling back to prompt refs`,
