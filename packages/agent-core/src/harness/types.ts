@@ -6,6 +6,7 @@ import type {
   StreamFn,
   TextContent,
   Transport,
+  VideoContent,
 } from "../../../llm-core/src/index.js";
 import type { AgentEvent, AgentMessage, AgentTool, QueueMode, ThinkingLevel } from "../index.js";
 import type { AgentCoreCompletionRuntimeDeps, AgentCoreRuntimeDeps } from "../runtime-deps.js";
@@ -616,7 +617,10 @@ export interface ToolResultEvent {
   toolCallId: string;
   toolName: string;
   input: Record<string, unknown>;
-  content: Array<TextContent | ImageContent>;
+  // 6/24 PATCH: tool result content may now also contain video blocks
+  // (e.g. readVideo session tool returning a video file as a VideoContent
+  // block). Hooks that observe tool_result events may receive video content.
+  content: Array<TextContent | ImageContent | VideoContent>;
   details: unknown;
   isError: boolean;
 }
