@@ -31,6 +31,37 @@ import {
   isModelScopedCooldownReason,
   resolveProfileUnusableUntil,
 } from "./usage-state.js";
+
+// Plan-exhausted error patterns. Matches minimax 2056 "Token Plan 用量上限",
+// Anthropic "subscription quota limit", Z.ai 1311, and similar long-window
+// quota errors. The provider does not surface a reset timestamp for these,
+// so the cooldown is best-effort. Local fork fix for #89758.
+const TOKEN_PLAN_EXHAUSTED_PATTERNS: readonly RegExp[] = [
+  /token\s*plan/i,
+  /套餐/, // Chinese: subscription package
+  /积分/, // Chinese: credits top-up
+  /quota.*exceeded/i,
+  /usage\s*limit.*exceeded/i,
+  /subscription\s*quota\s*limit/i,
+  /plan.*limit.*reached/i,
+];
+
+function isTokenPlanExhaustedMessage(rawError: string | undefined): boolean {
+  if (!rawError) {
+    return false;
+  }
+  // Normalize to lower-case for English patterns; the CJK patterns are
+  // case-insensitive by Unicode so they work either way.
+  const haystack = rawError.toLowerCase();
+  return TOKEN_PLAN_EXHAUSTED_PATTERNS.some((pattern) => pattern.test(haystack));
+}
+
+/** Default 5-minute cooldown for plan-exhausted errors. Providers do not
+ *  surface a reset timestamp for "Token Plan 用量上限" /
+ *  "subscription quota limit" style errors, so the cooldown length is
+ *  best-effort — user-configurable via auth.cooldowns.tokenPlanExhaustedHours. */
+export const DEFAULT_TOKEN_PLAN_EXHAUSTED_MS = 5 * 60 * 1000;
+
 export {
   clearExpiredCooldowns,
   getSoonestCooldownExpiry,
@@ -417,6 +448,7 @@ type ResolvedAuthCooldownConfig = {
   authPermanentBackoffMs: number;
   authPermanentMaxMs: number;
   failureWindowMs: number;
+  tokenPlanExhaustedMs: number;
 };
 
 type DisabledFailureReason = Extract<AuthProfileFailureReason, "billing" | "auth_permanent">;
@@ -489,6 +521,10 @@ function resolveAuthCooldownConfig(params: {
     cooldowns?.failureWindowHours,
     defaults.failureWindowHours,
   );
+  const tokenPlanExhaustedHours = resolvePositiveNumber(
+    cooldowns?.tokenPlanExhaustedHours,
+    DEFAULT_TOKEN_PLAN_EXHAUSTED_MS / (60 * 60 * 1000),
+  );
 
   return {
     billingBackoffMs: billingBackoffHours * 60 * 60 * 1000,
@@ -496,6 +532,7 @@ function resolveAuthCooldownConfig(params: {
     authPermanentBackoffMs: authPermanentBackoffMinutes * 60 * 1000,
     authPermanentMaxMs: authPermanentMaxMinutes * 60 * 1000,
     failureWindowMs: failureWindowHours * 60 * 60 * 1000,
+    tokenPlanExhaustedMs: tokenPlanExhaustedHours * 60 * 60 * 1000,
   };
 }
 
@@ -587,6 +624,7 @@ function computeNextProfileUsageStats(params: {
   reason: AuthProfileFailureReason;
   cfgResolved: ResolvedAuthCooldownConfig;
   modelId?: string;
+  rawError?: string;
 }): ProfileUsageStats {
   const windowMs = params.cfgResolved.failureWindowMs;
   const windowExpired =
@@ -615,6 +653,28 @@ function computeNextProfileUsageStats(params: {
     failureCounts,
     lastFailureAt: params.now,
   };
+
+  // Long-window plan exhaustion (e.g. minimax 2056 "Token Plan 用量上限",
+  // Anthropic "subscription quota limit"). The provider does not surface a
+  // reset timestamp, but the underlying window is on the order of hours.
+  // Apply a multi-hour cooldown so the same-profile retry counter does not
+  // cascade through 30s/60s/5min backoffs and burn the profile budget
+  // during the rest of the window. Local fork fix for #89758.
+  const tokenPlanExhausted =
+    params.reason === "rate_limit" && isTokenPlanExhaustedMessage(params.rawError);
+  if (tokenPlanExhausted) {
+    const longCooldownMs =
+      params.cfgResolved.tokenPlanExhaustedMs ?? DEFAULT_TOKEN_PLAN_EXHAUSTED_MS;
+    updatedStats.cooldownUntil = keepActiveWindowOrRecompute({
+      existingUntil: params.existing.cooldownUntil,
+      now: params.now,
+      recomputedUntil: resolveUsageWindowUntil(params.now, longCooldownMs),
+    });
+    updatedStats.cooldownReason = "rate_limit";
+    // Plan-exhausted is plan-wide: drop model scope so no model can bypass.
+    updatedStats.cooldownModel = undefined;
+    return updatedStats;
+  }
 
   const disabledFailureReason =
     params.reason === "billing" || params.reason === "auth_permanent" ? params.reason : null;
@@ -701,8 +761,15 @@ export async function markAuthProfileFailure(params: {
   agentDir?: string;
   runId?: string;
   modelId?: string;
+  /**
+   * Raw provider error text. Used to detect long-window plan-exhausted
+   * errors (e.g. minimax 2056 "Token Plan 用量上限") that should receive a
+   * multi-hour cooldown instead of the default 30s/60s/5min backoff. Local
+   * fork fix for #89758.
+   */
+  rawError?: string;
 }): Promise<void> {
-  const { store, profileId, reason, agentDir, cfg, runId, modelId } = params;
+  const { store, profileId, reason, agentDir, cfg, runId, modelId, rawError } = params;
   const profile = store.profiles[profileId];
   if (!profile || isAuthCooldownBypassedForProvider(profile.provider)) {
     return;
@@ -737,6 +804,7 @@ export async function markAuthProfileFailure(params: {
         reason,
         cfgResolved,
         modelId,
+        rawError,
       });
       nextStats =
         whamResult && shouldProbeWhamForFailure(profileValue.provider, reason)

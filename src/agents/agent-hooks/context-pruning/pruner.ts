@@ -1,5 +1,10 @@
 /** Context-pruning planner that trims old assistant/tool content under token pressure. */
-import type { ImageContent, TextContent, ToolResultMessage } from "../../../llm/types.js";
+import type {
+  ImageContent,
+  TextContent,
+  ToolResultMessage,
+  VideoContent,
+} from "../../../llm/types.js";
 import { CHARS_PER_TOKEN_ESTIMATE, estimateStringChars } from "../../../utils/cjk-chars.js";
 import { dropThinkingBlocks } from "../../embedded-agent-runner/thinking.js";
 import type { AgentMessage } from "../../runtime/index.js";
@@ -9,6 +14,14 @@ import { makeToolPrunablePredicate } from "./tools.js";
 
 const IMAGE_CHAR_ESTIMATE = 8_000;
 const PRUNED_CONTEXT_IMAGE_MARKER = "[image removed during context pruning]";
+
+// 6/25 PATCH: 视频块大小估算 (主人口令：先写死 50K token)
+//   50K tokens * 4 chars/token = 200_000 chars
+//   保守估算 — 不会让 video 永远传不进 1M context，
+//   但仍远超 0 估 (0 估会让 pruning/compaction 完全看不到 video 开销)。
+//   后面按 minimax 真实 video→token 计费再修正。
+//   之前 35_000_000 (按 25MB base64 算) 是错的: 那是传输层数据量，不是理解层 token 数
+const VIDEO_CHAR_ESTIMATE = 200_000;
 
 function asText(text: string): TextContent {
   return { type: "text", text };
@@ -40,7 +53,9 @@ function isImageBlock(block: unknown): boolean {
   );
 }
 
-function collectTextSegments(content: ReadonlyArray<TextContent | ImageContent>): string[] {
+function collectTextSegments(
+  content: ReadonlyArray<TextContent | ImageContent | VideoContent>,
+): string[] {
   const parts: string[] = [];
   for (const block of content) {
     const text = coerceTextBlock(block);
@@ -52,7 +67,7 @@ function collectTextSegments(content: ReadonlyArray<TextContent | ImageContent>)
 }
 
 function collectPrunableToolResultSegments(
-  content: ReadonlyArray<TextContent | ImageContent>,
+  content: ReadonlyArray<TextContent | ImageContent | VideoContent>,
 ): string[] {
   const parts: string[] = [];
   for (const block of content) {
@@ -131,7 +146,9 @@ function takeTailFromJoinedText(parts: string[], maxChars: number): string {
   return out.join("");
 }
 
-function hasImageBlocks(content: ReadonlyArray<TextContent | ImageContent>): boolean {
+function hasImageBlocks(
+  content: ReadonlyArray<TextContent | ImageContent | VideoContent>,
+): boolean {
   for (const block of content) {
     if (isImageBlock(block)) {
       return true;
@@ -144,7 +161,9 @@ function estimateWeightedTextChars(text: string): number {
   return estimateStringChars(text);
 }
 
-function estimateTextAndImageChars(content: ReadonlyArray<TextContent | ImageContent>): number {
+function estimateTextAndImageChars(
+  content: ReadonlyArray<TextContent | ImageContent | VideoContent>,
+): number {
   let chars = 0;
   for (const block of content) {
     const text = coerceTextBlock(block);
@@ -154,6 +173,12 @@ function estimateTextAndImageChars(content: ReadonlyArray<TextContent | ImageCon
     }
     if (isImageBlock(block)) {
       chars += IMAGE_CHAR_ESTIMATE;
+      continue;
+    }
+    // 6/25 PATCH: 之前 video 块直接掉坑里 0 估，会让 pruning/compaction
+    //   完全看不到视频开销，等 context 真的爆了才匆忙触发压缩。
+    if (block.type === "video") {
+      chars += VIDEO_CHAR_ESTIMATE;
     }
   }
   return chars;

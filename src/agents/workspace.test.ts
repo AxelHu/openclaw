@@ -757,6 +757,7 @@ describe("filterBootstrapFilesForSession", () => {
     { name: "USER.md", path: "/w/USER.md", content: "", missing: false },
     { name: "HEARTBEAT.md", path: "/w/HEARTBEAT.md", content: "", missing: false },
     { name: "BOOTSTRAP.md", path: "/w/BOOTSTRAP.md", content: "", missing: false },
+    { name: "ENVIRONMENT.md", path: "/w/ENVIRONMENT.md", content: "", missing: false },
     { name: "MEMORY.md", path: "/w/MEMORY.md", content: "", missing: false },
   ];
 

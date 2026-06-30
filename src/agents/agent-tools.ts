@@ -24,6 +24,14 @@ import {
 } from "../infra/exec-approvals.js";
 import { resolveMergedSafeBinProfileFixtures } from "../infra/exec-safe-bin-runtime-policy.js";
 import { logWarn } from "../logger.js";
+import {
+  buildMediaUnderstandingRegistry,
+  getMediaUnderstandingProvider,
+} from "../media-understanding/provider-registry.js";
+// 6/28 PATCH: VideoUploadRequest was inferred via Parameters<NonNullable<...>>
+// but the inner uploadVideo property is also optional, so the result type was
+// '... | undefined' and Parameters<> rejected it. Import the type directly.
+import type { VideoUploadRequest } from "../media-understanding/types.js";
 import { getPluginToolMeta } from "../plugins/tools.js";
 import { createLazyImportLoader } from "../shared/lazy-promise.js";
 import type { SkillSnapshot } from "../skills/types.js";
@@ -82,6 +90,8 @@ import { SANDBOX_AGENT_WORKSPACE_MOUNT } from "./sandbox/constants.js";
 import { resolveReadOnlyWorkspaceSkillMounts } from "./sandbox/workspace-mounts.js";
 import { resolveSenderToolPolicy } from "./sender-tool-policy.js";
 import { createCodingTools, createReadTool } from "./sessions/index.js";
+import type { ToolsOptions } from "./sessions/tools/index.js";
+import { resolveVideoDeliveryPolicy } from "./sessions/tools/video-inline-policy.js";
 import {
   isSubagentEnvelopeSession,
   resolveSubagentCapabilityStore,
@@ -234,6 +244,63 @@ function createLazyProcessTool(defaults?: ProcessToolDefaults): AnyAgentTool {
 }
 
 /** Resolve the process-tool isolation key for exec/process session state. */
+/**
+ * 6/25 PATCH: builds the tool-level options (e.g. readVideo upload helper)
+ * by resolving the media-understanding provider registry. Currently this
+ * resolves the first registered provider that exposes `uploadVideo` (e.g.
+ * the bundled minimax extension) so the readVideo tool can upload
+ * oversized videos to a hosted Files API instead of failing.
+ *
+ * 6/26 PATCH: also translates `cfg.models.providers.<id>.media.video.mode`
+ * (auto/inline/hosted) into the readVideo tool's `forceUseHostedUrl`
+ * hint. The tool keeps both inline and hosted paths and uses the hint
+ * (plus file size for the `auto` case) to decide. We deliberately don't
+ * expose the full `InlinePolicy` on the tool — the cfg is the source of
+ * truth, the hint is just the projection.
+ *
+ * Returns `undefined` when no suitable provider is configured so that the
+ * caller falls back to the default behaviour (inline ≤ 50MB, error > 50MB).
+ */
+function resolveCodingToolProviderOptions(cfg?: OpenClawConfig): ToolsOptions | undefined {
+  if (!cfg) return undefined;
+  const registry = buildMediaUnderstandingRegistry(undefined, cfg);
+  for (const id of ["minimax", "minimax-portal"] as const) {
+    const provider = getMediaUnderstandingProvider(id, registry);
+    const hasUploadVideo = provider?.uploadVideo !== undefined;
+    const policy = resolveVideoDeliveryPolicy(cfg, id, { hasUploadVideo });
+    if (!hasUploadVideo && policy.forceUseHostedUrl) {
+      // Hosted mode requested but no upload helper exposed. Skip so we
+      // don't shadow a working inline path on a different provider.
+      continue;
+    }
+    if (!hasUploadVideo && !provider) {
+      continue;
+    }
+    return {
+      readVideo: {
+        // 6/26 PATCH (3rd iter): pass `forceUseHostedUrl` + `defaultMaxBytes`
+        // as the readVideo tool's options. The new
+        // `models.providers.<id>.media.video.mode` cfg is the source of
+        // truth; the tool carries inline + hosted paths internally and
+        // uses this hint (plus file size for the `auto` case) to decide
+        // which one to run.
+        forceUseHostedUrl: policy.forceUseHostedUrl,
+        defaultMaxBytes: policy.inlineMaxBytes,
+        ...(hasUploadVideo
+          ? {
+              uploadVideo: (req: VideoUploadRequest) =>
+                provider!.uploadVideo!({
+                  ...req,
+                  cfg,
+                }),
+            }
+          : {}),
+      },
+    };
+  }
+  return undefined;
+}
+
 export function resolveProcessToolScopeKey(params: {
   scopeKey?: string;
   sessionKey?: string;
@@ -754,7 +821,12 @@ export function createOpenClawCodingTools(options?: {
 
   const base: AnyAgentTool[] = [];
   if (includeBaseCodingTools) {
-    for (const tool of createCodingTools(codingRoot) as unknown as AnyAgentTool[]) {
+    // 6/25 PATCH: wire the media-understanding provider registry into the
+    // default coding tools so the readVideo tool can upload oversized
+    // videos (e.g. via the minimax extension's `uploadVideo` helper) instead
+    // of erroring out. The registry is built once per surface build.
+    const toolOptions = resolveCodingToolProviderOptions(options?.config);
+    for (const tool of createCodingTools(codingRoot, toolOptions) as unknown as AnyAgentTool[]) {
       if (tool.name === "read") {
         if (sandboxRoot) {
           const sandboxed = createSandboxedReadTool({

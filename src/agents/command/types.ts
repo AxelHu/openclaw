@@ -6,6 +6,10 @@ import type { SpawnedRunMetadata } from "../../agents/spawned-context.js";
 import type { PromptMode } from "../../agents/system-prompt.types.js";
 import type { SourceReplyDeliveryMode } from "../../auto-reply/get-reply-options.types.js";
 import type { ChannelOutboundTargetMode } from "../../channels/plugins/types.public.js";
+// 6/28 PATCH: VideoContent wasn't imported here but used on line 59
+// (images?: Array<ImageContent | VideoContent>). The 6/27 PATCH added the
+// usage but missed the import. Add it now.
+import type { VideoContent } from "../../llm/types.js";
 import type { PromptImageOrderEntry } from "../../media/prompt-image-order.js";
 import type { InputProvenance } from "../../sessions/input-provenance.js";
 import type { ExecElevatedDefaults } from "../bash-tools.exec-types.js";
@@ -51,8 +55,12 @@ export type AgentCommandOpts = {
   message: string;
   /** User-visible transcript body; defaults to message and excludes runtime-only context. */
   transcriptMessage?: string;
-  /** Optional image attachments for multimodal messages. */
-  images?: ImageContent[];
+  /**
+   * 6/27 PATCH: image and video attachments for multimodal messages.
+   * Video blocks flow through the same `images` array and the transport
+   * emits the correct `{type: "video", source: {base64}}` block.
+   */
+  images?: Array<ImageContent | VideoContent>;
   /** Original inline/offloaded attachment order for inbound images. */
   imageOrder?: PromptImageOrderEntry[];
   /** Optional client-provided tools (OpenResponses hosted tools). */

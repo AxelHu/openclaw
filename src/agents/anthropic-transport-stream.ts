@@ -321,11 +321,14 @@ function toClaudeCodeName(name: string): string {
 
 function convertContentBlocks(
   content: Array<
-    { type: "text"; text: string } | { type: "image"; data: string; mimeType: string }
+    | { type: "text"; text: string }
+    | { type: "image"; data: string; mimeType: string }
+    | { type: "video"; mimeType: string; data?: string; url?: string }
   >,
 ) {
-  const hasImages = content.some((item) => item.type === "image");
-  if (!hasImages) {
+  // 6/24 PATCH: 加 video support
+  const hasMedia = content.some((item) => item.type === "image" || item.type === "video");
+  if (!hasMedia) {
     return sanitizeNonEmptyTransportPayloadText(
       content.map((item) => ("text" in item ? item.text : "")).join("\n"),
     );
@@ -336,6 +339,10 @@ function convertContentBlocks(
         type: "image";
         source: { type: "base64"; media_type: string; data: string };
       }
+    | {
+        type: "video";
+        source: { type: "base64" | "url"; media_type: string; data?: string; url?: string };
+      }
   > = [];
   let hasTextBlock = false;
   for (const block of content) {
@@ -345,7 +352,7 @@ function convertContentBlocks(
         blocks.push({ type: "text", text });
         hasTextBlock = true;
       }
-    } else {
+    } else if (block.type === "image") {
       blocks.push({
         type: "image" as const,
         source: {
@@ -354,10 +361,21 @@ function convertContentBlocks(
           data: block.data,
         },
       });
+    } else {
+      // video block (6/24 PATCH)
+      blocks.push({
+        type: "video" as const,
+        source: {
+          type: (block.data ? "base64" : "url") as "base64" | "url",
+          media_type: block.mimeType,
+          ...(block.data ? { data: block.data } : {}),
+          ...(block.url ? { url: block.url } : {}),
+        },
+      });
     }
   }
   if (!hasTextBlock) {
-    return [{ type: "text", text: "(see attached image)" }, ...blocks];
+    return [{ type: "text", text: "(see attached media)" }, ...blocks];
   }
   return blocks;
 }
@@ -400,27 +418,56 @@ function convertAnthropicMessages(
             type: "image";
             source: { type: "base64"; media_type: string; data: string };
           }
-      > = msg.content.map((item) =>
-        item.type === "text"
-          ? {
-              type: "text",
-              text: sanitizeTransportPayloadText(item.text),
-            }
-          : {
-              type: "image",
-              source: {
-                type: "base64",
-                media_type: item.mimeType,
-                data: item.data,
-              },
+        | {
+            type: "video";
+            source: {
+              type: "base64" | "url";
+              media_type: string;
+              data?: string;
+              url?: string;
+            };
+          }
+      > = msg.content.map((item) => {
+        if (item.type === "text") {
+          return {
+            type: "text" as const,
+            text: sanitizeTransportPayloadText(item.text),
+          };
+        }
+        if (item.type === "image") {
+          return {
+            type: "image" as const,
+            source: {
+              type: "base64" as const,
+              media_type: item.mimeType,
+              data: item.data,
             },
-      );
-      let filteredBlocks = model.input.includes("image")
-        ? blocks
-        : blocks.filter((block) => block.type !== "image");
-      filteredBlocks = filteredBlocks.filter(
-        (block) => block.type !== "text" || block.text.trim().length > 0,
-      );
+          };
+        }
+        // video block (6/24 PATCH: support minimax M3 native video input)
+        return {
+          type: "video" as const,
+          source: {
+            type: (item.data ? "base64" : "url") as "base64" | "url",
+            media_type: item.mimeType,
+            ...(item.data ? { data: item.data } : {}),
+            ...(item.url ? { url: item.url } : {}),
+          },
+        };
+      });
+      // Per-block kind check against model.input — supports image / video
+      // independently. Block is kept iff its kind is allowed.
+      // 6/28 PATCH: dropped the unreachable `audio` branch — the block union
+      // here is text|image|video, no audio variant (LLM-core doesn't define
+      // AudioContent), so `block.type === "audio"` was always false and
+      // caused TS to narrow `block` to `never`.
+      const supportedInputs = new Set(model.input);
+      const filteredBlocks = blocks.filter((block) => {
+        if (block.type === "text") return block.text.trim().length > 0;
+        if (block.type === "image") return supportedInputs.has("image");
+        if (block.type === "video") return supportedInputs.has("video");
+        return false;
+      });
       if (filteredBlocks.length === 0) {
         continue;
       }

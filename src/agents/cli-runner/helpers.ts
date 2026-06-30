@@ -22,10 +22,10 @@ import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { privateFileStore } from "../../infra/private-file-store.js";
 import { tempWorkspace } from "../../infra/private-temp-workspace.js";
 import { resolvePreferredOpenClawTmpDir } from "../../infra/tmp-openclaw-dir.js";
-import type { ImageContent } from "../../llm/types.js";
+import type { ImageContent, VideoContent } from "../../llm/types.js";
 import { listRegisteredPluginAgentPromptGuidance } from "../../plugins/command-registry-state.js";
 import type { EmbeddedContextFile } from "../embedded-agent-helpers.js";
-import { detectImageReferences, loadImageFromRef } from "../embedded-agent-runner/run/images.js";
+import { detectMediaReferences, loadMediaFromRef } from "../embedded-agent-runner/run/images.js";
 import { resolveDefaultModelForAgent } from "../model-selection.js";
 import type { AgentTool } from "../runtime/index.js";
 import type { SandboxFsBridge } from "../sandbox/fs-bridge.js";
@@ -314,13 +314,17 @@ export async function loadPromptRefImages(params: {
   workspaceOnly?: boolean;
   sandbox?: { root: string; bridge: SandboxFsBridge };
 }): Promise<ImageContent[]> {
-  const refs = detectImageReferences(params.prompt);
+  const refs = detectMediaReferences(params.prompt);
   if (refs.length === 0) {
     return [];
   }
 
   const maxBytes = params.maxBytes ?? MAX_IMAGE_BYTES;
   const seen = new Set<string>();
+  // 6/28 PATCH: typed as ImageContent[] because CLI backends (Codex / Claude
+  // Code) cannot consume video (see line ~420 imageOnlyBlocks filter). The
+  // loadMediaFromRef image | video result is narrowed to image inside the
+  // loop below; video blocks are dropped at the cli-runner boundary.
   const images: ImageContent[] = [];
   for (const ref of refs) {
     const key = `${ref.type}:${ref.resolved}`;
@@ -328,12 +332,18 @@ export async function loadPromptRefImages(params: {
       continue;
     }
     seen.add(key);
-    const image = await loadImageFromRef(ref, params.workspaceDir, {
+    const image = await loadMediaFromRef(ref, params.workspaceDir, {
       maxBytes,
       workspaceOnly: params.workspaceOnly,
       sandbox: params.sandbox,
     });
-    if (image) {
+    // 6/28 PATCH: filter out video blocks at the cli-runner boundary. The CLI
+    // backends (Codex / Claude Code) can't consume video (see line ~420
+    // imageOnlyBlocks filter), so we drop video blocks here before passing
+    // to sanitizeImageBlocks (which is image-only). The cli-runner flow
+    // never forwards video to the model — it goes through the embedded
+    // runner instead.
+    if (image && image.type === "image") {
       images.push(image);
     }
   }
@@ -399,16 +409,29 @@ export async function prepareCliPromptImagePayload(params: {
   backend: CliBackendConfig;
   prompt: string;
   workspaceDir: string;
-  images?: ImageContent[];
+  /**
+   * 6/25 PATCH: multimodal current-turn blocks (image + video). Video
+   * blocks are filtered out here because CLI backends (Codex/Claude Code)
+   * cannot consume video directly. The pi-ai runtime limitation still
+   * applies; multimodal providers (e.g. minimax M3) receive video through
+   * the embedded runner instead.
+   */
+  images?: Array<ImageContent | VideoContent>;
 }): Promise<{
   prompt: string;
   imagePaths?: string[];
   cleanupImages?: () => Promise<void>;
 }> {
   let prompt = params.prompt;
+  // Filter to image blocks only — CLI backends (Codex/Claude Code) cannot
+  // consume video directly. Multimodal providers (e.g. minimax M3) receive
+  // video through the embedded runner instead.
+  const imageOnlyBlocks = params.images?.filter(
+    (block): block is ImageContent => block.type === "image",
+  );
   const resolvedImages =
-    params.images && params.images.length > 0
-      ? params.images
+    imageOnlyBlocks && imageOnlyBlocks.length > 0
+      ? imageOnlyBlocks
       : await loadPromptRefImages({ prompt, workspaceDir: params.workspaceDir });
   if (resolvedImages.length === 0) {
     return { prompt };

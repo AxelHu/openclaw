@@ -6,6 +6,7 @@
 import {
   sanitizeInlineImageBase64,
   sanitizeInlineImageDataUrlForStorage,
+  sanitizeInlineVideoBase64,
 } from "@openclaw/media-core/inline-image-data-url";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { readLoggingConfig } from "../logging/config.js";
@@ -66,8 +67,18 @@ function isImageMimeType(value: unknown): value is string {
   return typeof value === "string" && /^image\//iu.test(value.trim());
 }
 
+// 6/26 PATCH: video MIME type 判断 (跟 isImageMimeType 同款)
+function isVideoMimeType(value: unknown): value is string {
+  return typeof value === "string" && /^video\//iu.test(value.trim());
+}
+
 function normalizeImageMimeType(value: unknown): string | undefined {
   return isImageMimeType(value) ? value.trim().toLowerCase() : undefined;
+}
+
+// 6/26 PATCH: video MIME normalize (跟 normalizeImageMimeType 同款)
+function normalizeVideoMimeType(value: unknown): string | undefined {
+  return isVideoMimeType(value) ? value.trim().toLowerCase() : undefined;
 }
 
 function imageMimeTypeForRecord(value: Record<string, unknown>): string | undefined {
@@ -78,26 +89,57 @@ function imageMimeTypeForRecord(value: Record<string, unknown>): string | undefi
   );
 }
 
+// 6/26 PATCH: video MIME 查找 (跟 imageMimeTypeForRecord 同款)
+function videoMimeTypeForRecord(value: Record<string, unknown>): string | undefined {
+  return (
+    normalizeVideoMimeType(value.mimeType) ??
+    normalizeVideoMimeType(value.mediaType) ??
+    normalizeVideoMimeType(value.media_type)
+  );
+}
+
 function imageMimeTypeFieldsForRecord(value: Record<string, unknown>): string[] {
   return ["mimeType", "mediaType", "media_type"].filter((key) => isImageMimeType(value[key]));
 }
 
-function sanitizeOpaqueImageBase64(
+// 6/26 PATCH: video MIME fields 查找 (跟 imageMimeTypeFieldsForRecord 同款)
+function videoMimeTypeFieldsForRecord(value: Record<string, unknown>): string[] {
+  return ["mimeType", "mediaType", "media_type"].filter((key) => isVideoMimeType(value[key]));
+}
+
+// 6/26 PATCH: 重命名 sanitizeOpaqueImageBase64 → sanitizeOpaqueMediaBase64.
+// 行为扩展: dispatch 到 image 或 video 的 sanitize 函数 (audio 以后再加).
+// 重命名理由: 函数实际行为已超出 image 范围, 原名会误导读者.
+function sanitizeOpaqueMediaBase64(
   base64: string,
   mimeType: string | undefined,
 ): { mimeType: string; base64: string } | undefined {
-  return mimeType ? sanitizeInlineImageBase64({ mimeType, base64 }) : undefined;
+  if (!mimeType) return undefined;
+  if (mimeType.startsWith("image/")) return sanitizeInlineImageBase64({ mimeType, base64 });
+  if (mimeType.startsWith("video/")) return sanitizeInlineVideoBase64({ mimeType, base64 });
+  return undefined;
 }
 
-function isValidOpaqueImageBase64(base64: string, mimeType: string | undefined): boolean {
-  return sanitizeOpaqueImageBase64(base64, mimeType) !== undefined;
+// 6/26 PATCH: 重命名 isValidOpaqueImageBase64 → isValidOpaqueMediaBase64.
+// 旧名 (isValidOpaqueImageBase64) 已无 caller, 彻底删除, 不留 alias.
+function isValidOpaqueMediaBase64(base64: string, mimeType: string | undefined): boolean {
+  return sanitizeOpaqueMediaBase64(base64, mimeType) !== undefined;
 }
 
 function isTranscriptImageContentBlock(value: Record<string, unknown>): boolean {
   return (
     value.type === "image" &&
     typeof value.data === "string" &&
-    isValidOpaqueImageBase64(value.data, imageMimeTypeForRecord(value))
+    isValidOpaqueMediaBase64(value.data, imageMimeTypeForRecord(value))
+  );
+}
+
+// 6/26 PATCH: video 块识别 (跟 isTranscriptImageContentBlock 同款, 走新的 media 判定)
+function isTranscriptVideoContentBlock(value: Record<string, unknown>): boolean {
+  return (
+    value.type === "video" &&
+    typeof value.data === "string" &&
+    isValidOpaqueMediaBase64(value.data, videoMimeTypeForRecord(value))
   );
 }
 
@@ -105,7 +147,7 @@ function isImageBase64SourceBlock(value: Record<string, unknown>): boolean {
   return (
     value.type === "base64" &&
     typeof value.data === "string" &&
-    isValidOpaqueImageBase64(value.data, imageMimeTypeForRecord(value))
+    isValidOpaqueMediaBase64(value.data, imageMimeTypeForRecord(value))
   );
 }
 
@@ -119,7 +161,31 @@ function sanitizeImageRecord(source: Record<string, unknown>): Record<string, un
   if (mimeTypeFields.length === 0) {
     return undefined;
   }
-  const sanitized = sanitizeOpaqueImageBase64(source.data, imageMimeTypeForRecord(source));
+  const sanitized = sanitizeOpaqueMediaBase64(source.data, imageMimeTypeForRecord(source));
+  if (!sanitized) {
+    return undefined;
+  }
+  const hasCanonicalMimeTypes = mimeTypeFields.every((key) => source[key] === sanitized.mimeType);
+  if (source.data === sanitized.base64 && hasCanonicalMimeTypes) {
+    return source;
+  }
+  const next: Record<string, unknown> = { ...source, data: sanitized.base64 };
+  for (const field of mimeTypeFields) {
+    next[field] = sanitized.mimeType;
+  }
+  return next;
+}
+
+// 6/26 PATCH: video 块 base64 sanitize. 走新的 sanitizeOpaqueMediaBase64 (dispatch image/video).
+function sanitizeVideoRecord(source: Record<string, unknown>): Record<string, unknown> | undefined {
+  if (source.type !== "video" || typeof source.data !== "string") {
+    return undefined;
+  }
+  const mimeTypeFields = videoMimeTypeFieldsForRecord(source);
+  if (mimeTypeFields.length === 0) {
+    return undefined;
+  }
+  const sanitized = sanitizeOpaqueMediaBase64(source.data, videoMimeTypeForRecord(source));
   if (!sanitized) {
     return undefined;
   }
@@ -153,7 +219,10 @@ function sanitizeImageDataUrlField(
   return isImageDataUrlField ? sanitizeInlineImageDataUrlForStorage(value) : undefined;
 }
 
-function shouldPreserveOpaqueImagePayload(
+// 6/26 PATCH: 重命名 shouldPreserveOpaqueImagePayload → shouldPreserveOpaqueMediaPayload.
+// 行为扩展: 加 video 块识别. 重命名理由: 函数现在覆盖 image + video (后续可能加 audio),
+// "Image" 这个名字会误导后续维护者, 改 Media 更准确.
+function shouldPreserveOpaqueMediaPayload(
   source: Record<string, unknown>,
   key: string,
   item: unknown,
@@ -164,7 +233,9 @@ function shouldPreserveOpaqueImagePayload(
   }
   if (
     key === "data" &&
-    (isTranscriptImageContentBlock(source) || isImageBase64SourceBlock(source))
+    (isTranscriptImageContentBlock(source) ||
+      isTranscriptVideoContentBlock(source) ||
+      isImageBase64SourceBlock(source))
   ) {
     return true;
   }
@@ -558,7 +629,10 @@ function redactTranscriptStructuredValue(
 
   seen.add(value);
   const sanitizedImageRecord = sanitizeImageRecord(value);
-  const source = sanitizedImageRecord ?? value;
+  // 6/26 PATCH: video 块也走 sanitize (跟 image 同款).
+  // 如果 image sanitize 没匹配上 (type 不是 "image" / "base64"), 再试 video sanitize.
+  const sanitizedVideoRecord = sanitizedImageRecord ?? sanitizeVideoRecord(value);
+  const source = sanitizedVideoRecord ?? value;
   const currentAssistantRoute =
     location === "root" && source.role === "assistant"
       ? {
@@ -652,7 +726,7 @@ function redactTranscriptStructuredValue(
         continue;
       }
     }
-    if (shouldPreserveOpaqueImagePayload(source, key, item, preserveImageDataUrlFields)) {
+    if (shouldPreserveOpaqueMediaPayload(source, key, item, preserveImageDataUrlFields)) {
       continue;
     }
     const redacted = redactTranscriptStructuredValue(
