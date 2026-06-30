@@ -12,7 +12,13 @@ import { resolveFeishuRuntimeAccount } from "./accounts.js";
 import { createFeishuClient } from "./client.js";
 import { requestFeishuApi } from "./comment-shared.js";
 import type { MentionTarget } from "./mention-target.types.js";
-import { buildMentionedCardContent, buildMentionedMessage } from "./mention.js";
+import {
+  buildMentionedCardContent,
+  buildMentionedMessage,
+  extractMentionTagsFromText,
+  mergeMentionsWithExtracted,
+} from "./mention.js";
+import { normalizeCardMentionTags, normalizeTextAtTagClosing } from "./mention.js";
 import { parsePostContent } from "./post.js";
 import {
   assertFeishuMessageApiSuccess,
@@ -23,6 +29,22 @@ import { resolveFeishuSendTarget } from "./send-target.js";
 import type { FeishuChatType, FeishuMessageInfo, FeishuSendResult } from "./types.js";
 
 const WITHDRAWN_REPLY_ERROR_CODES = new Set([230011, 231003]);
+// Feishu card API error: card body has an <at id=...> whose open_id does
+// not resolve to a real user in the chat. Two main causes:
+//  1. LLM wrote a wrong open_id (typo / hallucination / chat-cross-contamination
+//     where the LLM grabbed a sender open_id from a different app/chat).
+//  2. LLM wrote a <at id=...> with a syntactically valid but never-seen
+//     open_id (e.g. made-up hex).
+// Both used to drop the entire message (with "no-visible-reply" fallback).
+// The 6/9 fix landed </a> → </at> drift in plain text; 6/10 routed it
+// through card send. The 6/11 follow-up (this commit) catches 230099
+// and retries the card WITHOUT the mentions array — the @name still
+// renders in the body text (extractMentionTagsFromText already rewrote
+// the tag to ` @AxelHu `), just no mention chip / notification.
+// Mirrors the WITHDRAWN_REPLY_ERROR_CODES → sendReplyOrFallbackDirect
+// pattern (send.ts:49-78): define a small codeset + helper, then wrap
+// the send call site with try/catch and a stripped retry.
+const INVALID_USER_RESOURCE_CODES = new Set([230099]);
 const INTERACTIVE_CARD_FALLBACK_TEXT = "[Interactive Card]";
 const POST_FALLBACK_TEXT = "[Rich text message]";
 const FEISHU_CARD_TEMPLATES = new Set([
@@ -71,6 +93,29 @@ function isWithdrawnReplyError(err: unknown): boolean {
   const cause = (err as { cause?: unknown }).cause;
   if (cause && cause !== err) {
     return isWithdrawnReplyError(cause);
+  }
+  return false;
+}
+
+/**
+ * Detect Feishu API 230099 ("invalid user resource (at/person) in your card").
+ * Mirrors isWithdrawnReplyError above — checks both SDK error shape
+ * (err.code) and AxiosError shape (err.response.data.code).
+ */
+function isInvalidUserResourceError(err: unknown): boolean {
+  if (typeof err !== "object" || err === null) {
+    return false;
+  }
+  const code = (err as { code?: number }).code;
+  if (typeof code === "number" && INVALID_USER_RESOURCE_CODES.has(code)) {
+    return true;
+  }
+  const response = (err as { response?: { data?: { code?: number; msg?: string } } }).response;
+  if (
+    typeof response?.data?.code === "number" &&
+    INVALID_USER_RESOURCE_CODES.has(response.data.code)
+  ) {
+    return true;
   }
   return false;
 }
@@ -549,6 +594,11 @@ export function buildFeishuPostMessagePayload(params: { messageText: string }): 
   msgType: string;
 } {
   const { messageText } = params;
+  // Normalize erroneous escapes that models add to @mention tags (e.g. `user=` instead of `user_id=`, or `\_` in IDs)
+  // These would break Feishu's parsing. Match only well-formed opening tags to avoid false positives.
+  const normalizedText = messageText
+    .replace(/<at user=/g, "<at user_id=")
+    .replace(/\\(?=[ou_])/g, "");
   return {
     content: JSON.stringify({
       zh_cn: {
@@ -556,7 +606,7 @@ export function buildFeishuPostMessagePayload(params: { messageText: string }): 
           [
             {
               tag: "md",
-              text: messageText,
+              text: normalizedText,
             },
           ],
         ],
@@ -587,6 +637,9 @@ export async function sendMessageFeishu(
 
   // Build message content (with @mention support)
   let rawText = text ?? "";
+  // Fix common LLM drift: at-tags closed with </a> instead of </at>.
+  // Card path uses normalizeCardMentionTags (separate); this is plain text only.
+  rawText = normalizeTextAtTagClosing(rawText);
   if (mentions && mentions.length > 0) {
     rawText = buildMentionedMessage(mentions, rawText);
   }
@@ -730,7 +783,7 @@ export function buildMarkdownCard(text: string): Record<string, unknown> {
       elements: [
         {
           tag: "markdown",
-          content: text,
+          content: normalizeCardMentionTags(text),
         },
       ],
     },
@@ -744,6 +797,8 @@ export type CardHeaderConfig = {
   /** Feishu header color template (blue, green, red, orange, purple, grey, etc.). Defaults to "blue". */
   template?: string;
 };
+
+// normalizeCardMentionTags is imported from ./mention.js (shared with streaming-card)
 
 export function resolveFeishuCardTemplate(template?: string): string | undefined {
   const normalized = normalizeOptionalLowercaseString(template);
@@ -764,10 +819,15 @@ export function buildStructuredCard(
     note?: string;
   },
 ): Record<string, unknown> {
-  const elements: Record<string, unknown>[] = [{ tag: "markdown", content: text }];
+  const elements: Record<string, unknown>[] = [
+    { tag: "markdown", content: normalizeCardMentionTags(text) },
+  ];
   if (options?.note) {
     elements.push({ tag: "hr" });
-    elements.push({ tag: "markdown", content: `<font color='grey'>${options.note}</font>` });
+    elements.push({
+      tag: "markdown",
+      content: `<font color='grey'>${normalizeCardMentionTags(options.note)}</font>`,
+    });
   }
   const card: Record<string, unknown> = {
     schema: "2.0",
@@ -811,20 +871,61 @@ export async function sendStructuredCardFeishu(params: {
     header,
     note,
   } = params;
-  let cardText = text;
-  if (mentions && mentions.length > 0) {
-    cardText = buildMentionedCardContent(mentions, text);
+  // Capture any <at> tags the programmer wrote inline so the recipient
+  // actually gets a mention notification (otherwise the tag renders as
+  // raw text and Feishu's frontend silently drops the @ on the card).
+  // First close any </a> drift (LLM HTML-ish closing) so the regex below
+  // actually matches — without this, the regex needs `</at>` and silently
+  // no-matches, leaving malformed `<at id=ou_xxx>name</a>` in the card
+  // body, which Feishu rejects with code 230099 "invalid user resource".
+  // Mirrors the plain-text path's call to normalizeTextAtTagClosing in
+  // sendMessageFeishu (added in f179cb5d122, which originally missed the
+  // card path).
+  const { text: textWithoutInlineAt, mentions: inlineAtMentions } = extractMentionTagsFromText(
+    normalizeTextAtTagClosing(text),
+  );
+  const combinedMentions = mergeMentionsWithExtracted(mentions, inlineAtMentions);
+
+  let cardText = textWithoutInlineAt;
+  if (combinedMentions && combinedMentions.length > 0) {
+    cardText = buildMentionedCardContent(combinedMentions, textWithoutInlineAt);
   }
   const card = buildStructuredCard(cardText, { header, note });
-  return sendCardFeishu({
-    cfg,
-    to,
-    card,
-    replyToMessageId,
-    replyInThread,
-    allowTopLevelReplyFallback,
-    accountId,
-  });
+  try {
+    return await sendCardFeishu({
+      cfg,
+      to,
+      card,
+      replyToMessageId,
+      replyInThread,
+      allowTopLevelReplyFallback,
+      accountId,
+    });
+  } catch (err) {
+    if (!isInvalidUserResourceError(err)) {
+      throw err;
+    }
+    // LLM wrote a bad open_id (typo / hallucination / chat-cross-mix).
+    // Retry the same body WITHOUT the @mentions prefix — the @AxelHu
+    // placeholder is already in the text from extractMentionTagsFromText
+    // so the message still reads as " @AxelHu ...", just without the
+    // mention chip or notification. Without this fallback the entire
+    // message would be lost to no-visible-reply.
+    console.error(
+      "[feishu] card send hit 230099 invalid user resource; retrying without @mentions (LLM likely wrote wrong open_id)",
+      { err, combinedMentionCount: combinedMentions?.length ?? 0 },
+    );
+    const fallbackCard = buildStructuredCard(textWithoutInlineAt, { header, note });
+    return sendCardFeishu({
+      cfg,
+      to,
+      card: fallbackCard,
+      replyToMessageId,
+      replyInThread,
+      allowTopLevelReplyFallback,
+      accountId,
+    });
+  }
 }
 
 /**
@@ -853,18 +954,59 @@ export async function sendMarkdownCardFeishu(params: {
     mentions,
     accountId,
   } = params;
-  let cardText = text;
-  if (mentions && mentions.length > 0) {
-    cardText = buildMentionedCardContent(mentions, text);
+  // Capture any <at> tags the programmer wrote inline so the recipient
+  // actually gets a mention notification (otherwise the tag renders as
+  // raw text and Feishu's frontend silently drops the @ on the card).
+  // First close any </a> drift (LLM HTML-ish closing) so the regex below
+  // actually matches — without this, the regex needs `</at>` and silently
+  // no-matches, leaving malformed `<at id=ou_xxx>name</a>` in the card
+  // body, which Feishu rejects with code 230099 "invalid user resource".
+  // Mirrors the plain-text path's call to normalizeTextAtTagClosing in
+  // sendMessageFeishu (added in f179cb5d122, which originally missed the
+  // card path).
+  const { text: textWithoutInlineAt, mentions: inlineAtMentions } = extractMentionTagsFromText(
+    normalizeTextAtTagClosing(text),
+  );
+  const combinedMentions = mergeMentionsWithExtracted(mentions, inlineAtMentions);
+
+  let cardText = textWithoutInlineAt;
+  if (combinedMentions && combinedMentions.length > 0) {
+    cardText = buildMentionedCardContent(combinedMentions, textWithoutInlineAt);
   }
   const card = buildMarkdownCard(cardText);
-  return sendCardFeishu({
-    cfg,
-    to,
-    card,
-    replyToMessageId,
-    replyInThread,
-    allowTopLevelReplyFallback,
-    accountId,
-  });
+  try {
+    return await sendCardFeishu({
+      cfg,
+      to,
+      card,
+      replyToMessageId,
+      replyInThread,
+      allowTopLevelReplyFallback,
+      accountId,
+    });
+  } catch (err) {
+    if (!isInvalidUserResourceError(err)) {
+      throw err;
+    }
+    // LLM wrote a bad open_id (typo / hallucination / chat-cross-mix).
+    // Retry the same body WITHOUT the @mentions prefix — the @AxelHu
+    // placeholder is already in the text from extractMentionTagsFromText
+    // so the message still reads as " @AxelHu ...", just without the
+    // mention chip or notification. Without this fallback the entire
+    // message would be lost to no-visible-reply.
+    console.error(
+      "[feishu] card send hit 230099 invalid user resource; retrying without @mentions (LLM likely wrote wrong open_id)",
+      { err, combinedMentionCount: combinedMentions?.length ?? 0 },
+    );
+    const fallbackCard = buildMarkdownCard(textWithoutInlineAt);
+    return sendCardFeishu({
+      cfg,
+      to,
+      card: fallbackCard,
+      replyToMessageId,
+      replyInThread,
+      allowTopLevelReplyFallback,
+      accountId,
+    });
+  }
 }

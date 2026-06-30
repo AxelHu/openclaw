@@ -28,15 +28,25 @@ describe("normalizeMentions (via parseFeishuMessageEvent)", () => {
     expect(ctx.content).toBe("hello world");
   });
 
-  it("strips bot mention in p2p (addressing prefix, not semantic content)", () => {
+  it("preserves bot's own mention in p2p (so the model sees who was addressed)", () => {
+    // Bug fix (port of 4.27 commit f5ea371bd82): the botStripId branch that
+    // stripped the receiving bot's own <at> caused NO_REPLY in multi-bot
+    // groups. The mention tag is preserved in text content; mentionedBot flag
+    // still captures whether the bot was addressed.
     const ctx = parseFeishuMessageEvent(
       makeEvent("@_bot_1 hello", [{ key: "@_bot_1", name: "Bot", id: { open_id: "ou_bot" } }]),
       BOT_OPEN_ID,
     );
-    expect(ctx.content).toBe("hello");
+    expect(ctx.content).toBe('<at user_id="ou_bot">Bot</at> hello');
   });
 
-  it("strips bot mention in group so slash commands work (#35994)", () => {
+  it("preserves bot's own mention in group (slash command stripping disabled)", () => {
+    // See note above. The 5.28 design intended for botStripId to strip in
+    // both p2p and group contexts (so /command parsing could detect the
+    // leading slash), but the production code does not actually strip —
+    // botStripId is passed through and ignored. This test documents the
+    // actual behavior, which matches the 4.27 commit that removed the
+    // strip entirely to fix multi-bot NO_REPLY.
     const ctx = parseFeishuMessageEvent(
       makeEvent(
         "@_bot_1 hello",
@@ -45,10 +55,14 @@ describe("normalizeMentions (via parseFeishuMessageEvent)", () => {
       ),
       BOT_OPEN_ID,
     );
-    expect(ctx.content).toBe("hello");
+    expect(ctx.content).toBe('<at user_id="ou_bot">Bot</at> hello');
   });
 
-  it("strips bot mention in group preserving slash command prefix (#35994)", () => {
+  it("preserves bot's own mention in group even when text starts with slash", () => {
+    // KNOWN LIMITATION: with botStripId removed (4.27 fix for NO_REPLY), the
+    // receiving bot's mention is preserved in content text. Downstream
+    // slash command parsing needs to handle "@Bot /model" (mentionedBot
+    // flag + content contains /model after stripping the mention).
     const ctx = parseFeishuMessageEvent(
       makeEvent(
         "@_bot_1 /model",
@@ -57,10 +71,10 @@ describe("normalizeMentions (via parseFeishuMessageEvent)", () => {
       ),
       BOT_OPEN_ID,
     );
-    expect(ctx.content).toBe("/model");
+    expect(ctx.content).toBe('<at user_id="ou_bot">Bot</at> /model');
   });
 
-  it("strips bot mention but normalizes other mentions in p2p (mention-forward)", () => {
+  it("preserves bot's own mention but normalizes other mentions in p2p", () => {
     const ctx = parseFeishuMessageEvent(
       makeEvent("@_bot_1 @_user_alice hello", [
         { key: "@_bot_1", name: "Bot", id: { open_id: "ou_bot" } },
@@ -68,7 +82,9 @@ describe("normalizeMentions (via parseFeishuMessageEvent)", () => {
       ]),
       BOT_OPEN_ID,
     );
-    expect(ctx.content).toBe('<at user_id="ou_alice">Alice</at> hello');
+    expect(ctx.content).toBe(
+      '<at user_id="ou_bot">Bot</at> <at user_id="ou_alice">Alice</at> hello',
+    );
   });
 
   it("falls back to @name when open_id is absent", () => {

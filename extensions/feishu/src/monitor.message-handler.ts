@@ -177,6 +177,10 @@ export function createFeishuMessageReceiveHandler({
   const log = runtime?.log ?? console.log;
   const error = runtime?.error ?? console.error;
   const enqueue = createSequentialQueue({
+    // 2026-06-09 6/8 sleep 前 batch 调整: 5 min cap 太短，agent-to-agent 长任务会被 evict。
+    // 提到 30 min，匹配 `session.writeLock.maxHoldMs: 1800000` 配置（同 6/8 session 改）。
+    // sequential-queue.ts:21 的 DEFAULT_TASK_TIMEOUT_MS 保持 5 min 不动，给以后 schema 化留 fallback。
+    taskTimeoutMs: 30 * 60 * 1000,
     onTaskTimeout: (key, timeoutMs) => {
       log(
         `feishu[${accountId}]: per-chat task exceeded ${timeoutMs}ms cap (key=${key}); evicting from queue so later same-key messages can proceed (#70133)`,
