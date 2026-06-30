@@ -7,6 +7,7 @@ import type {
   MessageParam,
   RawMessageStreamEvent,
   TextBlockParam,
+  ToolResultBlockParam,
 } from "@anthropic-ai/sdk/resources/messages.js";
 import {
   projectAnthropicTools,
@@ -19,6 +20,7 @@ import {
   splitSystemPromptCacheBoundary,
   stripSystemPromptCacheBoundary,
 } from "../../agents/system-prompt-cache-boundary.js";
+import { hasInboundMetadataSentinel } from "../../auto-reply/reply/strip-inbound-meta.js";
 import {
   resolveClaudeNativeThinkingLevelMap,
   requiresClaudeAdaptiveThinking,
@@ -52,6 +54,7 @@ import type {
   Tool,
   ToolCall,
   ToolResultMessage,
+  VideoContent,
 } from "../types.js";
 import { AssistantMessageEventStream } from "../utils/event-stream.js";
 import { headersToRecord } from "../utils/headers.js";
@@ -131,8 +134,17 @@ const toClaudeCodeName = (name: string) => ccToolLookup.get(name.toLowerCase()) 
 
 /**
  * Convert content blocks to Anthropic API format
+ *
+ * 6/24 PATCH: 加 video support (6/24 14:23 实测 minimax /anthropic 端点 type=video)
+ * - minimax M3 文档明确支持 type=video
+ * - 老板原话: 视频理解工具 (抽帧) 是 fallback, M3 直接传 video 是默认
+ * - 按 video 大小分流:
+ *   - ≤50MB: base64 传 (minimax /anthropic 限制)
+ *   - >50MB: 用 minimax Files API 上传 + mm_file:// 引用
+ *
+ * 注意: minimax 接受 `type: "video"` 但 OpenClaw transport 之前完全没实现 (6/24 bug)
  */
-function convertContentBlocks(content: (TextContent | ImageContent)[]):
+function convertContentBlocks(content: (TextContent | ImageContent | VideoContent)[]):
   | string
   | Array<
       | { type: "text"; text: string }
@@ -144,14 +156,23 @@ function convertContentBlocks(content: (TextContent | ImageContent)[]):
             data: string;
           };
         }
+      | {
+          type: "video";
+          source: {
+            type: "base64" | "url";
+            media_type: string;
+            data?: string;
+            url?: string;
+          };
+        }
     > {
   // If only text blocks, return as concatenated string for simplicity
-  const hasImages = content.some((c) => c.type === "image");
-  if (!hasImages) {
+  const hasMedia = content.some((c) => c.type === "image" || c.type === "video");
+  if (!hasMedia) {
     return sanitizeSurrogates(content.map((c) => (c as TextContent).text).join("\n"));
   }
 
-  // If we have images, convert to content block array
+  // Convert all blocks
   const blocks = content.map((block) => {
     if (block.type === "text") {
       return {
@@ -159,22 +180,35 @@ function convertContentBlocks(content: (TextContent | ImageContent)[]):
         text: sanitizeSurrogates(block.text),
       };
     }
+    if (block.type === "image") {
+      return {
+        type: "image" as const,
+        source: {
+          type: "base64" as const,
+          media_type: block.mimeType as "image/jpeg" | "image/png" | "image/gif" | "image/webp",
+          data: block.data,
+        },
+      };
+    }
+    // video block (6/24 PATCH)
+    // data is optional; if absent, must have url (mm_file:// or https://)
     return {
-      type: "image" as const,
+      type: "video" as const,
       source: {
-        type: "base64" as const,
-        media_type: block.mimeType as "image/jpeg" | "image/png" | "image/gif" | "image/webp",
-        data: block.data,
+        type: (block.data ? "base64" : "url") as "base64" | "url",
+        media_type: block.mimeType,
+        ...(block.data ? { data: block.data } : {}),
+        ...(block.url ? { url: block.url } : {}),
       },
     };
   });
 
-  // If only images (no text), add placeholder text block
+  // If only media (no text), add placeholder text block
   const hasText = blocks.some((b) => b.type === "text");
   if (!hasText) {
     blocks.unshift({
       type: "text" as const,
-      text: "(see attached image)",
+      text: "(see attached media)",
     });
   }
 
@@ -1211,14 +1245,35 @@ function convertMessages(
               text: sanitizeSurrogates(item.text),
             };
           }
+          if (item.type === "image") {
+            return {
+              type: "image",
+              source: {
+                type: "base64",
+                media_type: item.mimeType as
+                  | "image/jpeg"
+                  | "image/png"
+                  | "image/gif"
+                  | "image/webp",
+                data: item.data,
+              },
+            };
+          }
+          // video block (6/24 PATCH: support minimax M3 native video input).
+          // The Anthropic SDK ContentBlockParam type does not include a
+          // "video" variant; we cast through `unknown as` so the SDK accepts
+          // the runtime-constructed block. minimax M3 (and other providers
+          // that implement the Anthropic-compatible video extension)
+          // accept the wire format documented in their respective APIs.
           return {
-            type: "image",
+            type: "video" as never,
             source: {
-              type: "base64",
-              media_type: item.mimeType as "image/jpeg" | "image/png" | "image/gif" | "image/webp",
-              data: item.data,
+              type: (item.data ? "base64" : "url") as "base64" | "url",
+              media_type: item.mimeType,
+              ...(item.data ? { data: item.data } : {}),
+              ...(item.url ? { url: item.url } : {}),
             },
-          };
+          } as unknown as ContentBlockParam;
         });
         const filteredBlocks = blocks.filter((b) => {
           if (b.type === "text") {
@@ -1307,11 +1362,15 @@ function convertMessages(
       });
     } else if (msg.role === "toolResult") {
       // Collect all consecutive toolResult messages, needed for z.ai Anthropic endpoint
-      const toolResults: ContentBlockParam[] = [];
+      // 6/24 PATCH: toolResult content may now contain video blocks
+      // (see convertContentBlocks below). The Anthropic SDK
+      // ToolResultBlockParam content type does not include a "video" variant,
+      // so we cast through `unknown` to forward the block to the provider.
+      const toolResults: ToolResultBlockParam[] = [];
       toolResults.push({
         type: "tool_result",
         tool_use_id: msg.toolCallId,
-        content: convertContentBlocks(msg.content),
+        content: convertContentBlocks(msg.content) as unknown as ToolResultBlockParam["content"],
         is_error: msg.isError,
       });
 
@@ -1321,7 +1380,9 @@ function convertMessages(
         toolResults.push({
           type: "tool_result",
           tool_use_id: nextMsg.toolCallId,
-          content: convertContentBlocks(nextMsg.content),
+          content: convertContentBlocks(
+            nextMsg.content,
+          ) as unknown as ToolResultBlockParam["content"],
           is_error: nextMsg.isError,
         });
         j++;
@@ -1337,17 +1398,32 @@ function convertMessages(
 
   if (cacheControl && params.length > 0 && messageCacheControlLimit > 0) {
     let fallbackToolResult: ContentBlockParam | undefined;
+    let crossedVolatileInboundMetadata = false;
 
     for (let i = params.length - 1; i >= 0; i--) {
       const message = params[i];
-      if (message.role !== "user") {
+      if (message.role !== "user" && message.role !== "assistant") {
+        continue;
+      }
+      const hasVolatileInboundMetadata =
+        message.role === "user" && contentHasInboundMetadataSentinel(message.content);
+      if (hasVolatileInboundMetadata) {
+        crossedVolatileInboundMetadata = true;
         continue;
       }
 
       if (Array.isArray(message.content)) {
         for (let j = message.content.length - 1; j >= 0; j--) {
           const block = message.content[j];
-          if (block.type === "text" || block.type === "image") {
+          // 6/28 PATCH: video block 也要算 cacheable primary candidate.
+          // 跟 isCacheablePreInboundMetadataBlock 同款 cast pattern (Anthropic
+          // SDK ContentBlockParam type 不含 video, 这里 cast to wider type).
+          const blockType = (block as { type: string }).type;
+          const isPrimaryCandidate = crossedVolatileInboundMetadata
+            ? isCacheablePreInboundMetadataBlock(block, message.role)
+            : message.role === "user" &&
+              (blockType === "text" || blockType === "image" || blockType === "video");
+          if (isPrimaryCandidate) {
             if (fallbackToolResult && messageCacheControlLimit === 1) {
               applyContentBlockCacheControl(fallbackToolResult, cacheControl);
               return params;
@@ -1358,7 +1434,11 @@ function convertMessages(
             }
             return params;
           }
-          if (block.type === "tool_result" && fallbackToolResult === undefined) {
+          if (
+            message.role === "user" &&
+            block.type === "tool_result" &&
+            fallbackToolResult === undefined
+          ) {
             fallbackToolResult = block;
           }
         }
@@ -1366,6 +1446,9 @@ function convertMessages(
       }
 
       if (typeof message.content === "string") {
+        if (message.role !== "user") {
+          continue;
+        }
         if (fallbackToolResult && messageCacheControlLimit === 1) {
           applyContentBlockCacheControl(fallbackToolResult, cacheControl);
           return params;
@@ -1390,6 +1473,43 @@ function convertMessages(
   }
 
   return params;
+}
+
+function isCacheablePreInboundMetadataBlock(block: ContentBlockParam, role: string): boolean {
+  if (role === "assistant") {
+    return block.type === "text" || block.type === "tool_use";
+  }
+  if (role === "user") {
+    // 6/28 PATCH: video block 在 cache_control 标记里也算 primary candidate.
+    // Anthropic SDK ContentBlockParam 不含 "video" type (minimax M3 通过
+    // `as never` 铸造塞进去的, 跟 1265 行的 video block 同款 pattern).
+    // 这里用 wider type cast 来比较, 跟 isCacheablePreInboundMetadataBlock
+    // 的 runtime 检查对齐.
+    const blockType = (block as { type: string }).type;
+    return (
+      blockType === "text" ||
+      blockType === "image" ||
+      blockType === "video" ||
+      block.type === "tool_result"
+    );
+  }
+  return false;
+}
+
+function contentHasInboundMetadataSentinel(content: unknown): boolean {
+  if (typeof content === "string") {
+    return hasInboundMetadataSentinel(content);
+  }
+  if (!Array.isArray(content)) {
+    return false;
+  }
+  return content.some((block) => {
+    if (!block || typeof block !== "object") {
+      return false;
+    }
+    const text = (block as { text?: unknown }).text;
+    return typeof text === "string" && hasInboundMetadataSentinel(text);
+  });
 }
 
 function applyContentBlockCacheControl(

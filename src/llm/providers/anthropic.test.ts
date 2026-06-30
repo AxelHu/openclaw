@@ -49,6 +49,17 @@ function makeAnthropicModel(overrides: Partial<Model<"anthropic-messages">> = {}
   } satisfies Model<"anthropic-messages">;
 }
 
+function inboundMetadataText(prompt: string) {
+  return [
+    "Conversation info (untrusted metadata):",
+    "```json",
+    '{"message_id":"msg-live","sender":"Alice"}',
+    "```",
+    "",
+    prompt,
+  ].join("\n");
+}
+
 describe("Anthropic provider", () => {
   beforeEach(() => {
     anthropicMockState.configs = [];
@@ -1248,5 +1259,378 @@ describe("Anthropic provider", () => {
         text: "Stable prefix\nDynamic suffix",
       },
     ]);
+  });
+
+  it("places native message cache marker on the block before volatile inbound metadata user text", async () => {
+    let capturedPayload: unknown;
+    const stream = streamAnthropic(
+      makeAnthropicModel(),
+      {
+        messages: [
+          { role: "user", content: "Stable historical question.", timestamp: 0 },
+          {
+            role: "assistant",
+            provider: "anthropic",
+            api: "anthropic-messages",
+            model: "claude-sonnet-4-6",
+            stopReason: "stop",
+            timestamp: 0,
+            content: [{ type: "text", text: "Stable historical answer." }],
+          },
+          {
+            role: "user",
+            content: inboundMetadataText("Live external-channel ask."),
+            timestamp: 0,
+          },
+        ],
+      },
+      {
+        apiKey: "sk-ant-provider",
+        onPayload: (payload) => {
+          capturedPayload = payload;
+          throw new Error("stop before network");
+        },
+      },
+    );
+
+    const result = await stream.result();
+
+    expect(result.stopReason).toBe("error");
+    expect((capturedPayload as { messages: unknown[] }).messages).toEqual([
+      {
+        role: "user",
+        content: "Stable historical question.",
+      },
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "text",
+            text: "Stable historical answer.",
+            cache_control: { type: "ephemeral" },
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: inboundMetadataText("Live external-channel ask."),
+      },
+    ]);
+  });
+
+  it("keeps native trailing tool-result marker when only one message marker remains", async () => {
+    let capturedPayload: unknown;
+    const stream = streamAnthropic(
+      makeAnthropicModel(),
+      {
+        systemPrompt: "Follow policy.",
+        tools: [
+          {
+            name: "lookup",
+            description: "lookup logs",
+            parameters: { type: "object", properties: {} },
+          } as Tool,
+        ],
+        messages: [
+          { role: "user", content: "Stable historical question.", timestamp: 0 },
+          {
+            role: "assistant",
+            provider: "anthropic",
+            api: "anthropic-messages",
+            model: "claude-sonnet-4-6",
+            stopReason: "stop",
+            timestamp: 0,
+            content: [{ type: "text", text: "Stable historical answer." }],
+          },
+          {
+            role: "user",
+            content: inboundMetadataText("Live external-channel ask."),
+            timestamp: 0,
+          },
+          {
+            role: "assistant",
+            provider: "anthropic",
+            api: "anthropic-messages",
+            model: "claude-sonnet-4-6",
+            stopReason: "toolUse",
+            timestamp: 0,
+            content: [{ type: "toolCall", id: "call_1", name: "lookup", arguments: {} }],
+          },
+          {
+            role: "toolResult",
+            toolCallId: "call_1",
+            toolName: "lookup",
+            content: [{ type: "text", text: "log chunk" }],
+            isError: false,
+            timestamp: 0,
+          },
+        ],
+      },
+      {
+        apiKey: "sk-ant-oat-provider",
+        onPayload: (payload) => {
+          capturedPayload = payload;
+          throw new Error("stop before network");
+        },
+      },
+    );
+
+    const result = await stream.result();
+
+    expect(result.stopReason).toBe("error");
+    const messages = (capturedPayload as { messages: Array<{ role: string; content: unknown }> })
+      .messages;
+    expect(messages[1]).toEqual({
+      role: "assistant",
+      content: [{ type: "text", text: "Stable historical answer." }],
+    });
+    expect(messages[2]).toEqual({
+      role: "user",
+      content: inboundMetadataText("Live external-channel ask."),
+    });
+    expect(messages[4]).toMatchObject({
+      role: "user",
+      content: [
+        {
+          type: "tool_result",
+          tool_use_id: "call_1",
+          is_error: false,
+          cache_control: { type: "ephemeral" },
+        },
+      ],
+    });
+  });
+
+  // 6/24 PATCH: video content block tests
+  // Verify convertContentBlocks correctly handles video blocks for minimax /anthropic endpoint
+  // (and other anthropic-messages providers that support video like future Claude/Gemini)
+
+  it("converts video block with base64 data to {type: video, source: base64} content block", async () => {
+    let capturedPayload: unknown;
+    const stream = streamAnthropic(
+      makeAnthropicModel({ id: "MiniMax-M3", name: "MiniMax M3", provider: "minimax" }),
+      {
+        messages: [
+          {
+            role: "user",
+            content: [
+              { type: "text", text: "What's in this video?" },
+              {
+                type: "video",
+                mimeType: "video/mp4",
+                data: "base64encodeddata==",
+              },
+            ],
+            timestamp: 0,
+          },
+        ],
+      },
+      {
+        apiKey: "sk-minimax",
+        onPayload: (payload) => {
+          capturedPayload = payload;
+          throw new Error("stop before network");
+        },
+      },
+    );
+
+    const result = await stream.result();
+
+    expect(result.stopReason).toBe("error");
+    const payload = capturedPayload as { messages: Array<{ role: string; content: unknown[] }> };
+    const userMessage = payload.messages.find((message) => message.role === "user");
+    expect(userMessage?.content).toEqual([
+      { type: "text", text: "What's in this video?" },
+      {
+        type: "video",
+        source: {
+          type: "base64",
+          media_type: "video/mp4",
+          data: "base64encodeddata==",
+        },
+      },
+    ]);
+  });
+
+  it("converts video block with mm_file URL to {type: video, source: url} content block", async () => {
+    let capturedPayload: unknown;
+    const stream = streamAnthropic(
+      makeAnthropicModel({ id: "MiniMax-M3", name: "MiniMax M3", provider: "minimax" }),
+      {
+        messages: [
+          {
+            role: "user",
+            content: [
+              { type: "text", text: "Watch this." },
+              {
+                type: "video",
+                mimeType: "video/mp4",
+                url: "mm_file://412628667187613",
+              },
+            ],
+            timestamp: 0,
+          },
+        ],
+      },
+      {
+        apiKey: "sk-minimax",
+        onPayload: (payload) => {
+          capturedPayload = payload;
+          throw new Error("stop before network");
+        },
+      },
+    );
+
+    const result = await stream.result();
+
+    expect(result.stopReason).toBe("error");
+    const payload = capturedPayload as { messages: Array<{ role: string; content: unknown[] }> };
+    const userMessage = payload.messages.find((message) => message.role === "user");
+    expect(userMessage?.content).toEqual([
+      { type: "text", text: "Watch this." },
+      {
+        type: "video",
+        source: {
+          type: "url",
+          media_type: "video/mp4",
+          url: "mm_file://412628667187613",
+        },
+      },
+    ]);
+  });
+
+  it("preserves text block alongside video block in user message", async () => {
+    let capturedPayload: unknown;
+    const stream = streamAnthropic(
+      makeAnthropicModel({ id: "MiniMax-M3", name: "MiniMax M3", provider: "minimax" }),
+      {
+        messages: [
+          {
+            role: "user",
+            content: [
+              { type: "text", text: "Describe both." },
+              {
+                type: "image",
+                data: "imagebase64==",
+                mimeType: "image/jpeg",
+              },
+              {
+                type: "video",
+                mimeType: "video/mp4",
+                data: "videobase64==",
+              },
+            ],
+            timestamp: 0,
+          },
+        ],
+      },
+      {
+        apiKey: "sk-minimax",
+        onPayload: (payload) => {
+          capturedPayload = payload;
+          throw new Error("stop before network");
+        },
+      },
+    );
+
+    const result = await stream.result();
+
+    expect(result.stopReason).toBe("error");
+    const payload = capturedPayload as { messages: Array<{ role: string; content: unknown[] }> };
+    const userMessage = payload.messages.find((message) => message.role === "user");
+    expect(userMessage?.content).toEqual([
+      { type: "text", text: "Describe both." },
+      {
+        type: "image",
+        source: {
+          type: "base64",
+          media_type: "image/jpeg",
+          data: "imagebase64==",
+        },
+      },
+      {
+        type: "video",
+        source: {
+          type: "base64",
+          media_type: "video/mp4",
+          data: "videobase64==",
+        },
+      },
+    ]);
+  });
+
+  it("adds 'see attached media' placeholder when only video block (no text)", async () => {
+    let capturedPayload: unknown;
+    const stream = streamAnthropic(
+      makeAnthropicModel({ id: "MiniMax-M3", name: "MiniMax M3", provider: "minimax" }),
+      {
+        messages: [
+          {
+            role: "user",
+            content: [
+              {
+                type: "video",
+                mimeType: "video/mp4",
+                data: "videobase64==",
+              },
+            ],
+            timestamp: 0,
+          },
+        ],
+      },
+      {
+        apiKey: "sk-minimax",
+        onPayload: (payload) => {
+          capturedPayload = payload;
+          throw new Error("stop before network");
+        },
+      },
+    );
+
+    const result = await stream.result();
+
+    expect(result.stopReason).toBe("error");
+    const payload = capturedPayload as { messages: Array<{ role: string; content: unknown[] }> };
+    const userMessage = payload.messages.find((message) => message.role === "user");
+    expect(userMessage?.content).toEqual([
+      { type: "text", text: "(see attached media)" },
+      {
+        type: "video",
+        source: {
+          type: "base64",
+          media_type: "video/mp4",
+          data: "videobase64==",
+        },
+      },
+    ]);
+  });
+
+  it("still returns string (joined text) when only text blocks (no image/video) - existing behavior preserved", async () => {
+    let capturedPayload: unknown;
+    const stream = streamAnthropic(
+      makeAnthropicModel(),
+      {
+        messages: [
+          { role: "user", content: [{ type: "text", text: "line 1" }], timestamp: 0 },
+          { role: "user", content: [{ type: "text", text: "line 2" }], timestamp: 0 },
+        ],
+      },
+      {
+        apiKey: "sk-ant-provider",
+        onPayload: (payload) => {
+          capturedPayload = payload;
+          throw new Error("stop before network");
+        },
+      },
+    );
+
+    const result = await stream.result();
+
+    expect(result.stopReason).toBe("error");
+    const payload = capturedPayload as { messages: Array<{ role: string; content: unknown }> };
+    // When only text blocks, the user content stays as joined string (existing behavior)
+    const userMessages = payload.messages.filter((message) => message.role === "user");
+    expect(userMessages[0].content).toBe("line 1");
+    expect(userMessages[1].content).toBe("line 2");
   });
 });

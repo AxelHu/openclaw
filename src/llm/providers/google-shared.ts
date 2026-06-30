@@ -269,9 +269,19 @@ export function convertMessages<T extends GoogleApiType>(
       const imageContent = model.input.includes("image")
         ? msg.content.filter((c): c is ImageContent => c.type === "image")
         : [];
+      // 6/28 PATCH: video block 跟 image 同款 pattern (Gemini 3+ 原生支持 video).
+      // 之前只 extract image, 走 readVideo 的 video block 会进 textResult fallback,
+      // 6.7M base64 会被 stringify 乱塑.
+      const videoContent = model.input.includes("video")
+        ? msg.content.filter(
+            (c): c is { type: "video"; mimeType: string; data?: string; url?: string } =>
+              c.type === "video",
+          )
+        : [];
 
       const hasText = textResult.length > 0;
       const hasImages = imageContent.length > 0;
+      const hasVideo = videoContent.length > 0;
 
       // Gemini 3+ models support multimodal function responses with images nested inside
       // functionResponse.parts. Claude and other non-Gemini models behind Cloud Code Assist /
@@ -281,8 +291,10 @@ export function convertMessages<T extends GoogleApiType>(
       // Use "output" key for success, "error" key for errors as per SDK documentation
       const responseValue = hasText
         ? sanitizeSurrogates(textResult)
-        : hasImages
-          ? "(see attached image)"
+        : hasImages || hasVideo
+          ? hasVideo
+            ? "(see attached video)"
+            : "(see attached image)"
           : "";
 
       const imageParts: Part[] = imageContent.map((imageBlock) => ({

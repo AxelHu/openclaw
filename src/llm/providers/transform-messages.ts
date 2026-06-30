@@ -9,20 +9,25 @@ import type {
   TextContent,
   ToolCall,
   ToolResultMessage,
+  VideoContent,
 } from "../types.js";
 
 const NON_VISION_USER_IMAGE_PLACEHOLDER = "(image omitted: model does not support images)";
 const NON_VISION_TOOL_IMAGE_PLACEHOLDER = "(tool image omitted: model does not support images)";
+// 6/24 PATCH: 加 video placeholder (为不支持 video 的 model)
+const NON_VISION_USER_VIDEO_PLACEHOLDER = "(video omitted: model does not support videos)";
+const NON_VISION_TOOL_VIDEO_PLACEHOLDER = "(tool video omitted: model does not support videos)";
 
 function replaceImagesWithPlaceholder(
-  content: (TextContent | ImageContent)[],
+  content: (TextContent | ImageContent | VideoContent)[],
   placeholder: string,
 ): TextContent[] {
   const result: TextContent[] = [];
   let previousWasPlaceholder = false;
 
   for (const block of content) {
-    if (block.type === "image") {
+    // 6/24 PATCH: video 也要走 placeholder filter
+    if (block.type === "image" || block.type === "video") {
       if (!previousWasPlaceholder) {
         result.push({ type: "text", text: placeholder });
       }
@@ -41,23 +46,37 @@ function downgradeUnsupportedImages<TApi extends Api>(
   messages: Message[],
   model: Model<TApi>,
 ): Message[] {
-  if (model.input.includes("image")) {
+  // 6/24 PATCH: 区分处理 image 和 video
+  // - model 支持 image 但不支持 video → 只 filter video
+  // - model 都不支持 → filter 两种
+  const supportsImage = model.input.includes("image");
+  const supportsVideo = model.input.includes("video");
+
+  if (supportsImage && supportsVideo) {
     return messages;
   }
 
   return messages.map((msg) => {
     if (msg.role === "user" && Array.isArray(msg.content)) {
-      return {
-        ...msg,
-        content: replaceImagesWithPlaceholder(msg.content, NON_VISION_USER_IMAGE_PLACEHOLDER),
-      };
+      let content = msg.content;
+      if (!supportsImage) {
+        content = replaceImagesWithPlaceholder(content, NON_VISION_USER_IMAGE_PLACEHOLDER);
+      }
+      if (!supportsVideo) {
+        content = replaceImagesWithPlaceholder(content, NON_VISION_USER_VIDEO_PLACEHOLDER);
+      }
+      return { ...msg, content };
     }
 
     if (msg.role === "toolResult") {
-      return {
-        ...msg,
-        content: replaceImagesWithPlaceholder(msg.content, NON_VISION_TOOL_IMAGE_PLACEHOLDER),
-      };
+      let content = msg.content;
+      if (!supportsImage) {
+        content = replaceImagesWithPlaceholder(content, NON_VISION_TOOL_IMAGE_PLACEHOLDER);
+      }
+      if (!supportsVideo) {
+        content = replaceImagesWithPlaceholder(content, NON_VISION_TOOL_VIDEO_PLACEHOLDER);
+      }
+      return { ...msg, content };
     }
 
     return msg;
