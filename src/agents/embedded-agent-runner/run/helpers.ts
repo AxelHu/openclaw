@@ -130,6 +130,30 @@ export function resolveMaxRunRetryIterations(
   return Math.min(maxLimit, Math.max(minLimit, scaled));
 }
 
+// Default cap for the same-profile transient retry path. Kept small
+// (~3 LLM calls) so a flaky profile is bounded but a healthy profile
+// is not abandoned on a single blip. Local fork fix for #89758.
+export const DEFAULT_TRANSIENT_RETRY_MAX_ATTEMPTS = 2;
+
+// Cap for the same-profile transient retry path. Read from
+// `agents.defaults.transientRetry.maxAttempts` (per-agent override also
+// honored via `resolveAgentConfig`). The cap is independent of
+// MAX_RUN_LOOP_ITERATIONS but each retry still consumes one run-iteration
+// slot, so values above the run-budget headroom will simply surface the
+// error earlier. Local fork fix for #89758.
+export function resolveTransientRetryMaxAttempts(cfg?: OpenClawConfig, agentId?: string): number {
+  const configured =
+    (cfg && agentId ? resolveAgentConfig(cfg, agentId)?.transientRetry?.maxAttempts : undefined) ??
+    cfg?.agents?.defaults?.transientRetry?.maxAttempts;
+
+  if (typeof configured !== "number" || !Number.isFinite(configured)) {
+    return DEFAULT_TRANSIENT_RETRY_MAX_ATTEMPTS;
+  }
+  // Clamp to the same zod schema bounds (0..10) so runtime stays safe
+  // even if a config file bypasses the schema validator.
+  return Math.max(0, Math.min(10, Math.floor(configured)));
+}
+
 export function resolveActiveErrorContext(params: {
   provider: string;
   model: string;

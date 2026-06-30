@@ -10,10 +10,10 @@ import { createHostSandboxFsBridge } from "../../test-helpers/host-sandbox-fs-br
 import { createUnsafeMountedSandbox } from "../../test-helpers/unsafe-mounted-sandbox.js";
 import {
   detectAndLoadPromptImages,
-  detectImageReferences,
-  loadImageFromRef,
+  detectMediaReferences,
+  loadMediaFromRef,
   mergePromptAttachmentImages,
-  modelSupportsImages,
+  modelSupportsMedia,
   splitPromptAndAttachmentRefs,
 } from "./images.js";
 
@@ -26,12 +26,12 @@ function expectNoPromptImages(result: { detectedRefs: unknown[]; images: unknown
 }
 
 function expectNoImageReferences(prompt: string) {
-  const refs = detectImageReferences(prompt);
+  const refs = detectMediaReferences(prompt);
   expect(refs).toHaveLength(0);
 }
 
 function expectImageReferenceCount(prompt: string, count: number) {
-  const refs = detectImageReferences(prompt);
+  const refs = detectMediaReferences(prompt);
   expect(refs).toHaveLength(count);
   return refs;
 }
@@ -43,7 +43,7 @@ function expectSingleImageReference(prompt: string) {
   return refs[0];
 }
 
-describe("detectImageReferences", () => {
+describe("detectMediaReferences", () => {
   it("detects absolute file paths with common extensions", () => {
     const ref = expectSingleImageReference(
       "Check this image /path/to/screenshot.png and tell me what you see",
@@ -89,7 +89,7 @@ describe("detectImageReferences", () => {
   it("ignores OpenClaw CLI image cache paths from prior prompt transcripts", () => {
     // Cache paths from generated tool reminders are replay artifacts, not new
     // user attachments to hydrate again.
-    const refs = detectImageReferences(
+    const refs = detectMediaReferences(
       [
         '<system-reminder>Called the Read tool with {"file_path":"/Users/ada/.openclaw/workspace/.openclaw-cli-images/stale.png"}</system-reminder>',
         "Compare it with /Users/ada/Pictures/current.png",
@@ -127,7 +127,7 @@ describe("detectImageReferences", () => {
   });
 
   it("detects normal user image paths in similarly named directories", () => {
-    expect(detectImageReferences("/workspace/openclaw-cli-images/current.png")).toStrictEqual([
+    expect(detectMediaReferences("/workspace/openclaw-cli-images/current.png")).toStrictEqual([
       {
         raw: "/workspace/openclaw-cli-images/current.png",
         type: "path",
@@ -156,18 +156,18 @@ describe("detectImageReferences", () => {
   });
 
   it("does not leak parser state between calls", () => {
-    expect(detectImageReferences("[media attached: /tmp/first.png (image/png)]")).toStrictEqual([
+    expect(detectMediaReferences("[media attached: /tmp/first.png (image/png)]")).toStrictEqual([
       { raw: "/tmp/first.png", type: "path", resolved: "/tmp/first.png" },
     ]);
-    expect(detectImageReferences("[Image: source: /tmp/second.jpg]")).toStrictEqual([
+    expect(detectMediaReferences("[Image: source: /tmp/second.jpg]")).toStrictEqual([
       { raw: "/tmp/second.jpg", type: "path", resolved: "/tmp/second.jpg" },
     ]);
     const thirdPath = path.join(os.tmpdir(), "third.webp");
     const thirdUrl = pathToFileURL(thirdPath).href;
-    expect(detectImageReferences(`See ${thirdUrl}`)).toStrictEqual([
+    expect(detectMediaReferences(`See ${thirdUrl}`)).toStrictEqual([
       { raw: thirdUrl, type: "path", resolved: thirdPath },
     ]);
-    expect(detectImageReferences("See ./fourth.jpeg")).toStrictEqual([
+    expect(detectMediaReferences("See ./fourth.jpeg")).toStrictEqual([
       { raw: "./fourth.jpeg", type: "path", resolved: "./fourth.jpeg" },
     ]);
   });
@@ -176,7 +176,7 @@ describe("detectImageReferences", () => {
     const extensions = ["png", "jpg", "jpeg", "gif", "webp", "bmp", "tiff", "heic"];
     for (const ext of extensions) {
       const prompt = `Image: /test/image.${ext}`;
-      const refs = detectImageReferences(prompt);
+      const refs = detectMediaReferences(prompt);
       expect(refs).toStrictEqual([
         {
           raw: `/test/image.${ext}`,
@@ -189,7 +189,7 @@ describe("detectImageReferences", () => {
 
   it("deduplicates repeated image references", () => {
     expect(
-      detectImageReferences("Look at /path/image.png and also /path/image.png again"),
+      detectMediaReferences("Look at /path/image.png and also /path/image.png again"),
     ).toStrictEqual([
       {
         raw: "/path/image.png",
@@ -204,7 +204,7 @@ describe("detectImageReferences", () => {
     // candidates because case can identify different files.
     const prompt = "Look at /tmp/Image.png and /tmp/image.png";
     if (process.platform === "win32") {
-      expect(detectImageReferences(prompt)).toStrictEqual([
+      expect(detectMediaReferences(prompt)).toStrictEqual([
         {
           raw: "/tmp/Image.png",
           type: "path",
@@ -213,7 +213,7 @@ describe("detectImageReferences", () => {
       ]);
       return;
     }
-    expect(detectImageReferences(prompt)).toStrictEqual([
+    expect(detectMediaReferences(prompt)).toStrictEqual([
       {
         raw: "/tmp/Image.png",
         type: "path",
@@ -387,29 +387,39 @@ what is this?`);
   });
 });
 
-describe("modelSupportsImages", () => {
+describe("modelSupportsMedia", () => {
   it("returns true when model input includes image", () => {
     const model = { input: ["text", "image"] };
-    expect(modelSupportsImages(model)).toBe(true);
+    expect(modelSupportsMedia(model)).toBe(true);
   });
 
-  it("returns false when model input does not include image", () => {
+  it("returns true when model input includes video", () => {
+    const model = { input: ["text", "image", "video"] };
+    expect(modelSupportsMedia(model)).toBe(true);
+  });
+
+  it("returns true when model input includes audio", () => {
+    const model = { input: ["audio"] };
+    expect(modelSupportsMedia(model)).toBe(true);
+  });
+
+  it("returns false when model input has no media", () => {
     const model = { input: ["text"] };
-    expect(modelSupportsImages(model)).toBe(false);
+    expect(modelSupportsMedia(model)).toBe(false);
   });
 
   it("returns false when model input is undefined", () => {
     const model = {};
-    expect(modelSupportsImages(model)).toBe(false);
+    expect(modelSupportsMedia(model)).toBe(false);
   });
 
   it("returns false when model input is empty", () => {
     const model = { input: [] };
-    expect(modelSupportsImages(model)).toBe(false);
+    expect(modelSupportsMedia(model)).toBe(false);
   });
 });
 
-describe("loadImageFromRef", () => {
+describe("loadMediaFromRef", () => {
   it("hydrates managed inbound media URIs before workspace path resolution", async () => {
     // Managed media URIs are canonical inbound attachment handles and should
     // work even when workspaceOnly would reject ordinary outside paths.
@@ -423,7 +433,7 @@ describe("loadImageFromRef", () => {
     vi.stubEnv("OPENCLAW_STATE_DIR", stateDir);
 
     try {
-      const image = await loadImageFromRef(
+      const image = await loadMediaFromRef(
         {
           raw: `media://inbound/${mediaId}`,
           type: "media-uri",
@@ -450,7 +460,7 @@ describe("loadImageFromRef", () => {
     await fs.writeFile(path.join(inboundDir, mediaId), Buffer.from(TINY_PNG_BASE64, "base64"));
 
     try {
-      const image = await loadImageFromRef(
+      const image = await loadMediaFromRef(
         {
           raw: `media://inbound/${mediaId}`,
           type: "media-uri",
@@ -485,7 +495,7 @@ describe("loadImageFromRef", () => {
       const pngB64 = TINY_PNG_BASE64;
       await fs.writeFile(imagePath, Buffer.from(pngB64, "base64"));
 
-      const image = await loadImageFromRef(
+      const image = await loadMediaFromRef(
         {
           raw: "./photo.png",
           type: "path",
@@ -602,7 +612,7 @@ describe("detectAndLoadPromptImages", () => {
   it("classifies trailing offloaded refs separately from prompt refs", () => {
     const prompt =
       "compare [media attached: media://inbound/prompt-ref.png] and ./prompt-b.png\n[media attached: media://inbound/att-b.png]";
-    const refs = detectImageReferences(prompt);
+    const refs = detectMediaReferences(prompt);
 
     const split = splitPromptAndAttachmentRefs({
       prompt,

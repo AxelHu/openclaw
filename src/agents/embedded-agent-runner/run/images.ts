@@ -5,9 +5,9 @@ import path from "node:path";
 import { normalizeLowercaseStringOrEmpty } from "@openclaw/normalization-core/string-coerce";
 import { formatErrorMessage } from "../../../infra/errors.js";
 import { assertNoWindowsNetworkPath, safeFileURLToPath } from "../../../infra/local-file-access.js";
-import type { ImageContent } from "../../../llm/types.js";
+import type { ImageContent, VideoContent } from "../../../llm/types.js";
 import { resolveMediaReferenceLocalPath } from "../../../media/media-reference.js";
-import type { PromptImageOrderEntry } from "../../../media/prompt-image-order.js";
+import type { PromptMediaOrderEntry } from "../../../media/prompt-image-order.js";
 import { loadWebMedia } from "../../../media/web-media.js";
 import { resolveUserPath } from "../../../utils.js";
 import type { ImageSanitizationLimits } from "../../image-sanitization.js";
@@ -20,9 +20,12 @@ import { sanitizeImageBlocks } from "../../tool-images.js";
 import { log } from "../logger.js";
 
 /**
- * Common image file extensions for detection.
+ * Common media (image + video) file extensions for detection. Image
+ * extensions come first so the regex alternation prefers the more common
+ * type when ambiguity arises (e.g. ".webp" is image-only today).
  */
-const IMAGE_EXTENSION_NAMES = [
+const MEDIA_EXTENSION_NAMES = [
+  // images
   "png",
   "jpg",
   "jpeg",
@@ -33,21 +36,29 @@ const IMAGE_EXTENSION_NAMES = [
   "tif",
   "heic",
   "heif",
+  // videos
+  "mp4",
+  "mov",
+  "webm",
+  "avi",
+  "3gp",
+  "mkv",
+  "m4v",
 ] as const;
-const IMAGE_EXTENSIONS = new Set<string>();
-for (const ext of IMAGE_EXTENSION_NAMES) {
-  IMAGE_EXTENSIONS.add(`.${ext}`);
+const MEDIA_EXTENSIONS = new Set<string>();
+for (const ext of MEDIA_EXTENSION_NAMES) {
+  MEDIA_EXTENSIONS.add(`.${ext}`);
 }
-const IMAGE_EXTENSION_PATTERN = IMAGE_EXTENSION_NAMES.join("|");
+const MEDIA_EXTENSION_PATTERN = MEDIA_EXTENSION_NAMES.join("|");
 const MEDIA_ATTACHED_PATH_REGEX_SOURCE =
-  "^\\s*(.+?\\.(?:" + IMAGE_EXTENSION_PATTERN + "))\\s*(?:\\(|$|\\|)";
+  "^\\s*(.+?\\.(?:" + MEDIA_EXTENSION_PATTERN + "))\\s*(?:\\(|$|\\|)";
 const MESSAGE_IMAGE_REGEX_SOURCE =
-  "\\[Image:\\s*source:\\s*([^\\]]+\\.(?:" + IMAGE_EXTENSION_PATTERN + "))\\]";
-const FILE_URL_REGEX_SOURCE = "file://[^\\s<>\"'`\\]]+\\.(?:" + IMAGE_EXTENSION_PATTERN + ")";
+  "\\[Image:\\s*source:\\s*([^\\]]+\\.(?:" + MEDIA_EXTENSION_PATTERN + "))\\]";
+const FILE_URL_REGEX_SOURCE = "file://[^\\s<>\"'`\\]]+\\.(?:" + MEDIA_EXTENSION_PATTERN + ")";
 const WINDOWS_DRIVE_PATH_REGEX_SOURCE =
-  "(?:^|\\s|[\"'`(])([A-Za-z]:[\\\\/][^\\s\"'`()\\[\\]]*\\.(?:" + IMAGE_EXTENSION_PATTERN + "))";
+  "(?:^|\\s|[\"'`(])([A-Za-z]:[\\\\/][^\\s\"'`()\\[\\]]*\\.(?:" + MEDIA_EXTENSION_PATTERN + "))";
 const PATH_REGEX_SOURCE =
-  "(?:^|\\s|[\"'`(])((\\.\\.?/|[~/])[^\\s\"'`()\\[\\]]*\\.(?:" + IMAGE_EXTENSION_PATTERN + "))";
+  "(?:^|\\s|[\"'`(])((\\.\\.?/|[~/])[^\\s\"'`()\\[\\]]*\\.(?:" + MEDIA_EXTENSION_PATTERN + "))";
 const MEDIA_ATTACHED_PATTERN = /\[media attached(?:\s+\d+\/\d+)?:\s*([^\]]+)\]/gi;
 const MEDIA_ATTACHED_PATH_PATTERN = new RegExp(MEDIA_ATTACHED_PATH_REGEX_SOURCE, "i");
 const MESSAGE_IMAGE_PATTERN = new RegExp(MESSAGE_IMAGE_REGEX_SOURCE, "gi");
@@ -83,7 +94,7 @@ const MEDIA_URI_REGEX = /\bmedia:\/\/inbound\/([^\]\s/\\]+)/;
 /**
  * Result of detecting an image reference in text.
  */
-export interface DetectedImageRef {
+export interface DetectedMediaRef {
   /** The raw matched string from the prompt */
   raw: string;
   /** The type of reference */
@@ -95,9 +106,9 @@ export interface DetectedImageRef {
 /**
  * Checks if a file extension indicates an image file.
  */
-function isImageExtension(filePath: string): boolean {
+function isMediaExtension(filePath: string): boolean {
   const ext = normalizeLowercaseStringOrEmpty(path.extname(filePath));
-  return IMAGE_EXTENSIONS.has(ext);
+  return MEDIA_EXTENSIONS.has(ext);
 }
 
 function normalizeRefForDedupe(raw: string): string {
@@ -121,12 +132,17 @@ function isOpenClawCliImageCachePath(filePath: string): boolean {
  * explicit prompt path/media refs are appended after attachment-owned images.
  */
 export function mergePromptAttachmentImages(params: {
-  imageOrder?: PromptImageOrderEntry[];
-  existingImages?: ImageContent[];
-  offloadedImages?: Array<ImageContent | null>;
-  promptRefImages?: ImageContent[];
-}): ImageContent[] {
-  const promptImages: ImageContent[] = [];
+  imageOrder?: PromptMediaOrderEntry[];
+  // 6/27 PATCH: video attachments pass through alongside image ones;
+  // the transport's video branch picks them up later.
+  existingImages?: Array<ImageContent | VideoContent>;
+  // 6/28 PATCH: widened from ImageContent | null to ImageContent | VideoContent | null
+  // so the video path can pass through this merge function too.
+  offloadedImages?: Array<ImageContent | VideoContent | null>;
+  // 6/28 PATCH: same widening — loadMediaFromRef returns image | video.
+  promptRefImages?: Array<ImageContent | VideoContent>;
+}): Array<ImageContent | VideoContent> {
+  const promptImages: Array<ImageContent | VideoContent> = [];
   const existingImages = params.existingImages ?? [];
   const offloadedImages = params.offloadedImages ?? [];
 
@@ -168,7 +184,7 @@ export function mergePromptAttachmentImages(params: {
   return promptImages;
 }
 
-function createRefCountMap(refs: DetectedImageRef[]): Map<string, number> {
+function createRefCountMap(refs: DetectedMediaRef[]): Map<string, number> {
   const counts = new Map<string, number>();
   for (const ref of refs) {
     const key = `${ref.type}\0${normalizeRefForDedupe(ref.resolved)}`;
@@ -177,7 +193,7 @@ function createRefCountMap(refs: DetectedImageRef[]): Map<string, number> {
   return counts;
 }
 
-function consumeRefCount(counts: Map<string, number>, ref: DetectedImageRef): boolean {
+function consumeRefCount(counts: Map<string, number>, ref: DetectedMediaRef): boolean {
   const key = `${ref.type}\0${normalizeRefForDedupe(ref.resolved)}`;
   const count = counts.get(key) ?? 0;
   if (count <= 0) {
@@ -216,7 +232,7 @@ function extractLeadingAttachmentPrompt(prompt: string): string {
   return attachmentLines.join("\n");
 }
 
-function extractLeadingInlineAttachmentRefs(prompt: string, count: number): DetectedImageRef[] {
+function extractLeadingInlineAttachmentRefs(prompt: string, count: number): DetectedMediaRef[] {
   if (count <= 0) {
     return [];
   }
@@ -224,7 +240,7 @@ function extractLeadingInlineAttachmentRefs(prompt: string, count: number): Dete
   if (!attachmentPrompt) {
     return [];
   }
-  return detectImageReferences(attachmentPrompt).slice(0, count);
+  return detectMediaReferences(attachmentPrompt).slice(0, count);
 }
 
 /**
@@ -265,12 +281,12 @@ function extractTrailingAttachmentMediaUris(prompt: string, count: number): stri
  */
 export function splitPromptAndAttachmentRefs(params: {
   prompt: string;
-  refs: DetectedImageRef[];
-  imageOrder?: PromptImageOrderEntry[];
+  refs: DetectedMediaRef[];
+  imageOrder?: PromptMediaOrderEntry[];
   existingImageCount?: number;
 }): {
-  promptRefs: DetectedImageRef[];
-  attachmentRefs: DetectedImageRef[];
+  promptRefs: DetectedMediaRef[];
+  attachmentRefs: DetectedMediaRef[];
 } {
   const existingImageCount = params.existingImageCount ?? 0;
   const inlineOrderCount = params.imageOrder?.filter((entry) => entry === "inline").length;
@@ -288,8 +304,8 @@ export function splitPromptAndAttachmentRefs(params: {
     offloadedCount > 0 ? extractTrailingAttachmentMediaUris(params.prompt, offloadedCount) : [],
   );
 
-  const promptRefs: DetectedImageRef[] = [];
-  const attachmentRefs: DetectedImageRef[] = [];
+  const promptRefs: DetectedMediaRef[] = [];
+  const attachmentRefs: DetectedMediaRef[] = [];
   for (const ref of params.refs) {
     if (consumeRefCount(inlineAttachmentRefs, ref)) {
       continue;
@@ -303,20 +319,24 @@ export function splitPromptAndAttachmentRefs(params: {
   return { promptRefs, attachmentRefs };
 }
 
-async function sanitizeImagesWithLog(
-  images: ImageContent[],
+async function sanitizeMediaWithLog(
+  blocks: Array<ImageContent | VideoContent>,
   label: string,
-  imageSanitization?: ImageSanitizationLimits,
-): Promise<ImageContent[]> {
+  mediaSanitization?: ImageSanitizationLimits,
+): Promise<Array<ImageContent | VideoContent>> {
+  // Split: images go through sanitizer; videos bypass untouched
+  // (no EXIF rotation / dimension clamp / JPEG re-encoding applies).
+  const imageBlocks = blocks.filter((b): b is ImageContent => b.type === "image");
+  const videoBlocks = blocks.filter((b): b is VideoContent => b.type === "video");
   const { images: sanitized, dropped } = await sanitizeImageBlocks(
-    images,
+    imageBlocks,
     label,
-    imageSanitization,
+    mediaSanitization,
   );
   if (dropped > 0) {
     log.warn(`Native image: dropped ${dropped} image(s) after sanitization (${label}).`);
   }
-  return sanitized;
+  return [...sanitized, ...videoBlocks];
 }
 
 /**
@@ -333,8 +353,8 @@ async function sanitizeImagesWithLog(
  * @param prompt The user prompt text to scan
  * @returns Array of detected image references
  */
-export function detectImageReferences(prompt: string): DetectedImageRef[] {
-  const refs: DetectedImageRef[] = [];
+export function detectMediaReferences(prompt: string): DetectedMediaRef[] {
+  const refs: DetectedMediaRef[] = [];
   const seen = new Set<string>();
 
   // Dedupe by the user-visible token before resolving so repeated refs keep their first spelling.
@@ -347,7 +367,7 @@ export function detectImageReferences(prompt: string): DetectedImageRef[] {
     if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
       return;
     }
-    if (!isImageExtension(trimmed)) {
+    if (!isMediaExtension(trimmed)) {
       return;
     }
     try {
@@ -463,8 +483,8 @@ export function detectImageReferences(prompt: string): DetectedImageRef[] {
  * media claim-checks and workspace-relative paths before loadWebMedia enforces
  * local-root and size limits.
  */
-export async function loadImageFromRef(
-  ref: DetectedImageRef,
+export async function loadMediaFromRef(
+  ref: DetectedMediaRef,
   workspaceDir: string,
   options?: {
     maxBytes?: number;
@@ -472,7 +492,10 @@ export async function loadImageFromRef(
     localRoots?: readonly string[];
     sandbox?: { root: string; bridge: SandboxFsBridge };
   },
-): Promise<ImageContent | null> {
+  // 6/28 PATCH: return type widened from ImageContent to ImageContent | VideoContent
+  // so the ternary at line 550 can return video blocks (loadWebMedia returns
+  // kind="video" for mp4/mov/webm/avi/3gp). Caller side already handles both.
+): Promise<ImageContent | VideoContent | null> {
   try {
     let targetPath = ref.resolved;
 
@@ -518,17 +541,20 @@ export async function loadImageFromRef(
             : options?.maxBytes,
         );
 
-    if (media.kind !== "image") {
-      log.debug(`Native image: not an image file: ${targetPath} (got ${media.kind})`);
+    if (media.kind !== "image" && media.kind !== "video") {
+      log.debug(`Native media: not an image or video file: ${targetPath} (got ${media.kind})`);
       return null;
     }
 
-    // EXIF orientation is already normalized by loadWebMedia -> resizeToJpeg
-    // Default to JPEG since optimization converts images to JPEG format
-    const mimeType = media.contentType ?? "image/jpeg";
+    const mimeType = media.contentType ?? (media.kind === "video" ? "video/mp4" : "image/jpeg");
     const data = media.buffer.toString("base64");
 
-    return { type: "image", data, mimeType };
+    // EXIF orientation is already normalized by loadWebMedia -> resizeToJpeg
+    // for images. Videos bypass the sanitizer path entirely (see
+    // sanitizeMediaWithLog), so they pass through as inline base64.
+    return media.kind === "video"
+      ? { type: "video", data, mimeType }
+      : { type: "image", data, mimeType };
   } catch (err) {
     // Log the actual error for debugging (size limits, network failures, etc.)
     log.debug(`Native image: failed to load ${ref.resolved}: ${formatErrorMessage(err)}`);
@@ -536,9 +562,10 @@ export async function loadImageFromRef(
   }
 }
 
-/** Returns whether the resolved model advertises native image input support. */
-export function modelSupportsImages(model: { input?: string[] }): boolean {
-  return model.input?.includes("image") ?? false;
+/** Returns whether the resolved model advertises native media (image or video) input support. */
+export function modelSupportsMedia(model: { input?: string[] }): boolean {
+  const input = model.input ?? [];
+  return input.includes("image") || input.includes("video") || input.includes("audio");
 }
 
 /**
@@ -550,21 +577,30 @@ export async function detectAndLoadPromptImages(params: {
   prompt: string;
   workspaceDir: string;
   model: { input?: string[] };
-  existingImages?: ImageContent[];
-  imageOrder?: PromptImageOrderEntry[];
+  /**
+   * 6/25 PATCH: multimodal current-turn blocks (image + video). Detection
+   * only inspects image blocks; video blocks are forwarded as-is.
+   */
+  existingImages?: Array<ImageContent | VideoContent>;
+  imageOrder?: PromptMediaOrderEntry[];
   maxBytes?: number;
   maxDimensionPx?: number;
   workspaceOnly?: boolean;
   localRoots?: readonly string[];
   sandbox?: { root: string; bridge: SandboxFsBridge };
 }): Promise<{
-  /** Images for the current prompt (existingImages + detected in current prompt) */
-  images: ImageContent[];
-  detectedRefs: DetectedImageRef[];
+  /**
+   * 6/25 PATCH: multimodal current-turn blocks (image + video). The
+   * pipeline preserves both inline images and video blocks (inline or
+   * hosted URL) so the multimodal content assembly in `attempt.ts` can
+   * forward them to providers that accept `VideoContent` (e.g. minimax M3).
+   */
+  images: Array<ImageContent | VideoContent>;
+  detectedRefs: DetectedMediaRef[];
   loadedCount: number;
   skippedCount: number;
 }> {
-  if (!modelSupportsImages(params.model)) {
+  if (!modelSupportsMedia(params.model)) {
     return {
       images: [],
       detectedRefs: [],
@@ -573,16 +609,24 @@ export async function detectAndLoadPromptImages(params: {
     };
   }
 
-  const allRefs = detectImageReferences(params.prompt);
+  const allRefs = detectMediaReferences(params.prompt);
 
   if (allRefs.length === 0) {
-    const sanitizedExistingImages = await sanitizeImagesWithLog(
-      params.existingImages ?? [],
-      "prompt:images",
-      { maxDimensionPx: params.maxDimensionPx },
+    // Filter to image-only for the legacy sanitization pipeline; video
+    // blocks pass through to the multimodal content assembly in
+    // `attempt.ts` and are not part of the legacy image sanitization path.
+    const existingImageOnly = (params.existingImages ?? []).filter(
+      (block): block is ImageContent => block.type === "image",
+    );
+    const sanitizedExistingImages = await sanitizeMediaWithLog(existingImageOnly, "prompt:images", {
+      maxDimensionPx: params.maxDimensionPx,
+    });
+    // Re-attach video blocks (not sanitized) so they reach the prompt as-is.
+    const videoBlocks = (params.existingImages ?? []).filter(
+      (block): block is VideoContent => block.type === "video",
     );
     return {
-      images: sanitizedExistingImages,
+      images: [...sanitizedExistingImages, ...videoBlocks] as Array<ImageContent | VideoContent>,
       detectedRefs: [],
       loadedCount: 0,
       skippedCount: 0,
@@ -596,14 +640,18 @@ export async function detectAndLoadPromptImages(params: {
     imageOrder: params.imageOrder,
     existingImageCount: params.existingImages?.length,
   });
-  const promptRefImages: ImageContent[] = [];
-  const offloadedImages: Array<ImageContent | null> = [];
+  // 6/28 PATCH: widened to include VideoContent. loadMediaFromRef now returns
+  // ImageContent | VideoContent (the loadWebMedia kind==="video" path
+  // produces a {type:"video", data, mimeType} block).
+  const promptRefImages: Array<ImageContent | VideoContent> = [];
+  // 6/28 PATCH: same widening as promptRefImages.
+  const offloadedImages: Array<ImageContent | VideoContent | null> = [];
 
   let loadedCount = 0;
   let skippedCount = 0;
 
   for (const ref of promptRefs) {
-    const image = await loadImageFromRef(ref, params.workspaceDir, {
+    const image = await loadMediaFromRef(ref, params.workspaceDir, {
       maxBytes: params.maxBytes,
       workspaceOnly: params.workspaceOnly,
       localRoots: params.localRoots,
@@ -619,7 +667,7 @@ export async function detectAndLoadPromptImages(params: {
   }
 
   for (const ref of attachmentRefs) {
-    const image = await loadImageFromRef(ref, params.workspaceDir, {
+    const image = await loadMediaFromRef(ref, params.workspaceDir, {
       maxBytes: params.maxBytes,
       workspaceOnly: params.workspaceOnly,
       localRoots: params.localRoots,
@@ -636,22 +684,30 @@ export async function detectAndLoadPromptImages(params: {
 
   const promptImages = mergePromptAttachmentImages({
     imageOrder: params.imageOrder,
-    existingImages: params.existingImages,
+    // Filter to image-only for the merge step; video blocks are passed
+    // through separately below to preserve order.
+    existingImages: (params.existingImages ?? []).filter(
+      (block): block is ImageContent => block.type === "image",
+    ),
     offloadedImages,
     promptRefImages,
   });
-
-  const imageSanitization: ImageSanitizationLimits = {
-    maxDimensionPx: params.maxDimensionPx,
-  };
-  const sanitizedPromptImages = await sanitizeImagesWithLog(
-    promptImages,
-    "prompt:images",
-    imageSanitization,
+  const videoBlocks = (params.existingImages ?? []).filter(
+    (block): block is VideoContent => block.type === "video",
   );
 
+  const mediaSanitization: ImageSanitizationLimits = {
+    maxDimensionPx: params.maxDimensionPx,
+  };
+  const sanitizedPromptImages = await sanitizeMediaWithLog(
+    promptImages,
+    "prompt:images",
+    mediaSanitization,
+  );
+  const finalImages = [...sanitizedPromptImages, ...videoBlocks];
+
   return {
-    images: sanitizedPromptImages,
+    images: finalImages as Array<ImageContent | VideoContent>,
     detectedRefs: allRefs,
     loadedCount,
     skippedCount,

@@ -579,6 +579,79 @@ describe("resolveRunFailoverDecision", () => {
       reason: null,
     });
   });
+
+  it("falls through to continue_normal for transient assistant overloaded with no fallback (#89758)", () => {
+    // 17:35 CST 2026-06-15 case: minimax/MiniMax-M3 returned 2064/529
+    // overloaded_error with no fallback configured and rotation
+    // exhausted. Without this branch the failover policy fell through to
+    // `surface_error` even though `overloaded` is on the same-profile
+    // transient-retry whitelist in run.ts. With the branch, we return
+    // `continue_normal` so run.ts#2899 can fire the 2-retry cap.
+    expect(
+      resolveRunFailoverDecision({
+        stage: "assistant",
+        aborted: false,
+        externalAbort: false,
+        fallbackConfigured: false,
+        failoverFailure: true,
+        failoverReason: "overloaded",
+        timedOut: false,
+        idleTimedOut: false,
+        timedOutDuringCompaction: false,
+        timedOutDuringToolExecution: false,
+        profileRotated: true,
+      }),
+    ).toEqual({
+      action: "continue_normal",
+    });
+  });
+
+  it("falls through to continue_normal for transient assistant timeout with no fallback (#89758)", () => {
+    // Mirror case for `timeout` so non-harness timeouts also benefit from
+    // the same-profile retry when no fallback is configured.
+    expect(
+      resolveRunFailoverDecision({
+        stage: "assistant",
+        aborted: false,
+        externalAbort: false,
+        fallbackConfigured: false,
+        failoverFailure: true,
+        failoverReason: "timeout",
+        timedOut: true,
+        idleTimedOut: false,
+        timedOutDuringCompaction: false,
+        timedOutDuringToolExecution: false,
+        profileRotated: true,
+      }),
+    ).toEqual({
+      action: "continue_normal",
+    });
+  });
+
+  it("still surfaces non-transient assistant failures with no fallback (#89758)", () => {
+    // Guard against scope creep: only `overloaded` / `timeout` / `format`
+    // are on the transient whitelist. Other reasons (rate_limit, billing,
+    // etc.) must still surface directly so the user sees the right error
+    // and the auth profile cooldown fires.
+    expect(
+      resolveRunFailoverDecision({
+        stage: "assistant",
+        aborted: false,
+        externalAbort: false,
+        fallbackConfigured: false,
+        failoverFailure: true,
+        failoverReason: "rate_limit",
+        timedOut: false,
+        idleTimedOut: false,
+        timedOutDuringCompaction: false,
+        timedOutDuringToolExecution: false,
+        profileRotated: true,
+      }),
+    ).toEqual({
+      action: "surface_error",
+      reason: "rate_limit",
+    });
+  });
 });
 
 describe("mergeRetryFailoverReason", () => {

@@ -77,7 +77,8 @@ export type TraceAttempt = {
     | "same_model_rate_limit"
     | "fallback_model"
     | "aborted"
-    | "error";
+    | "error"
+    | "transient_retry";
   reason?: string;
   stage?: "prompt" | "assistant";
   elapsedMs?: number;

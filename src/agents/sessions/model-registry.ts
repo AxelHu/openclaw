@@ -162,7 +162,16 @@ const ModelDefinitionSchema = Type.Object({
   baseUrl: Type.Optional(Type.String({ minLength: 1 })),
   reasoning: Type.Optional(Type.Boolean()),
   thinkingLevelMap: Type.Optional(ThinkingLevelMapSchema),
-  input: Type.Optional(Type.Array(Type.Union([Type.Literal("text"), Type.Literal("image")]))),
+  // 6/27 PATCH: add "video" to model.input schema so providers like
+  // minimax M3 (which natively accepts video blocks) load correctly.
+  // Before this fix, models with `input: ["text","image","video"]` were
+  // rejected by the schema validator with
+  //   `models.<i>.input.2: must be equal to constant`,
+  // causing model.input to fall back to image-only and
+  // anthropic-transport-stream.ts:457 to silently drop video blocks.
+  input: Type.Optional(
+    Type.Array(Type.Union([Type.Literal("text"), Type.Literal("image"), Type.Literal("video")])),
+  ),
   cost: Type.Optional(
     Type.Object({
       input: Type.Number(),

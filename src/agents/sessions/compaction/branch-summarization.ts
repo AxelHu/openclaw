@@ -61,10 +61,17 @@ export async function generateBranchSummary(
   entries: SessionEntry[],
   options: GenerateBranchSummaryOptions,
 ): Promise<BranchSummaryResult> {
-  const result = await generateBranchSummaryCore(entries, {
-    runtime: openClawAgentCoreRuntime,
-    ...options,
-  });
+  // 6/24 PATCH: cast entries through `unknown` at the call site
+  // because session-manager's `SessionEntry` and agent-core's
+  // `SessionTreeEntry` are two different but structurally identical
+  // type aliases. See compaction.ts for details.
+  const result = await generateBranchSummaryCore(
+    entries as unknown as Parameters<typeof generateBranchSummaryCore>[0],
+    {
+      runtime: openClawAgentCoreRuntime,
+      ...options,
+    },
+  );
   if (result.ok) {
     return result.value;
   }

@@ -59,7 +59,18 @@ export function prepareCompaction(
   pathEntries: SessionEntry[],
   settings: CompactionSettings,
 ): CompactionPreparation | undefined {
-  return unwrapCompactionResult(prepareCompactionCore(pathEntries, settings));
+  // 6/24 PATCH: cast pathEntries through `unknown` at the call site
+  // because session-manager's `SessionEntry` and agent-core's
+  // `SessionTreeEntry` are two different but structurally identical
+  // type aliases. The OpenClaw type alias divergence pre-dates this
+  // work; the cast is safe because both aliases use the same entry
+  // shapes (SessionEntryBase + type tag).
+  return unwrapCompactionResult(
+    prepareCompactionCore(
+      pathEntries as unknown as Parameters<typeof prepareCompactionCore>[0],
+      settings,
+    ),
+  );
 }
 
 /** Generates a compaction summary through the shared agent-core runtime. */
