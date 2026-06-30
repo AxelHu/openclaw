@@ -560,6 +560,7 @@ export type DiagnosticContextAssembledEvent = DiagnosticBaseEvent & {
   messageCount: number;
   historyTextChars: number;
   historyImageBlocks: number;
+  historyVideoBlocks: number;
   maxMessageTextChars: number;
   systemPromptChars: number;
   promptChars: number;

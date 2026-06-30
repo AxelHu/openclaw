@@ -1,5 +1,5 @@
 /** Public option types for reply generation callbacks, streaming, and delivery policy. */
-import type { ImageContent } from "../llm/types.js";
+import type { ImageContent, VideoContent } from "../llm/types.js";
 import type { PromptImageOrderEntry } from "../media/prompt-image-order.js";
 import type { UserTurnTranscriptRecorder } from "../sessions/user-turn-transcript.js";
 import type { ReplyPayload } from "./reply-payload.js";
@@ -60,9 +60,14 @@ export type GetReplyOptions = {
   promptCacheKey?: string;
   /** Abort signal for the underlying agent run. */
   abortSignal?: AbortSignal;
-  /** Optional inbound images (used for webchat attachments). */
-  images?: ImageContent[];
-  /** Original inline/offloaded attachment order for inbound images. */
+  /**
+   * 6/25 PATCH: optional inbound multimodal content (images + videos).
+   * Used for webchat attachments and any caller that wants to pre-supply
+   * attachment blocks. Accepts `ImageContent` and `VideoContent` blocks
+   * so inbound video attachments flow into the agent prompt.
+   */
+  images?: Array<ImageContent | VideoContent>;
+  /** Original inline/offloaded attachment order for inbound attachments. */
   imageOrder?: PromptImageOrderEntry[];
   /** Notifies when an agent run actually starts (useful for webchat command handling). */
   onAgentRunStart?: (runId: string) => void;
