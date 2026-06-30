@@ -20,6 +20,12 @@ import { extractToolCallsFromAssistant, extractToolResultId } from "./tool-call-
  */
 export const BLANK_USER_FALLBACK_TEXT = "(continue)";
 export const CORRUPTED_IMAGE_FALLBACK_TEXT = "[image omitted: corrupted base64 payload]";
+// 6/28 PATCH: separate placeholder for video blocks. Previously the video
+// repair path reused CORRUPTED_IMAGE_FALLBACK_TEXT ("[image omitted: ...]"),
+// which (a) told the model the wrong media kind and (b) made it harder to
+// reason about whether a particular [image omitted] in a transcript was
+// really an image or a video. Now image and video have distinct strings.
+export const CORRUPTED_VIDEO_FALLBACK_TEXT = "[video omitted: corrupted base64 payload]";
 
 type RepairReport = {
   repaired: boolean;
@@ -28,6 +34,7 @@ type RepairReport = {
   droppedBlankUserMessages?: number;
   rewrittenUserMessages?: number;
   removedCorruptedImageBlocks?: number;
+  removedCorruptedVideoBlocks?: number;
   insertedToolResults?: number;
   backupPath?: string;
   reason?: string;
@@ -109,6 +116,11 @@ function isImageMimeType(value: unknown): value is string {
   return typeof value === "string" && /^image\//iu.test(value.trim());
 }
 
+// 6/26 PATCH: video MIME type 判断 (跟 isImageMimeType 同款 pattern)
+function isVideoMimeType(value: unknown): value is string {
+  return typeof value === "string" && /^video\//iu.test(value.trim());
+}
+
 function containsNonAscii(value: string): boolean {
   for (let index = 0; index < value.length; index += 1) {
     if (value.charCodeAt(index) > 0x7f) {
@@ -142,25 +154,65 @@ function isCorruptedImageContentBlock(block: unknown): boolean {
   );
 }
 
+// 6/26 PATCH: video 块 corruption 修复 (跟 isCorruptedImageContentBlock 同款 pattern).
+// 历史背景: 这不是 fs sync 造成的. 之前 (commit 318d6aabfc4 修复前) `maskToken`
+// 在 transcript-redact.ts 里没跳过 video base64, 把 base64 子串当成 token pattern
+// 替换成 `…` (U+2026) 替身, ~5MB mp4 一般有 19+ 处 false positive, 整段 base64
+// 失码. 修复后 maskToken 跳过 video base64 (`shouldPreserveOpaqueMediaPayload`),
+// 但旧 session jsonl 里这些 corrupted 块还会被这个 detection 检出, 防止后续
+// replay 炸 model. 检测条件: type==="video" + 合法 video MIME + base64 含非 ASCII
+// 或 sanitize 失败.
+function isCorruptedVideoContentBlock(block: unknown): boolean {
+  if (!block || typeof block !== "object" || Array.isArray(block)) {
+    return false;
+  }
+  const record = block as {
+    type?: unknown;
+    data?: unknown;
+    mimeType?: unknown;
+    mediaType?: unknown;
+    media_type?: unknown;
+  };
+  if (record.type !== "video" || typeof record.data !== "string") {
+    return false;
+  }
+  const mimeType = [record.mimeType, record.mediaType, record.media_type].find(isVideoMimeType);
+  if (!mimeType) {
+    return false;
+  }
+  // 复用 image 的 base64 sanitize 函数 (它检查 base64 字符是否合法, 不依赖 MIME)
+  return (
+    containsNonAscii(record.data) ||
+    sanitizeInlineImageBase64({ base64: record.data, mimeType }) === undefined
+  );
+}
+
 function repairEntryWithCorruptedImageBlocks(entry: SessionMessageEntry): {
   entry: SessionMessageEntry;
   removedCorruptedImageBlocks: number;
+  removedCorruptedVideoBlocks: number;
 } {
   const content = entry.message.content;
   if (!Array.isArray(content)) {
-    return { entry, removedCorruptedImageBlocks: 0 };
+    return { entry, removedCorruptedImageBlocks: 0, removedCorruptedVideoBlocks: 0 };
   }
 
   let removedCorruptedImageBlocks = 0;
+  let removedCorruptedVideoBlocks = 0;
   const nextContent = content.map((block) => {
-    if (!isCorruptedImageContentBlock(block)) {
-      return block;
+    if (isCorruptedImageContentBlock(block)) {
+      removedCorruptedImageBlocks += 1;
+      return { type: "text", text: CORRUPTED_IMAGE_FALLBACK_TEXT };
     }
-    removedCorruptedImageBlocks += 1;
-    return { type: "text", text: CORRUPTED_IMAGE_FALLBACK_TEXT };
+    // 6/26 PATCH: video 块 corruption 检测跟 image 同款
+    if (isCorruptedVideoContentBlock(block)) {
+      removedCorruptedVideoBlocks += 1;
+      return { type: "text", text: CORRUPTED_VIDEO_FALLBACK_TEXT };
+    }
+    return block;
   });
-  if (removedCorruptedImageBlocks === 0) {
-    return { entry, removedCorruptedImageBlocks: 0 };
+  if (removedCorruptedImageBlocks === 0 && removedCorruptedVideoBlocks === 0) {
+    return { entry, removedCorruptedImageBlocks: 0, removedCorruptedVideoBlocks: 0 };
   }
   return {
     entry: {
@@ -171,6 +223,7 @@ function repairEntryWithCorruptedImageBlocks(entry: SessionMessageEntry): {
       },
     },
     removedCorruptedImageBlocks,
+    removedCorruptedVideoBlocks,
   };
 }
 
@@ -248,6 +301,7 @@ function buildRepairSummaryParts(params: {
   droppedBlankUserMessages: number;
   rewrittenUserMessages: number;
   removedCorruptedImageBlocks: number;
+  removedCorruptedVideoBlocks: number;
   insertedToolResults: number;
 }): string {
   const parts: string[] = [];
@@ -265,6 +319,10 @@ function buildRepairSummaryParts(params: {
   }
   if (params.removedCorruptedImageBlocks > 0) {
     parts.push(`removed ${params.removedCorruptedImageBlocks} corrupted image block(s)`);
+  }
+  // 6/26 PATCH: video block corruption 修复提示 (跟 image 同款)
+  if (params.removedCorruptedVideoBlocks > 0) {
+    parts.push(`removed ${params.removedCorruptedVideoBlocks} corrupted video block(s)`);
   }
   if (params.insertedToolResults > 0) {
     parts.push(`inserted ${params.insertedToolResults} missing tool result(s)`);
@@ -402,6 +460,7 @@ export async function repairSessionFileIfNeeded(params: {
   let droppedBlankUserMessages = 0;
   let rewrittenUserMessages = 0;
   let removedCorruptedImageBlocks = 0;
+  let removedCorruptedVideoBlocks = 0;
   let insertedToolResults;
 
   for (const line of lines) {
@@ -434,6 +493,7 @@ export async function repairSessionFileIfNeeded(params: {
         const imageRepair = repairEntryWithCorruptedImageBlocks(entry as SessionMessageEntry);
         entryForUserRepair = imageRepair.entry;
         removedCorruptedImageBlocks += imageRepair.removedCorruptedImageBlocks;
+        removedCorruptedVideoBlocks += imageRepair.removedCorruptedVideoBlocks;
       }
       if (
         entryForUserRepair &&
@@ -536,6 +596,7 @@ export async function repairSessionFileIfNeeded(params: {
       droppedBlankUserMessages,
       rewrittenUserMessages,
       removedCorruptedImageBlocks,
+      removedCorruptedVideoBlocks,
       insertedToolResults,
     })} (${path.basename(sessionFile)})`,
   );
@@ -546,6 +607,7 @@ export async function repairSessionFileIfNeeded(params: {
     droppedBlankUserMessages,
     rewrittenUserMessages,
     removedCorruptedImageBlocks,
+    removedCorruptedVideoBlocks,
     insertedToolResults,
     ...(retainedBackupPath ? { backupPath: retainedBackupPath } : {}),
   };
