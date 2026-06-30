@@ -58,5 +58,13 @@ export type AuthConfig = {
      * errors before escalating to cross-provider model fallback. Default: 1.
      */
     rateLimitedProfileRotations?: number;
+    /**
+     * Cooldown (hours) for plan-exhausted rate-limit errors
+     * (e.g. minimax 2056 "Token Plan 用量上限", Anthropic
+     * "subscription quota limit"). Providers do not surface a reset
+     * timestamp for these errors, so the cooldown is best-effort. Local
+     * fork fix for #89758. Default: 5. Max: 24.
+     */
+    tokenPlanExhaustedHours?: number;
   };
 };

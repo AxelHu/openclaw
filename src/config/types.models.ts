@@ -124,6 +124,38 @@ export type ModelImageInputConfig = {
   tokenMode?: "tile" | "detail" | "provider";
 };
 
+/**
+ * 6/26 PATCH: per-provider switch for "small video inline base64" vs
+ * "hosted mm_file:// URL" delivery. Lets test deployments and large-video
+ * workflows pin a mode without rebuilding the dist patch.
+ *
+ * - "auto" (default): the readVideo / attachment pipeline falls back to
+ *   the current behavior — inline for files under `inlineMaxBytes`, upload
+ *   via the provider's `uploadVideo` helper otherwise.
+ * - "inline": force inline base64 even when a hosted helper is configured
+ *   (skips `uploadVideo` for small videos and drops large videos with a
+ *   clear error rather than silently re-routing them).
+ * - "hosted": always route through the hosted upload, even for small
+ *   videos that would otherwise fit inline. Useful for verifying the
+ *   mm_file:// path end-to-end or for servers that reject inline base64.
+ */
+export type ModelProviderVideoMode = "auto" | "inline" | "hosted";
+
+export type ModelProviderVideoConfig = {
+  mode?: ModelProviderVideoMode;
+  /**
+   * Override the default 50MB inline cap (bytes). Larger files always fall
+   * through to the hosted upload unless `mode: "inline"` is set, in which
+   * case they error with a clear "too large for inline" message instead of
+   * silently re-routing.
+   */
+  inlineMaxBytes?: number;
+};
+
+export type ModelProviderMediaConfig = {
+  video?: ModelProviderVideoConfig;
+};
+
 export type ModelMediaInputConfig = {
   /** Image input limits and accounting hints for this model. */
   image?: ModelImageInputConfig;
@@ -241,6 +273,11 @@ export type ModelProviderConfig = {
   request?: ConfiguredModelProviderRequest;
   /** Model catalog entries exposed by this provider. */
   models: ModelDefinitionConfig[];
+  /**
+   * 6/26 PATCH: per-provider media delivery overrides (e.g. video
+   * inline-vs-hosted). See {@link ModelProviderMediaConfig}.
+   */
+  media?: ModelProviderMediaConfig;
 };
 
 /** Fully materialized provider declaration emitted by provider catalog plugins. */

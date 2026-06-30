@@ -105,7 +105,7 @@ export const FIELD_HELP: Record<string, string> = {
   "gateway.channelStaleEventThresholdMinutes":
     "How many minutes a connected channel can go without provider-proven transport activity before the health monitor treats it as a stale socket and triggers a restart. Default: 30.",
   "gateway.channelMaxRestartsPerHour":
-    "Maximum number of health-monitor-initiated channel restarts allowed within a rolling one-hour window. Once hit, further restarts are skipped until the window expires. Default: 10.",
+    "Maximum number of health-monitor-initiated channel restarts allowed within a rolling one-hour window. Set to 0 to disable automatic restarts. Default: 10.",
   "gateway.tailscale":
     "Tailscale integration settings for Serve/Funnel exposure and lifecycle handling on gateway start/exit. Keep off unless your deployment intentionally relies on Tailscale ingress.",
   "gateway.tailscale.mode":
@@ -1117,6 +1117,8 @@ export const FIELD_HELP: Record<string, string> = {
     "Fixed delay in milliseconds before retrying an overloaded provider/profile rotation (default: 0).",
   "auth.cooldowns.rateLimitedProfileRotations":
     "Maximum same-provider auth-profile rotations allowed for rate-limit errors before switching to model fallback (default: 1).",
+  "auth.cooldowns.tokenPlanExhaustedHours":
+    'Cooldown (hours) for plan-exhausted rate-limit errors — e.g. minimax 2056 "Token Plan 用量上限" or Anthropic "subscription quota limit". Providers do not surface a reset timestamp for these, so the cooldown is best-effort. Set this to match the provider\'s known reset window. Default: 5. Max: 24.',
   "agents.defaults.workspace":
     "Default workspace path exposed to agent runtime tools for filesystem context and repo-aware behavior. Set this explicitly when running from wrappers so path resolution stays deterministic.",
   "agents.defaults.skipOptionalBootstrapFiles":
@@ -1461,6 +1463,10 @@ export const FIELD_HELP: Record<string, string> = {
   "agents.defaults.imageQuality":
     'Image-tool media compression preference: "auto" adapts to provider/model limits and image count, "efficient" saves tokens and bytes, "balanced" keeps the current middle ground, and "high" preserves more detail for screenshots and document images.',
   "agents.defaults.cliBackends": "Optional CLI backends for text-only fallback (claude-cli, etc.).",
+  "agents.defaults.transientRetry":
+    "Same-profile transient-retry tuning for the embedded agent runner. Caps how many times the runner will retry the current auth profile on a transient reason (overloaded / timeout / format) before giving up on that profile for the current run. Independent of the outer run loop budget (agents.defaults.runRetries). Local fork fix for #89758.",
+  "agents.defaults.transientRetry.maxAttempts":
+    "Maximum same-profile retries on a transient reason before the runner falls through to profile rotation, fallback model, or surface_error. 0 disables the same-profile transient retry entirely. Default: 2. Each retry consumes one run-iteration slot (see agents.defaults.runRetries).",
   "agents.defaults.compaction":
     "Compaction tuning for when context nears token limits, including history share, reserve headroom, and pre-compaction memory flush behavior. Use this when long-running sessions need stable continuity under tight context windows.",
   "agents.defaults.compaction.mode":
