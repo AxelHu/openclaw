@@ -122,6 +122,7 @@ import {
   updateChatRunProvider,
 } from "../chat-abort.js";
 import {
+  type ChatAttachmentContent,
   type ChatImageContent,
   MediaOffloadError,
   type OffloadedRef,
@@ -529,7 +530,7 @@ export {
 } from "../chat-display-projection.js";
 export { sanitizeChatSendMessageInput } from "../chat-input-sanitize.js";
 
-export const CHAT_HISTORY_MAX_SINGLE_MESSAGE_BYTES = 128 * 1024;
+export const CHAT_HISTORY_MAX_SINGLE_MESSAGE_BYTES = 256 * 1024;
 const CHAT_HISTORY_OVERSIZED_PLACEHOLDER = "[chat.history omitted: message too large]";
 const CHAT_STARTUP_OPTIONAL_MODEL_CATALOG_TIMEOUT_MS = 25;
 const MANAGED_OUTGOING_IMAGE_PATH_PREFIX = "/api/chat/media/outgoing/";
@@ -1235,7 +1236,11 @@ function canInjectSystemProvenance(client: GatewayRequestHandlerOptions["client"
 }
 
 async function persistChatSendImages(params: {
-  images: ChatImageContent[];
+  // 6/28 PATCH: widened from ChatImageContent[] to ChatAttachmentContent[] so
+  // video blocks (sent via feishu video attachment) flow through the
+  // persist path the same as image blocks. Earlier 6/27 PATCH added the
+  // type but the function signature wasn't updated.
+  images: ChatAttachmentContent[];
   imageOrder: PromptImageOrderEntry[];
   offloadedRefs: OffloadedRef[];
   client: GatewayRequestHandlerOptions["client"];
@@ -3132,7 +3137,7 @@ export const chatHandlers: GatewayRequestHandlers = {
       config: cfg,
     });
     let parsedMessage = inboundMessage;
-    let parsedImages: ChatImageContent[] = [];
+    let parsedImages: ChatAttachmentContent[] = [];
     let imageOrder: PromptImageOrderEntry[] = [];
     let offloadedRefs: OffloadedRef[] = [];
     let mediaPathOffloadPaths: string[] = [];
