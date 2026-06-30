@@ -33,7 +33,7 @@ import { createAcpReplyProjector } from "./acp-projector.js";
 import {
   loadAgentTurnMediaRuntime,
   resolveAgentTurnAttachments,
-  resolveInlineAgentImageAttachments,
+  resolveInlineAgentMediaAttachments,
 } from "./agent-turn-attachments.js";
 import { resolveFirstContextText } from "./context-text.js";
 import {
@@ -369,7 +369,16 @@ export async function tryDispatchAcpReply(params: {
   runId?: string;
   sessionKey?: string;
   toolsAllow?: string[];
-  images?: Array<{ data: string; mimeType: string }>;
+  /**
+   * 6/25 PATCH: multimodal current-turn blocks (image + video). The shape
+   * mirrors `PluginHookReplyDispatchEvent.images` so the dispatcher can
+   * forward both image and video blocks to downstream ACP runtime
+   * attachments without losing the `type` tag.
+   */
+  images?: Array<
+    | { type: "image"; data: string; mimeType: string }
+    | { type: "video"; data?: string; mimeType: string; url?: string }
+  >;
   abortSignal?: AbortSignal;
   inboundAudio: boolean;
   sessionTtsAuto?: TtsAutoMode;
@@ -560,7 +569,7 @@ export async function tryDispatchAcpReply(params: {
       cfg: params.cfg,
     });
     const mediaAttachments = resolvedTurnAttachments.attachments;
-    const inlineAttachments = resolveInlineAgentImageAttachments(params.images);
+    const inlineAttachments = resolveInlineAgentMediaAttachments(params.images);
     const mediaAttachmentsAreOnlyRecentHistory =
       mediaAttachments.length > 0 &&
       mediaAttachments.length === resolvedTurnAttachments.recentHistoryImages.length;

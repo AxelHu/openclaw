@@ -64,7 +64,7 @@ import { SILENT_REPLY_TOKEN } from "../tokens.js";
 import type { GetReplyOptions, ReplyPayload } from "../types.js";
 import { applySessionHints } from "./body.js";
 import type { buildCommandContext } from "./commands.js";
-import { resolveCurrentTurnImages } from "./current-turn-images.js";
+import { resolveCurrentTurnMedia } from "./current-turn-images.js";
 import type { InlineDirectives } from "./directive-handling.js";
 import { isSystemEventProvider } from "./effective-reply-route.js";
 import { shouldUseReplyFastTestRuntime } from "./get-reply-fast-path.js";
@@ -1195,10 +1195,10 @@ export async function runPreparedReply(
     sessionKey,
   });
   const currentTurnImages = await traceRunPhase("reply.resolve_current_turn_images", () =>
-    resolveCurrentTurnImages({
+    resolveCurrentTurnMedia({
       ctx,
       cfg,
-      images: opts?.images,
+      media: opts?.images,
       imageOrder: opts?.imageOrder,
     }),
   );
@@ -1263,8 +1263,18 @@ export async function runPreparedReply(
     messageId: sessionCtx.MessageSidFull ?? sessionCtx.MessageSid,
     summaryLine: baseBodyTrimmedRaw,
     enqueuedAt: Date.now(),
-    images: currentTurnImages.images,
+    images: currentTurnImages.media,
     imageOrder: currentTurnImages.imageOrder,
+    // 6/29 PATCH (2nd): forward the calibration text so
+    // `runAgentTurnWithFallback` can inject it into the user message.
+    // The inner `resolveCurrentTurnMedia` call there short-circuits at
+    // the early-return when `params.media` is non-empty (this very
+    // `images` field), so without forwarding the inner call would never
+    // regenerate the metadata text and the model would still hallucinate
+    // duration. See FollowupRun.videoMetadataText for full rationale.
+    ...(currentTurnImages.videoMetadataText
+      ? { videoMetadataText: currentTurnImages.videoMetadataText }
+      : {}),
     // Originating channel for reply routing.
     originatingChannel: ctx.OriginatingChannel,
     originatingTo: ctx.OriginatingTo,
