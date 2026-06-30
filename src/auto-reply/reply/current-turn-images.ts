@@ -169,7 +169,28 @@ export async function resolveCurrentTurnMedia(params: {
         if (m.width !== undefined && m.height !== undefined) {
           bits.push(`resolution=${m.width}x${m.height}`);
         }
-        const metaLine = `[视频元数据] ${bits.join(", ")}. minimax M3 端点对该视频做 sparse frame sampling, model 看到的 frames 跨整个时长范围, 而不是集中在某个子窗口. 请以本 metadata 时长为 ground truth, 时间点位置只是模型推测, 不是绝对准确.`;
+        // 6/30 PATCH (5th): add linear scaling formula. M3 endpoint's frame
+        // labels (e.g. "0.0 second" ~ "max_label second") are sample-window
+        // relative positions, not actual video seconds. Verified via direct
+        // M3 API curl test on a 139.30s parking-lot video: without the
+        // formula M3 reported times in [1.2, 27.1]s literal range
+        // (sample window). With this formula M3 applied actual ≈
+        // label × (duration / max_label) correctly (e.g. label 1.2s ×
+        // (139.30/27.6) ≈ 6.0s actual for person #1). The earlier
+        // "frames 跨整个时长范围" claim was incorrect — M3 sparse
+        // sampling does NOT cover the full duration. We can't pre-compute
+        // max_label here (it depends on M3's per-video sampling choice),
+        // so the hint tells the model to derive it from the largest
+        // frame label it observes and apply the formula.
+        //
+        // 6/30 PATCH (6th): simplify to 3 explicit points (M3 samples,
+        // label is relative, formula with how to get window max). Per
+        // master 11:41 feedback: description in Chinese, brief. The
+        // formula is forward-compatible: if M3 later fixes labels to
+        // match actual seconds, `sample_window_max_label` will equal
+        // `duration` and the formula degenerates to `actual ≈ label × 1`
+        // (identity) without needing to revise the hint.
+        const metaLine = `[视频元数据] ${bits.join(", ")}.\nM3 端点对视频 sparse frame sampling：帧带 "X.X second" label，label 是采样窗口内的相对时间（不是 actual 视频秒）。换算: actual ≈ label × (duration ÷ 采样窗口最大 label)，采样窗口最大 label = 你看到的所有 label 中的最大值。`;
         videoMetadataLines.push(metaLine);
         // 6/29 PATCH: do NOT push the text block into the `media` array.
         // The `images` field in the embedded agent runtime is typed
