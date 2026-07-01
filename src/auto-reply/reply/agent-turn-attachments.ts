@@ -2,6 +2,7 @@
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
 import type { AcpTurnAttachment } from "../../acp/control-plane/manager.types.js";
 import {
+  DEFAULT_VIDEO_INLINE_MAX_BYTES,
   type InlinePolicy,
   resolveVideoDeliveryPolicy,
 } from "../../agents/sessions/tools/video-inline-policy.js";
@@ -43,8 +44,9 @@ export type AgentTurnAttachmentRuntime = Pick<
 >;
 
 const AGENT_TURN_ATTACHMENT_MAX_BYTES = 10 * 1024 * 1024;
-const AGENT_TURN_ATTACHMENT_VIDEO_MAX_BYTES = 50 * 1024 * 1024;
+const AGENT_TURN_ATTACHMENT_VIDEO_MAX_BYTES = DEFAULT_VIDEO_INLINE_MAX_BYTES;
 const AGENT_TURN_ATTACHMENT_TIMEOUT_MS = 1_000;
+const AGENT_TURN_ATTACHMENT_VIDEO_TIMEOUT_MS = 10_000;
 
 type AttachmentKind = "image" | "video" | "unsupported";
 
@@ -159,7 +161,7 @@ export async function resolveAgentTurnAttachments(params: {
           // file is larger we still want to surface the failure explicitly
           // rather than silently truncating.
           maxBytes: 512 * 1024 * 1024,
-          timeoutMs: AGENT_TURN_ATTACHMENT_TIMEOUT_MS,
+          timeoutMs: AGENT_TURN_ATTACHMENT_VIDEO_TIMEOUT_MS,
         });
         buffer = fetched.buffer;
       } catch (error) {
@@ -247,7 +249,10 @@ export async function resolveAgentTurnAttachments(params: {
       const { buffer } = await cache.getBuffer({
         attachmentIndex: attachment.index,
         maxBytes: attachmentMaxBytes(kind),
-        timeoutMs: AGENT_TURN_ATTACHMENT_TIMEOUT_MS,
+        timeoutMs:
+          kind === "video"
+            ? AGENT_TURN_ATTACHMENT_VIDEO_TIMEOUT_MS
+            : AGENT_TURN_ATTACHMENT_TIMEOUT_MS,
       });
       // 6/29 PATCH: probe video metadata so the caller can inject
       // duration / framerate as a text block alongside the video. The

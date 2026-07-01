@@ -4,6 +4,7 @@ import { estimateBase64DecodedBytes } from "@openclaw/media-core/base64";
 import { MAX_IMAGE_BYTES } from "@openclaw/media-core/constants";
 import { extensionForMime, mimeTypeFromFilePath } from "@openclaw/media-core/mime";
 import { normalizeOptionalLowercaseString } from "@openclaw/normalization-core/string-coerce";
+import { DEFAULT_VIDEO_INLINE_MAX_BYTES } from "../agents/sessions/tools/video-inline-policy.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { formatErrorMessage } from "../infra/errors.js";
 import type { PromptMediaOrderEntry } from "../media/prompt-image-order.js";
@@ -70,9 +71,9 @@ type SavedMedia = {
 };
 
 const OFFLOAD_THRESHOLD_BYTES = 2_000_000;
-// 6/27 PATCH: video attachments inline up to the same 50MB cap the
+// 6/27 PATCH: video attachments inline up to the same cap the
 // attachment pipeline uses (AGENT_TURN_ATTACHMENT_VIDEO_MAX_BYTES).
-const VIDEO_INLINE_MAX_BYTES = 50 * 1024 * 1024;
+const VIDEO_INLINE_MAX_BYTES = DEFAULT_VIDEO_INLINE_MAX_BYTES;
 const TEXT_ONLY_OFFLOAD_LIMIT = 10;
 
 export const DEFAULT_CHAT_ATTACHMENT_MAX_MB = 20;
@@ -387,7 +388,7 @@ export async function parseMessageWithAttachments(
 
       // 6/27 PATCH: video uses a separate (much larger) inline threshold
       // because the attachment pipeline / transport can carry video up to
-      // ~50MB inline, while image offload kicks in at 2MB.
+      // the shared video inline cap, while image offload kicks in at 2MB.
       const effectiveOffloadThreshold = isVideo ? VIDEO_INLINE_MAX_BYTES : OFFLOAD_THRESHOLD_BYTES;
       const shouldOffload =
         shouldForceImageOffload || (!isImage && !isVideo) || sizeBytes > effectiveOffloadThreshold;
