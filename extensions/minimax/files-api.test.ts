@@ -6,8 +6,12 @@
 // - missing API key error
 // - baseUrl resolution (configured vs default)
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { __testing, uploadMinimaxFile } from "./files-api.js";
+
+vi.mock("openclaw/plugin-sdk/provider-auth-runtime", () => ({
+  resolveApiKeyForProvider: async () => ({ apiKey: undefined }),
+}));
 
 const { parseMinimaxUploadResponse, resolveMinimaxFilesApiBaseUrl, DEFAULT_MAX_UPLOAD_BYTES } =
   __testing;
@@ -26,12 +30,12 @@ const makeCfg = (overrides: Record<string, unknown> = {}) => ({
 describe("uploadMinimaxFile - purpose required", () => {
   it("does NOT default purpose to video_understanding (per 老板 17:44 拍板)", () => {
     // The function signature requires `purpose` — verify the type-level
-    // contract by ensuring omitting it is a compile error. This test is
-    // a structural check; we just verify the function exists and accepts
-    // the explicit-purpose signature.
+    // contract by keeping the upload helper as one typed object parameter.
+    // Runtime cannot observe TS-required object fields without making a
+    // network call, so the explicit-purpose calls below cover the usable
+    // runtime shape.
     expect(uploadMinimaxFile).toBeTypeOf("function");
-    // Parameter shape: 4th param must be `purpose` (positional, no default).
-    expect(uploadMinimaxFile.length).toBeGreaterThanOrEqual(6);
+    expect(uploadMinimaxFile.length).toBe(1);
   });
 });
 
