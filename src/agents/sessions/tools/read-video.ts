@@ -14,8 +14,8 @@
  *
  * Behaviour:
  * - Reads a video file from the local filesystem
- * - Detects MIME type from the file's leading bytes (mp4, mov, webm, avi, 3gp)
- * - Inlines small files (<= 50MB by default) as base64 `VideoContent` blocks
+ * - Detects MIME type from the file's leading bytes (mp4, mov, mkv, avi)
+ * - Inlines small files (<= 45MB by default) as base64 `VideoContent` blocks
  * - Rejects large files with a helpful error (large videos need to be
  *   uploaded through the chat channel so the inbound preflight can
  *   forward them to the provider's Files API as mm_file://{id})
@@ -29,6 +29,10 @@ import { access as fsAccess, readFile as fsReadFile } from "node:fs/promises";
 import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { logVerbose } from "../../../globals.js";
+import {
+  probeVideoMetadata as probeVideoMetadataFromBuffer,
+  type VideoMetadata,
+} from "../../../media/media-services.js";
 import type { VideoUploadRequest, VideoUploadResult } from "../../../media-understanding/types.js";
 import type { AgentTool } from "../../runtime/index.js";
 import { detectSupportedVideoMimeTypeFromFile } from "../../utils/mime.js";
@@ -43,7 +47,7 @@ const readVideoSchema = Type.Object({
   maxBytes: Type.Optional(
     Type.Number({
       description:
-        "Inline base64 size limit in bytes. Default 50MB. Videos larger than this fail with a helpful error.",
+        "Inline base64 size limit in bytes. Default 45MB. Videos larger than this fail with a helpful error.",
     }),
   ),
 });
@@ -94,6 +98,8 @@ export interface ReadVideoToolOptions {
    * different provider can wrap their helper to match this shape.
    */
   uploadVideo?: (req: VideoUploadRequest) => Promise<VideoUploadResult>;
+  /** Probe video metadata before returning the content block. Default: ffprobe. */
+  probeVideoMetadata?: (buffer: Buffer) => Promise<VideoMetadata | undefined>;
   /**
    * 6/26 PATCH: hint that drives the inline-vs-hosted branch. The new
    * `models.providers.<id>.media.video.mode` config (auto/inline/hosted)
@@ -126,6 +132,35 @@ type ReadVideoToolResult = {
   content: ReadVideoResultBlock[];
   details: ReadVideoDetails;
 };
+
+function buildVideoMetadataText(metadata: VideoMetadata | undefined): string | undefined {
+  if (!metadata) {
+    return undefined;
+  }
+  const bits: string[] = [];
+  if (typeof metadata.duration === "number") {
+    bits.push(`duration=${metadata.duration.toFixed(2)}s`);
+  }
+  if (typeof metadata.framerate === "number") {
+    bits.push(`framerate=${metadata.framerate.toFixed(2)}fps`);
+  }
+  if (typeof metadata.width === "number" && typeof metadata.height === "number") {
+    bits.push(`resolution=${metadata.width}x${metadata.height}`);
+  }
+  if (bits.length === 0) {
+    return undefined;
+  }
+  return (
+    `[视频元数据] ${bits.join(", ")}.\n` +
+    "M3 端点对视频 sparse frame sampling：帧带 \"X.X second\" label，label 是采样窗口内的相对时间（不是 actual 视频秒）。" +
+    "换算: actual ≈ label × (duration ÷ 采样窗口最大 label)，采样窗口最大 label = 你看到的所有 label 中的最大值。"
+  );
+}
+
+function prependVideoMetadataText(text: string, metadata: VideoMetadata | undefined): string {
+  const metadataText = buildVideoMetadataText(metadata);
+  return metadataText ? `${metadataText}\n\n${text}` : text;
+}
 
 function formatReadVideoCall(
   args: ReadVideoRenderArgs | undefined,
@@ -173,18 +208,19 @@ export function createReadVideoToolDefinition(
 ): ToolDefinition<typeof readVideoSchema> {
   const defaultMaxBytes = options?.defaultMaxBytes ?? DEFAULT_READ_VIDEO_MAX_BYTES;
   const ops = options?.operations ?? defaultReadVideoOperations;
+  const probeMetadata = options?.probeVideoMetadata ?? probeVideoMetadataFromBuffer;
 
   return {
     name: "readVideo",
     label: "readVideo",
     description:
       "Read a video file from the local filesystem and load it into the model's context as a video attachment. " +
-      "Use this when the user wants the model to actually see the video (mp4, mov, webm, avi, 3gp). " +
+      "Use this when the user wants the model to actually see the video (mp4, mov, mkv, avi). " +
       "Important: do NOT use the regular `read` tool for video files — `read` will treat the video as raw text/base64, " +
       "which the model cannot meaningfully use. Always use `readVideo` for video files. " +
-      "Maximum inline size is 50MB by default (set `maxBytes` to override); larger videos require the chat channel " +
+      "Maximum inline size is 45MB by default (set `maxBytes` to override); larger videos require the chat channel " +
       "inbound preflight to upload to the provider's Files API first (mm_file://{file_id}).",
-    promptSnippet: "Read video file as a video attachment (mp4/mov/webm/avi/3gp)",
+    promptSnippet: "Read video file as a video attachment (mp4/mov/mkv/avi)",
     promptGuidelines: [
       "Use readVideo for video files, never the regular read tool.",
       "If readVideo fails because the file is too large, ask the user to upload via the chat channel instead.",
@@ -226,7 +262,7 @@ export function createReadVideoToolDefinition(
                 content: [
                   {
                     type: "text",
-                    text: `readVideo: file does not look like a supported video format (mp4, mov, webm, avi, 3gp): ${path}`,
+                    text: `readVideo: file does not look like a supported video format (mp4, mov, mkv, avi): ${path}`,
                   },
                 ],
                 details: { ok: false, reason: "unsupported video format", filePath: absolutePath },
@@ -234,6 +270,8 @@ export function createReadVideoToolDefinition(
               return;
             }
             const buffer = await ops.readFile(absolutePath);
+            if (aborted) return;
+            const videoMetadata = await probeMetadata(buffer);
             if (aborted) return;
             // 6/26 PATCH: `forceUseHostedUrl` (from cfg.mode) drives the
             // inline-vs-hosted branch. When undefined, `decideVideoDeliveryMode`
@@ -268,7 +306,10 @@ export function createReadVideoToolDefinition(
                     content: [
                       {
                         type: "text",
-                        text: `Read video file [${mimeType}] (${buffer.byteLength} bytes) via hosted upload → ${upload.url}`,
+                        text: prependVideoMetadataText(
+                          `Read video file [${mimeType}] (${buffer.byteLength} bytes) via hosted upload → ${upload.url}`,
+                          videoMetadata,
+                        ),
                       },
                       {
                         type: "video",
@@ -352,7 +393,10 @@ export function createReadVideoToolDefinition(
               content: [
                 {
                   type: "text",
-                  text: `Read video file [${mimeType}] (${buffer.byteLength} bytes)`,
+                  text: prependVideoMetadataText(
+                    `Read video file [${mimeType}] (${buffer.byteLength} bytes)`,
+                    videoMetadata,
+                  ),
                 },
                 {
                   type: "video",
@@ -401,6 +445,7 @@ export function createReadVideoTool(
 
 export const __testing = {
   DEFAULT_READ_VIDEO_MAX_BYTES,
+  buildVideoMetadataText,
   formatReadVideoCall,
   formatReadVideoResult,
 };
