@@ -259,7 +259,8 @@ function createLazyProcessTool(defaults?: ProcessToolDefaults): AnyAgentTool {
  * truth, the hint is just the projection.
  *
  * Returns `undefined` when no suitable provider is configured so that the
- * caller falls back to the default behaviour (inline ≤ 50MB, error > 50MB).
+ * caller falls back to the default behaviour (inline under the shared cap,
+ * error above it).
  */
 function resolveCodingToolProviderOptions(cfg?: OpenClawConfig): ToolsOptions | undefined {
   if (!cfg) return undefined;

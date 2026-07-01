@@ -144,7 +144,7 @@ export type ModelProviderVideoMode = "auto" | "inline" | "hosted";
 export type ModelProviderVideoConfig = {
   mode?: ModelProviderVideoMode;
   /**
-   * Override the default 50MB inline cap (bytes). Larger files always fall
+   * Override the default video inline cap (bytes). Larger files always fall
    * through to the hosted upload unless `mode: "inline"` is set, in which
    * case they error with a clear "too large for inline" message instead of
    * silently re-routing.

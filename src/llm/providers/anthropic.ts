@@ -139,8 +139,8 @@ const toClaudeCodeName = (name: string) => ccToolLookup.get(name.toLowerCase()) 
  * - minimax M3 文档明确支持 type=video
  * - 老板原话: 视频理解工具 (抽帧) 是 fallback, M3 直接传 video 是默认
  * - 按 video 大小分流:
- *   - ≤50MB: base64 传 (minimax /anthropic 限制)
- *   - >50MB: 用 minimax Files API 上传 + mm_file:// 引用
+ *   - 默认 inline cap 内: base64 传 (MiniMax URL/base64 硬限制 50MB, request body 64MB)
+ *   - 超过 inline cap: 用 minimax Files API 上传 + mm_file:// 引用
  *
  * 注意: minimax 接受 `type: "video"` 但 OpenClaw transport 之前完全没实现 (6/24 bug)
  */

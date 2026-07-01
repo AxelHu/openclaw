@@ -1,6 +1,6 @@
 /**
  * 6/26 PATCH: single decision point for "inline base64" vs "hosted URL" video
- * attachment policy. Wraps the 50MB threshold check so the readVideo tool,
+ * attachment policy. Wraps the inline-size threshold check so the readVideo tool,
  * agent-turn-attachments, and any future caller all agree on when to inline
  * base64 vs when to upload to the provider's Files API (e.g. minimax
  * `mm_file://{file_id}`).
@@ -24,9 +24,10 @@
  * everyone off base64 in one change.
  */
 
-export const DEFAULT_VIDEO_INLINE_MAX_BYTES = 50 * 1024 * 1024;
-// 6/26 PATCH: aligned with the minimax /anthropic endpoint inline video limit
-// (50MB). See read-video.ts:50 for the historical rationale.
+export const DEFAULT_VIDEO_INLINE_MAX_BYTES = 45 * 1024 * 1024;
+// MiniMax allows URL/base64 videos up to 50MB, but the Anthropic-compatible
+// request body is capped at 64MB. Base64 expands raw bytes by roughly 4/3, so
+// keep the default raw inline cap below 48MB and leave JSON/text headroom.
 
 export type VideoDeliveryMode = "inline_base64" | "hosted_url";
 
@@ -95,7 +96,7 @@ export type ResolveVideoPolicyInput = {
    */
   hasUploadVideo?: boolean;
   /**
-   * Override for the default 50MB inline cap. Useful for tests that want
+   * Override for the default inline cap. Useful for tests that want
    * to push the boundary.
    */
   defaultInlineMaxBytes?: number;
