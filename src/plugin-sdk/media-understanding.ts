@@ -20,6 +20,8 @@ export type {
   StructuredExtractionTextInput,
   VideoDescriptionRequest,
   VideoDescriptionResult,
+  VideoUploadRequest,
+  VideoUploadResult,
 } from "../media-understanding/types.js";
 
 export {

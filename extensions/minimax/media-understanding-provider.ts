@@ -13,26 +13,29 @@ import { uploadMinimaxFile } from "./files-api.js";
  * inbound video attachments through the minimax Files API and reference
  * them as `mm_file://{file_id}` in downstream `type: "video"` blocks.
  */
-async function uploadVideoMinimax(req: VideoUploadRequest): Promise<VideoUploadResult> {
-  if (!req.cfg) {
-    throw new Error(
-      "MiniMax video upload requires OpenClaw config (cfg) to resolve baseUrl + apiKey",
-    );
-  }
-  const upload = await uploadMinimaxFile({
-    providerId: "minimax",
-    cfg: req.cfg,
-    buffer: req.buffer,
-    mimeType: req.mimeType,
-    fileName: req.fileName,
-    purpose:
-      (req.purpose as Parameters<typeof uploadMinimaxFile>[0]["purpose"]) ?? "video_understanding",
-  });
-  return {
-    url: `mm_file://${upload.file_id}`,
-    fileId: upload.file_id,
-    bytes: upload.bytes,
-    filename: upload.filename,
+function createUploadVideoMinimax(providerId: "minimax" | "minimax-portal") {
+  return async function uploadVideoMinimax(req: VideoUploadRequest): Promise<VideoUploadResult> {
+    if (!req.cfg) {
+      throw new Error(
+        "MiniMax video upload requires OpenClaw config (cfg) to resolve baseUrl + apiKey",
+      );
+    }
+    const upload = await uploadMinimaxFile({
+      providerId,
+      cfg: req.cfg,
+      buffer: req.buffer,
+      mimeType: req.mimeType,
+      fileName: req.fileName,
+      purpose:
+        (req.purpose as Parameters<typeof uploadMinimaxFile>[0]["purpose"]) ??
+        "video_understanding",
+    });
+    return {
+      url: `mm_file://${upload.file_id}`,
+      fileId: upload.file_id,
+      bytes: upload.bytes,
+      filename: upload.filename,
+    };
   };
 }
 
@@ -44,7 +47,7 @@ export const minimaxMediaUnderstandingProvider: MediaUnderstandingProvider = {
   autoPriority: { image: 40 },
   describeImage: describeImageWithModel,
   describeImages: describeImagesWithModel,
-  uploadVideo: uploadVideoMinimax,
+  uploadVideo: createUploadVideoMinimax("minimax"),
 };
 
 export const minimaxPortalMediaUnderstandingProvider: MediaUnderstandingProvider = {
@@ -55,5 +58,5 @@ export const minimaxPortalMediaUnderstandingProvider: MediaUnderstandingProvider
   autoPriority: { image: 50 },
   describeImage: describeImageWithModel,
   describeImages: describeImagesWithModel,
-  uploadVideo: uploadVideoMinimax,
+  uploadVideo: createUploadVideoMinimax("minimax-portal"),
 };
