@@ -42,7 +42,7 @@ export async function detectSupportedImageMimeTypeFromFile(
 
 /**
  * 6/24 PATCH: detect supported video MIME types from leading file bytes.
- * Supports mp4 (ISO BMFF), mov (QuickTime), webm (EBML), avi (RIFF), 3gp.
+ * Supports mp4 (ISO BMFF), mov (QuickTime), mkv (EBML), avi (RIFF).
  * See read-video.ts session tool for the consumer.
  */
 export function detectSupportedVideoMimeType(buffer: Uint8Array): string | null {
@@ -57,9 +57,6 @@ export function detectSupportedVideoMimeType(buffer: Uint8Array): string | null 
     if (startsWithAscii(buffer, 8, "qt  ")) {
       return "video/quicktime";
     }
-    if (startsWithAscii(buffer, 8, "3gp")) {
-      return "video/3gpp";
-    }
     if (buffer.length >= 8) {
       return "video/mp4";
     }
@@ -71,7 +68,7 @@ export function detectSupportedVideoMimeType(buffer: Uint8Array): string | null 
     buffer[2] === 0xdf &&
     buffer[3] === 0xa3
   ) {
-    return "video/webm";
+    return "video/x-matroska";
   }
   if (
     startsWithAscii(buffer, 0, "RIFF") &&
@@ -91,7 +88,11 @@ export async function detectSupportedVideoMimeTypeFromFile(
   try {
     const buffer = Buffer.alloc(IMAGE_TYPE_SNIFF_BYTES);
     const { bytesRead } = await fileHandle.read(buffer, 0, IMAGE_TYPE_SNIFF_BYTES, 0);
-    return detectSupportedVideoMimeType(buffer.subarray(0, bytesRead));
+    const detected = detectSupportedVideoMimeType(buffer.subarray(0, bytesRead));
+    if (detected === "video/x-matroska" && !filePath.toLowerCase().endsWith(".mkv")) {
+      return null;
+    }
+    return detected;
   } finally {
     await fileHandle.close();
   }

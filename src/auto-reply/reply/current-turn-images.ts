@@ -1,7 +1,7 @@
 // Tracks image and video attachments that belong to the current reply turn.
 //
 // 6/25 PATCH: extends the image-only pipeline to also inline video
-// attachments (mp4/mov/webm/avi/3gp) for direct multimodal processing by
+// attachments (mp4/mov/mkv/avi) for direct multimodal processing by
 // providers like minimax M3 that accept `type: "video"` blocks.
 import { mimeTypeFromFilePath } from "@openclaw/media-core/mime";
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
