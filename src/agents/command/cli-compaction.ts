@@ -64,6 +64,8 @@ type CliCompactionDeps = {
     agentDir: string;
     cfg?: OpenClawConfig;
     contextTokenBudget?: number;
+    provider?: string;
+    modelId?: string;
   }) => SettingsManagerLike | Promise<SettingsManagerLike>;
   applyAgentAutoCompactionGuard: (params: {
     settingsManager: SettingsManagerLike;
@@ -515,6 +517,8 @@ export async function runCliTurnCompactionLifecycle(params: {
     agentDir: params.agentDir,
     cfg: params.cfg,
     contextTokenBudget,
+    provider: params.provider,
+    modelId: params.model,
   });
 
   const preemptiveCompaction = cliCompactionDeps.shouldPreemptivelyCompactBeforePrompt({

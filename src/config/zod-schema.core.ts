@@ -358,6 +358,15 @@ const ModelMediaInputSchema = z
   })
   .strict();
 
+const ModelCompactionSchema = z
+  .object({
+    reserveTokensFloor: z.number().int().nonnegative().optional(),
+    reserveTokens: z.number().int().nonnegative().optional(),
+    keepRecentTokens: z.number().int().positive().optional(),
+  })
+  .strict()
+  .optional();
+
 // Mirrors the runtime ThinkingLevelMap contract (model-registry TypeBox schema). Persisted model
 // entries carry thinkingLevelMap, so the strict config schema must accept it or updateConfig rolls back.
 const ThinkingLevelMapValueSchema = z.string().nullable();
@@ -416,6 +425,7 @@ const ModelDefinitionSchema = z
     headers: z.record(z.string(), z.string()).optional(),
     compat: ModelCompatSchema,
     mediaInput: ModelMediaInputSchema.optional(),
+    compaction: ModelCompactionSchema,
     metadataSource: z.literal("models-add").optional(),
   })
   .strict();

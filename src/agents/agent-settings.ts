@@ -44,13 +44,55 @@ export function ensureAgentCompactionReserveTokens(params: {
   return { didOverride: true, reserveTokens: minReserveTokens };
 }
 
-/** Resolves the configured reserve-token floor for agent compaction. */
-export function resolveCompactionReserveTokensFloor(cfg?: OpenClawConfig): number {
+/**
+ * Resolves the configured reserve-token floor for agent compaction.
+ *
+ * Per-model override (highest priority): `models.providers[provider].models[modelId].compaction.reserveTokensFloor`
+ * Global default: `agents.defaults.compaction.reserveTokensFloor`
+ * Hardcoded fallback: `DEFAULT_AGENT_COMPACTION_RESERVE_TOKENS_FLOOR`
+ */
+export function resolveCompactionReserveTokensFloor(
+  cfg?: OpenClawConfig,
+  provider?: string,
+  modelId?: string,
+): number {
+  // 1. Per-model override
+  if (provider && modelId) {
+    const perModel = cfg?.models?.providers?.[provider]?.models?.find((m) => m?.id === modelId)
+      ?.compaction?.reserveTokensFloor;
+    if (typeof perModel === "number" && Number.isFinite(perModel) && perModel >= 0) {
+      return Math.floor(perModel);
+    }
+  }
+  // 2. Global default
   const raw = cfg?.agents?.defaults?.compaction?.reserveTokensFloor;
   if (typeof raw === "number" && Number.isFinite(raw) && raw >= 0) {
     return Math.floor(raw);
   }
+  // 3. Hardcoded default
   return DEFAULT_AGENT_COMPACTION_RESERVE_TOKENS_FLOOR;
+}
+
+/**
+ * Resolves per-model compaction overrides for reserveTokens and keepRecentTokens.
+ *
+ * Returns undefined for fields the model doesn't override (caller should fall back
+ * to global default).
+ */
+export function resolvePerModelCompactionOverrides(
+  cfg?: OpenClawConfig,
+  provider?: string,
+  modelId?: string,
+): { reserveTokens?: number; keepRecentTokens?: number } | undefined {
+  if (!provider || !modelId) return undefined;
+  const compaction = cfg?.models?.providers?.[provider]?.models?.find(
+    (m) => m?.id === modelId,
+  )?.compaction;
+  if (!compaction) return undefined;
+  return {
+    reserveTokens: compaction.reserveTokens,
+    keepRecentTokens: compaction.keepRecentTokens,
+  };
 }
 
 function toNonNegativeInt(value: unknown): number | undefined {
@@ -73,6 +115,10 @@ export function applyAgentCompactionSettingsFromConfig(params: {
   cfg?: OpenClawConfig;
   /** When known, the resolved context window budget for the current model. */
   contextTokenBudget?: number;
+  /** When known, the current model provider (e.g. "minimax", "openai") for per-model compaction overrides. */
+  provider?: string;
+  /** When known, the current model id (e.g. "MiniMax-M3") for per-model compaction overrides. */
+  modelId?: string;
 }): {
   didOverride: boolean;
   compaction: { reserveTokens: number; keepRecentTokens: number };
@@ -81,9 +127,23 @@ export function applyAgentCompactionSettingsFromConfig(params: {
   const currentKeepRecentTokens = params.settingsManager.getCompactionKeepRecentTokens();
   const compactionCfg = params.cfg?.agents?.defaults?.compaction;
 
-  const configuredReserveTokens = toNonNegativeInt(compactionCfg?.reserveTokens);
-  const configuredKeepRecentTokens = toPositiveInt(compactionCfg?.keepRecentTokens);
-  let reserveTokensFloor = resolveCompactionReserveTokensFloor(params.cfg);
+  // Per-model override (highest priority), then global, then hardcoded default
+  const perModelOverrides = resolvePerModelCompactionOverrides(
+    params.cfg,
+    params.provider,
+    params.modelId,
+  );
+  const configuredReserveTokens =
+    toNonNegativeInt(perModelOverrides?.reserveTokens) ??
+    toNonNegativeInt(compactionCfg?.reserveTokens);
+  const configuredKeepRecentTokens =
+    toPositiveInt(perModelOverrides?.keepRecentTokens) ??
+    toPositiveInt(compactionCfg?.keepRecentTokens);
+  let reserveTokensFloor = resolveCompactionReserveTokensFloor(
+    params.cfg,
+    params.provider,
+    params.modelId,
+  );
 
   // Cap the floor to a safe fraction of the context window so that
   // small-context models (e.g. Ollama with 16 K tokens) are not starved of

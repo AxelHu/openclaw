@@ -161,6 +161,26 @@ export type ModelMediaInputConfig = {
   image?: ModelImageInputConfig;
 };
 
+/**
+ * 6/30 PATCH: per-model compaction overrides. Lets large-context models
+ * (e.g. `MiniMax-M3` 524K) use a smaller reserve floor than small-context
+ * models (e.g. `GLM-4.7-Flash` 200K) without bumping the global
+ * `agents.defaults.compaction.reserveTokensFloor` for everyone.
+ *
+ * Resolution order (highest first):
+ * 1. `models.providers[provider].models[modelId].compaction.reserveTokensFloor`
+ * 2. `agents.defaults.compaction.reserveTokensFloor`
+ * 3. 20000 (hardcoded default)
+ */
+export type ModelCompactionConfig = {
+  /** Per-model reserveTokensFloor override (0 disables the floor). */
+  reserveTokensFloor?: number;
+  /** Per-model reserveTokens override (target before floor enforcement). */
+  reserveTokens?: number;
+  /** Per-model keepRecentTokens override used for cut-point selection. */
+  keepRecentTokens?: number;
+};
+
 /** Authentication mode expected by a configured model provider. */
 export type ModelProviderAuthMode = "api-key" | "aws-sdk" | "oauth" | "token";
 
@@ -235,6 +255,8 @@ export type ModelDefinitionConfig = {
   compat?: ModelCompatConfig;
   /** Media input limits used by routing and preflight compression. */
   mediaInput?: ModelMediaInputConfig;
+  /** Per-model compaction overrides. */
+  compaction?: ModelCompactionConfig;
   /** Metadata source marker for models added by CLI/catalog tooling. */
   metadataSource?: "models-add";
 };

@@ -1187,6 +1187,8 @@ async function compactEmbeddedAgentSessionDirectOnce(
           workspaceDir: effectiveWorkspace,
         }),
         contextTokenBudget,
+        provider,
+        modelId,
       });
       // Sets compaction/pruning runtime state and returns extension factories
       // that must be passed to the resource loader for the safeguard to be active.
@@ -1213,6 +1215,8 @@ async function compactEmbeddedAgentSessionDirectOnce(
         settingsManager,
         cfg: params.config,
         contextTokenBudget,
+        provider,
+        modelId,
       });
       // contextEngineInfo is intentionally omitted: this guard runs inside the
       // compaction LLM session, which is not the user-facing agent session and

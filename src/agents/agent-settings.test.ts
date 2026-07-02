@@ -8,6 +8,7 @@ import {
   isSilentOverflowProneModel,
   resolveEffectiveCompactionMode,
   resolveCompactionReserveTokensFloor,
+  resolvePerModelCompactionOverrides,
   shouldDisableAgentAutoCompaction,
 } from "./agent-settings.js";
 
@@ -350,6 +351,145 @@ describe("resolveCompactionReserveTokensFloor", () => {
         agents: { defaults: { compaction: { reserveTokensFloor: 0 } } },
       }),
     ).toBe(0);
+  });
+
+  // 6/30 PATCH: per-model reserveTokensFloor override
+  it("accepts per-model reserveTokensFloor (highest priority)", () => {
+    expect(
+      resolveCompactionReserveTokensFloor(
+        {
+          agents: { defaults: { compaction: { reserveTokensFloor: 50_000 } } },
+          models: {
+            providers: {
+              minimax: {
+                models: [{ id: "MiniMax-M3", compaction: { reserveTokensFloor: 5_000 } }],
+              },
+            },
+          },
+        },
+        "minimax",
+        "MiniMax-M3",
+      ),
+    ).toBe(5_000);
+  });
+
+  it("falls back to global when per-model not set", () => {
+    expect(
+      resolveCompactionReserveTokensFloor(
+        {
+          agents: { defaults: { compaction: { reserveTokensFloor: 50_000 } } },
+          models: {
+            providers: {
+              minimax: { models: [{ id: "MiniMax-M3" }] }, // no compaction override
+            },
+          },
+        },
+        "minimax",
+        "MiniMax-M3",
+      ),
+    ).toBe(50_000);
+  });
+
+  it("falls back to default when neither per-model nor global set", () => {
+    expect(
+      resolveCompactionReserveTokensFloor(
+        { models: { providers: { minimax: { models: [{ id: "MiniMax-M3" }] } } } },
+        "minimax",
+        "MiniMax-M3",
+      ),
+    ).toBe(DEFAULT_AGENT_COMPACTION_RESERVE_TOKENS_FLOOR);
+  });
+
+  it("ignores per-model when provider/modelId not provided", () => {
+    // Backward compat: callers without provider/modelId still get global
+    expect(
+      resolveCompactionReserveTokensFloor({
+        agents: { defaults: { compaction: { reserveTokensFloor: 50_000 } } },
+        models: {
+          providers: {
+            minimax: {
+              models: [{ id: "MiniMax-M3", compaction: { reserveTokensFloor: 5_000 } }],
+            },
+          },
+        },
+      }),
+    ).toBe(50_000);
+  });
+
+  it("returns 0 for per-model reserveTokensFloor=0 (explicit override)", () => {
+    expect(
+      resolveCompactionReserveTokensFloor(
+        {
+          agents: { defaults: { compaction: { reserveTokensFloor: 50_000 } } },
+          models: {
+            providers: {
+              minimax: {
+                models: [{ id: "MiniMax-M3", compaction: { reserveTokensFloor: 0 } }],
+              },
+            },
+          },
+        },
+        "minimax",
+        "MiniMax-M3",
+      ),
+    ).toBe(0);
+  });
+});
+
+describe("resolvePerModelCompactionOverrides", () => {
+  it("returns undefined when provider/modelId missing", () => {
+    expect(resolvePerModelCompactionOverrides()).toBeUndefined();
+  });
+
+  it("returns undefined when model has no compaction block", () => {
+    expect(
+      resolvePerModelCompactionOverrides(
+        { models: { providers: { minimax: { models: [{ id: "MiniMax-M3" }] } } } },
+        "minimax",
+        "MiniMax-M3",
+      ),
+    ).toBeUndefined();
+  });
+
+  it("returns per-model compaction fields when present", () => {
+    expect(
+      resolvePerModelCompactionOverrides(
+        {
+          models: {
+            providers: {
+              minimax: {
+                models: [
+                  {
+                    id: "MiniMax-M3",
+                    compaction: { reserveTokens: 1000, keepRecentTokens: 5000 },
+                  },
+                ],
+              },
+            },
+          },
+        },
+        "minimax",
+        "MiniMax-M3",
+      ),
+    ).toEqual({ reserveTokens: 1000, keepRecentTokens: 5000 });
+  });
+
+  it("returns partial overrides (only some fields set)", () => {
+    expect(
+      resolvePerModelCompactionOverrides(
+        {
+          models: {
+            providers: {
+              minimax: {
+                models: [{ id: "MiniMax-M3", compaction: { reserveTokensFloor: 5_000 } }],
+              },
+            },
+          },
+        },
+        "minimax",
+        "MiniMax-M3",
+      ),
+    ).toEqual({});
   });
 });
 describe("resolveEffectiveCompactionMode", () => {
