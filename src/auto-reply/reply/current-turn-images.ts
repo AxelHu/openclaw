@@ -25,7 +25,7 @@ type CurrentMultimodalAttachment = {
 // block. The model M3 hallucinates duration based on (sampled_frames
 // / framerate) without this hint, so the metadata text acts as a
 // ground-truth calibration.
-export type CurrentTurnMediaBlock = ImageContent | VideoContent | TextContent;
+export type CurrentTurnMediaBlock = ImageContent | VideoContent;
 
 function isGenericMediaType(mediaType: string | undefined): boolean {
   if (!mediaType) {
