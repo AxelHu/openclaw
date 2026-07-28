@@ -219,6 +219,39 @@ function readUpdateCheckState(env: NodeJS.ProcessEnv):
   );
 }
 
+function writeUpdateCheckState(
+  env: NodeJS.ProcessEnv,
+  values: {
+    last_checked_at?: string | null;
+    last_available_version?: string | null;
+    last_available_tag?: string | null;
+    auto_install_id?: string | null;
+  },
+): void {
+  const { db } = openOpenClawStateDatabase({ env });
+  const stateDb = getNodeSqliteKysely<UpdateCheckStateDatabase>(db);
+  executeSqliteQuerySync(
+    db,
+    stateDb.insertInto("update_check_state").values({
+      state_key: "default",
+      last_checked_at: values.last_checked_at ?? null,
+      last_notified_version: null,
+      last_notified_tag: null,
+      last_available_version: values.last_available_version ?? null,
+      last_available_tag: values.last_available_tag ?? null,
+      auto_install_id: values.auto_install_id ?? null,
+      auto_first_seen_version: null,
+      auto_first_seen_tag: null,
+      auto_first_seen_at: null,
+      auto_last_attempt_version: null,
+      auto_last_attempt_at: null,
+      auto_last_success_version: null,
+      auto_last_success_at: null,
+      updated_at_ms: Date.now(),
+    }),
+  );
+}
+
 function readConfigHealthRows(env: NodeJS.ProcessEnv): Array<{
   config_path: string;
   last_known_good_json: string | null;
@@ -1980,6 +2013,41 @@ describe("state migrations", () => {
       last_available_version: "2.0.0",
       last_available_tag: "latest",
       auto_install_id: "install-1",
+    });
+    await expectMissingPath(sourcePath);
+    await expect(fs.readFile(`${sourcePath}.migrated`, "utf8")).resolves.toContain("2.0.0");
+  });
+
+  it("archives legacy update-check JSON when shared SQLite state already differs", async () => {
+    const root = await createTempDir();
+    const stateDir = path.join(root, ".openclaw");
+    const env = createEnv(stateDir);
+    const cfg = createConfig();
+    const sourcePath = path.join(stateDir, "update-check.json");
+    await fs.mkdir(stateDir, { recursive: true });
+    await fs.writeFile(
+      sourcePath,
+      JSON.stringify({
+        lastCheckedAt: "2026-01-17T09:30:00.000Z",
+        lastAvailableVersion: "2.0.0",
+      }),
+      "utf8",
+    );
+    writeUpdateCheckState(env, {
+      last_checked_at: "2026-01-18T09:30:00.000Z",
+      last_available_version: "2.1.0",
+    });
+
+    const detected = await detectLegacyStateMigrations({ cfg, env, homedir: () => root });
+    const result = await runLegacyStateMigrations({ detected, config: cfg });
+
+    expect(result.warnings).toStrictEqual([]);
+    expect(result.changes).toContain(
+      `Archived legacy update-check state because shared SQLite state already differs: ${sourcePath}`,
+    );
+    expect(readUpdateCheckState(env)).toMatchObject({
+      last_checked_at: "2026-01-18T09:30:00.000Z",
+      last_available_version: "2.1.0",
     });
     await expectMissingPath(sourcePath);
     await expect(fs.readFile(`${sourcePath}.migrated`, "utf8")).resolves.toContain("2.0.0");

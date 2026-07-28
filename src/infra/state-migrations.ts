@@ -2029,9 +2029,10 @@ function migrateLegacyUpdateCheckState(params: {
           if (legacyUpdateCheckStateMatches(existing, state)) {
             shouldArchive = true;
           } else {
-            warnings.push(
-              `Left legacy update-check state in place because shared SQLite state already differs: ${params.detected.sourcePath}`,
+            changes.push(
+              `Archived legacy update-check state because shared SQLite state already differs: ${params.detected.sourcePath}`,
             );
+            shouldArchive = true;
           }
           return;
         }

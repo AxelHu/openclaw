@@ -878,7 +878,7 @@ describe("codex doctor contract", () => {
     await fs.rm(fixture.stateDir, { recursive: true, force: true });
   });
 
-  it("retains a sidecar owned by a foreign harness without importing plugin state", async () => {
+  it("retains a sidecar owned by a foreign harness without warning or importing plugin state", async () => {
     const fixture = await createBindingMigrationFixture({
       name: "foreign",
       sessionIndex: {
@@ -894,7 +894,7 @@ describe("codex doctor contract", () => {
     const result = await fixture.migration.migrateLegacyState(fixture.params);
 
     expect(result.changes).toEqual([]);
-    expect(result.warnings).toEqual([expect.stringContaining("owned by agent harness pi")]);
+    expect(result.warnings).toEqual([]);
     await expect(fs.access(fixture.sidecarPath)).resolves.toBeUndefined();
     await expect(openBindingStore(fixture.env).entries()).resolves.toEqual([]);
 

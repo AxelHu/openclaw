@@ -453,7 +453,7 @@ async function migrateSource(
         return retain(`${candidates.length} matching session owners make ownership ambiguous`);
       }
       if (owner?.agentHarnessId && owner.agentHarnessId !== CODEX_AGENT_HARNESS_ID) {
-        return retain(`its session is owned by agent harness ${owner.agentHarnessId}`);
+        return { archived: false, importedKeys };
       }
       const sourceSessionFile =
         typeof raw.sessionFile === "string" && raw.sessionFile.trim()
