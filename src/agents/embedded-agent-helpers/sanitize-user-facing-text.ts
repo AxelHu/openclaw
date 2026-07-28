@@ -472,6 +472,11 @@ export function sanitizeUserFacingText(text: unknown, opts?: { errorContext?: bo
       return diskSpaceCopy;
     }
 
+    const sensitiveImageCopy = formatSensitiveImageRejectionErrorCopy(trimmed);
+    if (sensitiveImageCopy) {
+      return sensitiveImageCopy;
+    }
+
     if (/incorrect role information|roles must alternate/i.test(trimmed)) {
       return (
         "Message ordering conflict - please try again. " +

@@ -79,8 +79,12 @@ export async function sanitizeSessionMessagesImages(
     if (role === "toolResult") {
       const toolMsg = msg as Extract<AgentMessage, { role: "toolResult" }>;
       const content = Array.isArray(toolMsg.content) ? toolMsg.content : [];
+      // 6/24 PATCH: cast through `unknown` because the helper signature
+      // still uses (TextContent | ImageContent)[] but the runtime may now
+      // include VideoContent blocks. The sanitizer is a no-op for
+      // non-image blocks, so the wider input is safe to forward.
       const nextContent = (await sanitizeContentBlocksImages(
-        content,
+        content as unknown as Parameters<typeof sanitizeContentBlocksImages>[0],
         label,
         imageSanitization,
       )) as unknown as typeof toolMsg.content;

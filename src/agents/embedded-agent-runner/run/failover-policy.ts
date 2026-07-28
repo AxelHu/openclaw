@@ -251,8 +251,37 @@ export function resolveRunFailoverDecision(params: RunFailoverDecisionParams): R
       action: "continue_normal",
     };
   }
+  // Local fork fix for #89758 (follow-on from ca643ec5351). When the
+  // assistant failed with a transient reason (overloaded / 529, harness
+  // timeout, format blip) but no fallback is configured and rotation is
+  // exhausted, fall through to `continue_normal` so the same-profile
+  // transient-retry branch in run.ts (#2899) can fire. Without this, a
+  // single 2064/529 from the LLM provider immediately surfaces a
+  // FailoverError to the user even when the call is a single-server blip
+  // that would clear on a retry (production evidence: 2026-06-15 17:35
+  // CST, minimax/MiniMax-M3 overloaded_error). The transient-retry branch
+  // itself is capped at MAX_TRANSIENT_RETRY_PER_PROFILE (2) so a
+  // permanently bad profile still gives up. Mirrors the existing white-
+  // list in run.ts#isTransientRetryableFailoverReason.
+  if (
+    assistantShouldRotate &&
+    !params.fallbackConfigured &&
+    isTransientRetryableFailoverReasonInline(params.failoverReason)
+  ) {
+    return {
+      action: "continue_normal",
+    };
+  }
   return {
     action: "surface_error",
     reason: params.failoverReason,
   };
+}
+
+// Inline copy of run.ts#isTransientRetryableFailoverReason. Kept local
+// (instead of imported) to avoid a circular import: failover-policy is
+// already imported by run.ts, so importing back from run.ts would loop.
+// Keep in sync with run.ts#isTransientRetryableFailoverReason.
+function isTransientRetryableFailoverReasonInline(reason: FailoverReason | null): boolean {
+  return reason === "timeout" || reason === "overloaded" || reason === "format";
 }
