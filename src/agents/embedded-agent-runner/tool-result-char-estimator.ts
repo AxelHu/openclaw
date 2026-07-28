@@ -13,6 +13,10 @@ import {
 export const CHARS_PER_TOKEN_ESTIMATE = 4;
 export const TOOL_RESULT_CHARS_PER_TOKEN_ESTIMATE = 2;
 const IMAGE_CHAR_ESTIMATE = 8_000;
+// 6/26 PATCH: video block 走固定估算, 跟 IMAGE_CHAR_ESTIMATE 同款 pattern
+// 跟 pruner.ts / compaction.ts / preemptive-compaction.ts 的 VIDEO_CHAR_ESTIMATE = 200_000 对齐
+// 不再走 estimateUnknownChars(block) → JSON.stringify(base64) (5.15MB mp4 → 6.87M chars → 误报 overflow)
+const VIDEO_CHAR_ESTIMATE = 200_000;
 
 export type MessageCharEstimateCache = WeakMap<AgentMessage, number>;
 
@@ -28,6 +32,13 @@ function isTextBlock(block: unknown): block is { type: "text"; text: string } {
 function isImageBlock(block: unknown): boolean {
   return (
     Boolean(block) && typeof block === "object" && (block as { type?: unknown }).type === "image"
+  );
+}
+
+// 6/26 PATCH: video block 类型判断, 跟 isImageBlock 同款
+function isVideoBlock(block: unknown): boolean {
+  return (
+    Boolean(block) && typeof block === "object" && (block as { type?: unknown }).type === "video"
   );
 }
 
@@ -70,6 +81,9 @@ function estimateContentBlockChars(content: unknown[]): number {
       chars += block.text.length;
     } else if (isImageBlock(block)) {
       chars += IMAGE_CHAR_ESTIMATE;
+    } else if (isVideoBlock(block)) {
+      // 6/26 PATCH: video 走固定估算 (跟 image 同款), 不要 JSON.stringify base64
+      chars += VIDEO_CHAR_ESTIMATE;
     } else {
       chars += estimateUnknownChars(block);
     }

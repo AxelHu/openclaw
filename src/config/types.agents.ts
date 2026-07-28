@@ -146,6 +146,8 @@ export type AgentConfig = {
   };
   /** Optional outer run loop retry boundaries. */
   runRetries?: AgentDefaultsConfig["runRetries"];
+  /** Optional per-agent same-profile transient retry config (overrides agents.defaults.transientRetry). */
+  transientRetry?: AgentDefaultsConfig["transientRetry"];
   /** Optional per-agent embedded OpenClaw overrides. */
   embeddedAgent?: {
     /** Optional per-agent execution contract override. */

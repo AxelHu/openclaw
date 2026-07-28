@@ -637,15 +637,54 @@ async function appendMemoryFlushContent(params: {
   await fs.writeFile(params.absolutePath, next, "utf-8");
 }
 
-/** Restrict a write tool to appending memory-flush content to one path. */
+function resolveWorkspaceRelativePath(params: { root: string; absolutePath: string }): string {
+  const relative = path.relative(path.resolve(params.root), params.absolutePath);
+  const normalized = relative.replace(/\\/g, "/");
+  if (
+    !normalized ||
+    normalized === ".." ||
+    normalized.startsWith("../") ||
+    path.isAbsolute(relative)
+  ) {
+    throw new Error("Memory flush writes must stay inside the workspace.");
+  }
+  return normalized;
+}
+
+function isPathInsideDirectory(params: { directory: string; candidate: string }): boolean {
+  const relative = path.relative(path.resolve(params.directory), path.resolve(params.candidate));
+  return (
+    Boolean(relative) &&
+    relative !== ".." &&
+    !relative.startsWith(`..${path.sep}`) &&
+    !path.isAbsolute(relative)
+  );
+}
+
+function resolveMemoryFlushTargetPath(params: {
+  filePath: string;
+  root: string;
+  containerWorkdir?: string;
+}): { absolutePath: string; relativePath: string } {
+  const memoryDirectory = path.resolve(params.root, "memory");
+  const absolutePath = resolveToolPathAgainstWorkspaceRoot(params);
+  if (!isPathInsideDirectory({ directory: memoryDirectory, candidate: absolutePath })) {
+    throw new Error("Memory flush writes are restricted to files under memory/.");
+  }
+  return {
+    absolutePath,
+    relativePath: resolveWorkspaceRelativePath({ root: params.root, absolutePath }),
+  };
+}
+
+/** Restrict a write tool to append memory-flush content under memory/. */
 export function wrapToolMemoryFlushAppendOnlyWrite(
   tool: AnyAgentTool,
   options: MemoryFlushAppendOnlyWriteOptions,
 ): AnyAgentTool {
-  const allowedAbsolutePath = path.resolve(options.root, options.relativePath);
   return {
     ...tool,
-    description: `${tool.description} During memory flush, this tool may only append to ${options.relativePath}.`,
+    description: `${tool.description} During memory flush, this tool may only append to files under memory/.`,
     execute: async (toolCallId, args, signal, onUpdate) => {
       const record = getToolParamsRecord(args);
       const normalizedRecord = record
@@ -661,29 +700,24 @@ export function wrapToolMemoryFlushAppendOnlyWrite(
         return tool.execute(toolCallId, args, signal, onUpdate);
       }
 
-      const resolvedPath = resolveToolPathAgainstWorkspaceRoot({
+      const target = resolveMemoryFlushTargetPath({
         filePath,
         root: options.root,
         containerWorkdir: options.containerWorkdir,
       });
-      if (resolvedPath !== allowedAbsolutePath) {
-        throw new Error(
-          `Memory flush writes are restricted to ${options.relativePath}; use that path only.`,
-        );
-      }
 
       await appendMemoryFlushContent({
-        absolutePath: allowedAbsolutePath,
+        absolutePath: target.absolutePath,
         root: options.root,
-        relativePath: options.relativePath,
+        relativePath: target.relativePath,
         content,
         sandbox: options.sandbox,
         signal,
       });
       return {
-        content: [{ type: "text", text: `Appended content to ${options.relativePath}.` }],
+        content: [{ type: "text", text: `Appended content to ${target.relativePath}.` }],
         details: {
-          path: options.relativePath,
+          path: target.relativePath,
           appendOnly: true,
         },
       };

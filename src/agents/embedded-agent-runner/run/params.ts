@@ -156,7 +156,13 @@ export type RunEmbeddedAgentParams = {
   transcriptPrompt?: string;
   currentInboundEventKind?: InboundEventKind;
   currentInboundContext?: CurrentInboundPromptContext;
-  images?: ImageContent[];
+  /**
+   * 6/25 PATCH: multimodal current-turn content blocks (images + videos).
+   * Accepts `ImageContent` and `VideoContent` blocks so inbound video
+   * attachments (and oversized videos uploaded as `mm_file://{file_id}`)
+   * flow into the agent prompt without dropping the audio/video block.
+   */
+  images?: Array<ImageContent | VideoContent>;
   imageOrder?: PromptImageOrderEntry[];
   /** Optional client-provided tools (OpenResponses hosted tools). */
   clientTools?: ClientToolDefinition[];

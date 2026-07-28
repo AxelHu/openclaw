@@ -997,6 +997,114 @@ describe("redactTranscriptMessage", () => {
     expect(block.image_url).toBe(dataUrl);
   });
 
+  // 6/26 PATCH: video block preservation (was missing — see shouldPreserveOpaqueMediaPayload).
+  // Rationale: video is base64-encoded opaque media; maskToken must NOT scan it.
+  it("preserves valid MP4 video base64 while redacting adjacent text", () => {
+    const mp4Header = Buffer.from([
+      0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70, 0x6d, 0x70, 0x34, 0x32, 0x00, 0x00, 0x00,
+      0x00, 0x6d, 0x70, 0x34, 0x32, 0x69, 0x73, 0x6f, 0x6d,
+    ]);
+    const mp4Base64 = Buffer.concat([mp4Header, Buffer.alloc(64, 0xab)]).toString("base64");
+    const msg = {
+      role: "user",
+      content: [
+        { type: "text", text: "my key is sk-abcdef1234567890xyz" },
+        {
+          type: "video",
+          mimeType: "video/mp4",
+          data: mp4Base64,
+        },
+      ],
+    } as unknown as AgentMessage;
+
+    const result = redactTranscriptMessage(msg, cfg("tools"));
+    const content = msgContent(result) as Array<{ type: string; text?: string; data?: string }>;
+    // Adjacent text still gets redacted
+    expect(content[0].text).not.toContain("sk-abcdef1234567890xyz");
+    // Video data preserved unchanged
+    expect(content[1].data).toBe(mp4Base64);
+    // Sanity: no secret leaked into the persisted JSON
+    expect(JSON.stringify(result)).not.toContain("sk-abcdef1234567890xyz");
+  });
+
+  it("preserves valid WebM video base64 with EBML header", () => {
+    const webmHeader = Buffer.concat([
+      Buffer.from([0x1a, 0x45, 0xdf, 0xa3]),
+      Buffer.from([0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]),
+      Buffer.from([0x42, 0x82]),
+      Buffer.from([0x04]),
+      Buffer.from("webm", "ascii"),
+    ]);
+    const webmBase64 = Buffer.concat([webmHeader, Buffer.alloc(64, 0xcd)]).toString("base64");
+    const msg = {
+      role: "assistant",
+      content: [
+        {
+          type: "video",
+          mimeType: "video/webm",
+          data: webmBase64,
+        },
+      ],
+    } as unknown as AgentMessage;
+
+    const result = redactTranscriptMessage(msg, cfg("tools"));
+    const block = (msgContent(result) as Array<{ data: string; mimeType: string }>)[0];
+    expect(block.data).toBe(webmBase64);
+    expect(block.mimeType).toBe("video/webm");
+  });
+
+  it("redacts fake video payloads that fail signature sniff (impersonation guard)", () => {
+    // PNG header mislabeled as video/mp4 — sniff rejects → falls through to maskToken
+    const pngHeader = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+    const fakeBase64 = Buffer.concat([pngHeader, Buffer.alloc(64, 0xff)])
+      .toString("base64")
+      .slice(0, 96); // truncate to ensure secret-like substring is in the visible portion
+    // Inject a token-like substring that maskToken will catch
+    const payloadWithToken = fakeBase64 + "sk-abcdef1234567890xyz";
+    const msg = {
+      role: "user",
+      content: [
+        {
+          type: "video",
+          mimeType: "video/mp4",
+          data: payloadWithToken,
+        },
+      ],
+    } as unknown as AgentMessage;
+
+    const result = redactTranscriptMessage(msg, cfg("tools"));
+    const block = (msgContent(result) as Array<{ data: string }>)[0];
+    // data was not preserved (sniff rejected) → maskToken ran → token masked
+    expect(block.data).not.toBe(payloadWithToken);
+    expect(block.data).toContain("…");
+  });
+
+  it("redacts video block with non-video mimeType (mime-impersonation guard)", () => {
+    // Real MP4 header but mimeType says image/png — image-mime check rejects in
+    // sanitizeVideoRecord, then maskToken runs on the data field.
+    const mp4Header = Buffer.from([
+      0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70, 0x6d, 0x70, 0x34, 0x32,
+    ]);
+    const payloadWithToken =
+      Buffer.concat([mp4Header, Buffer.alloc(64, 0xab)]).toString("base64") +
+      "sk-abcdef1234567890xyz";
+    const msg = {
+      role: "user",
+      content: [
+        {
+          type: "video",
+          mimeType: "image/png", // wrong: should be video/mp4
+          data: payloadWithToken,
+        },
+      ],
+    } as unknown as AgentMessage;
+
+    const result = redactTranscriptMessage(msg, cfg("tools"));
+    const block = (msgContent(result) as Array<{ data: string; mimeType: string }>)[0];
+    // mimeType gets corrected to image/png (image sanitize) since it's image/* not video/*
+    expect(block.mimeType).toBe("image/png");
+  });
+
   it("preserves image data URLs with metadata parameters before base64", () => {
     const dataUrl = `data:image/png;charset=utf-8;base64,${IMAGE_BASE64_WITH_SECRET_TOKEN_SUBSTRING}`;
     const canonicalDataUrl = `data:image/png;base64,${IMAGE_BASE64_WITH_SECRET_TOKEN_SUBSTRING}`;

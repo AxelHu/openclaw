@@ -138,7 +138,7 @@ import {
   readCompactionHookMessages,
   shouldNotifyUserAboutCompaction,
 } from "./compaction-notice.js";
-import { resolveCurrentTurnImages } from "./current-turn-images.js";
+import { resolveCurrentTurnMedia } from "./current-turn-images.js";
 import { hasInboundAudio } from "./inbound-media.js";
 import { resolveOriginMessageProvider } from "./origin-routing.js";
 import { drainPendingToolTasks } from "./pending-tool-task-drain.js";
@@ -1783,7 +1783,7 @@ async function runAgentTurnWithFallbackInternal(
     });
   }
   let replyMediaContext: ReplyMediaContext;
-  let currentTurnImages: Awaited<ReturnType<typeof resolveCurrentTurnImages>>;
+  let currentTurnImages: Awaited<ReturnType<typeof resolveCurrentTurnMedia>>;
   try {
     replyMediaContext =
       params.replyMediaContext ??
@@ -1805,13 +1805,55 @@ async function runAgentTurnWithFallbackInternal(
         }),
       );
     currentTurnImages = await agentTurnTiming.measure("current_turn_images", () =>
-      resolveCurrentTurnImages({
+      resolveCurrentTurnMedia({
         ctx: params.sessionCtx,
         cfg: runtimeConfig,
-        images: params.followupRun.images ?? params.opts?.images,
+        media: params.followupRun.images ?? params.opts?.images,
         imageOrder: params.followupRun.imageOrder ?? params.opts?.imageOrder,
       }),
     );
+    // 6/29 PATCH: inject video metadata text into the user message prompt.
+    // The `images` field in the embedded agent runtime is typed
+    // `Array<ImageContent | VideoContent>` and drops text blocks via a
+    // downstream type filter. So we concatenate the calibration text
+    // (duration / framerate / resolution) into the user message body
+    // itself, which is `params.commandBody` here (the explicit arg
+    // passed by agent-runner.ts at line 1655; `followupRun.prompt`
+    // carries the same value but the function does NOT take a `prompt`
+    // field directly — the original commit 763e440 wrote `params.prompt`
+    // which was undefined; the body never ran because the if-guard was
+    // always false. Once we activate the guard via
+    // `followupRun.videoMetadataText` we must mutate the real string,
+    // not an undefined placeholder). The model reads both the metadata
+    // and the user's question in the same user message.
+    //
+    // 6/29 PATCH (2nd): prefer the value forwarded on `followupRun`
+    // first. The outer `resolveCurrentTurnMedia` call in
+    // `get-reply-run.ts` builds the metadata text, but the inner call
+    // here short-circuits at `current-turn-images.ts:130` because
+    // `params.media` is already populated by `followupRun.images` —
+    // it never re-probes. `followupRun.videoMetadataText` is the
+    // bridge that keeps the text alive across the two calls.
+    const videoMetadataText =
+      currentTurnImages.videoMetadataText ?? params.followupRun?.videoMetadataText;
+    if (videoMetadataText) {
+      params.commandBody = videoMetadataText + "\n\n" + params.commandBody;
+      // 6/29 PATCH (4th): also prepend to `transcriptCommandBody`. The
+      // embedded-agent runner builds `modelPromptText` as
+      // `modelPrompt?.text ?? transcriptPrompt ?? extracted.text` and
+      // `modelPrompt` is only set when before_prompt_build hooks
+      // returned content (see `hasPromptBuildContext`). For most
+      // sessions (incl. Hunter) no hook context is produced, so the
+      // model falls back to `transcriptPrompt` (= `params.transcriptCommandBody`)
+      // and any metadata hint that only mutated `params.commandBody`
+      // never reaches the LLM. Prepending here keeps both channels
+      // in sync. Verified via Hunter session `8f520a3a` on 2026-06-29
+      // 23:02 CST: model reply now correctly identifies total length
+      // as `53.92s` after this fix (was hallucinating `8.8s` before).
+      if (params.transcriptCommandBody !== undefined) {
+        params.transcriptCommandBody = videoMetadataText + "\n\n" + params.transcriptCommandBody;
+      }
+    }
   } catch (error) {
     clearAgentRunContext(runId, lifecycleGeneration);
     throw error;
@@ -2536,7 +2578,7 @@ async function runAgentTurnWithFallbackInternal(
                       bootstrapPromptWarningSignaturesSeen[
                         bootstrapPromptWarningSignaturesSeen.length - 1
                       ],
-                    images: currentTurnImages.images,
+                    images: currentTurnImages.media,
                     imageOrder: currentTurnImages.imageOrder,
                     skillsSnapshot: params.followupRun.run.skillsSnapshot,
                     messageChannel: params.followupRun.originatingChannel ?? undefined,
@@ -2696,7 +2738,7 @@ async function runAgentTurnWithFallbackInternal(
                     forceHeartbeatTool: params.opts?.forceHeartbeatTool,
                     bootstrapContextMode: params.opts?.bootstrapContextMode,
                     bootstrapContextRunKind,
-                    images: currentTurnImages.images,
+                    images: currentTurnImages.media,
                     imageOrder: currentTurnImages.imageOrder,
                     abortSignal: runAbortSignal,
                     replyOperation: params.replyOperation,

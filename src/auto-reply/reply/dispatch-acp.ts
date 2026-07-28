@@ -38,7 +38,7 @@ import { createAcpReplyProjector } from "./acp-projector.js";
 import {
   loadAgentTurnMediaRuntime,
   resolveAgentTurnAttachments,
-  resolveInlineAgentImageAttachments,
+  resolveInlineAgentMediaAttachments,
 } from "./agent-turn-attachments.js";
 import { resolveFirstContextText } from "./context-text.js";
 import {
@@ -655,8 +655,8 @@ export async function tryDispatchAcpReply(params: {
       includeAttachmentIndexes: true,
     });
     const mediaAttachments = resolvedTurnAttachments.attachments;
-    const inlineAttachments = resolveInlineAgentImageAttachments(params.images);
-    const extractedAttachments = resolveInlineAgentImageAttachments(
+    const inlineAttachments = resolveInlineAgentMediaAttachments(params.images);
+    const extractedAttachments = resolveInlineAgentMediaAttachments(
       extractedFileImages.map(stripExtractedFileImageMetadata),
     );
     const mediaAttachmentsAreOnlyRecentHistory =

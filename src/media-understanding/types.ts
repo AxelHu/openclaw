@@ -263,4 +263,45 @@ export type MediaUnderstandingProvider = {
   describeImage?: (req: ImageDescriptionRequest) => Promise<ImageDescriptionResult>;
   describeImages?: (req: ImagesDescriptionRequest) => Promise<ImagesDescriptionResult>;
   extractStructured?: (req: StructuredExtractionRequest) => Promise<StructuredExtractionResult>;
+  /**
+   * 6/25 PATCH: uploads a video file to the provider's hosted Files API and
+   * returns a reference (e.g. minimax `mm_file://{file_id}`) so the caller
+   * can forward the reference as a `{type: "video", source: {type: "url",
+   * url: "mm_file://..."}}` content block to models that accept video. Used
+   * for inbound video attachments that exceed the inline base64 size limit.
+   */
+  uploadVideo?: (req: VideoUploadRequest) => Promise<VideoUploadResult>;
+};
+
+/**
+ * Request accepted by `MediaUnderstandingProvider.uploadVideo`. The provider
+ * is responsible for picking the right upload endpoint, MIME handling, and
+ * returning a hosted file reference.
+ */
+export type VideoUploadRequest = {
+  buffer: Buffer;
+  mimeType: string;
+  fileName?: string;
+  /** Optional explicit purpose (e.g. "video_understanding" for minimax). */
+  purpose?: string;
+  /** Optional pre-resolved auth (apiKey + headers) when the caller already has them. */
+  auth?: MediaUnderstandingProviderRequestAuth;
+  cfg?: OpenClawConfig;
+  timeoutMs?: number;
+};
+
+/**
+ * Result returned by `MediaUnderstandingProvider.uploadVideo`. `url` is the
+ * provider-specific hosted reference (e.g. `mm_file://{file_id}` for
+ * minimax, `https://files.openai.com/...` for OpenAI Files API).
+ */
+export type VideoUploadResult = {
+  /** Provider-agnostic URL or URI to embed in `{type: "video", source: {type: "url", url}}`. */
+  url: string;
+  /** Optional provider-side file id (e.g. minimax `file_id`). */
+  fileId?: string;
+  /** Optional byte count echoed back by the provider. */
+  bytes?: number;
+  /** Optional filename echoed back by the provider. */
+  filename?: string;
 };

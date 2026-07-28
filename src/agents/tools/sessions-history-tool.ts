@@ -122,7 +122,7 @@ function sanitizeHistoryContentBlock(block: unknown): {
     truncated ||= res.truncated;
     redacted ||= res.redacted;
   }
-  if (type === "image") {
+  if (type === "image" || type === "video") {
     const data = readStringValue(entry.data);
     const bytes = data ? data.length : undefined;
     if ("data" in entry) {

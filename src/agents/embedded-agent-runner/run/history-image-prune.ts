@@ -1,10 +1,22 @@
 /**
- * Prunes already-processed image payloads from replayed prompt history.
+ * Prunes already-processed image / video / audio payloads from replayed prompt
+ * history. Old turn media blocks (image / video / audio) are replaced with
+ * short text markers so the model retains a placeholder note that the data
+ * existed, but the per-turn API call no longer carries the (potentially
+ * multi-megabyte) base64 payload. Recent turns (last
+ * {@link PRESERVE_RECENT_COMPLETED_TURNS}) are kept intact so the model can
+ * still reference them across the same agent run.
  */
 import type { AgentMessage } from "../../runtime/index.js";
 
 /** Replacement text for old image blocks that were already available to the model. */
 export const PRUNED_HISTORY_IMAGE_MARKER = "[image data removed - already processed by model]";
+
+/** Replacement text for old video blocks that were already available to the model. */
+export const PRUNED_HISTORY_VIDEO_MARKER = "[video data removed - already processed by model]";
+
+/** Replacement text for old audio blocks that were already available to the model. */
+export const PRUNED_HISTORY_AUDIO_MARKER = "[audio data removed - already processed by model]";
 
 /** Replacement text for old textual media references that would otherwise be reloaded. */
 export const PRUNED_HISTORY_MEDIA_REFERENCE_MARKER =
@@ -27,6 +39,18 @@ type PrunableContextAgent = {
  * ones, so text-only turns consume the window.
  */
 const PRESERVE_RECENT_COMPLETED_TURNS = 3;
+
+/** Map of multimodal block kind to the text marker used when the block is
+ * pruned out of an old turn. The marker preserves a placeholder note in the
+ * model context so the model knows something was processed, without carrying
+ * the (potentially multi-megabyte) base64 payload into the API call.
+ */
+type MediaBlockKind = "image" | "video" | "audio";
+const MEDIA_BLOCK_TO_MARKER: Record<MediaBlockKind, string> = {
+  image: PRUNED_HISTORY_IMAGE_MARKER,
+  video: PRUNED_HISTORY_VIDEO_MARKER,
+  audio: PRUNED_HISTORY_AUDIO_MARKER,
+};
 
 function resolvePruneBeforeIndex(messages: AgentMessage[]): number {
   const completedTurnStarts: number[] = [];
@@ -134,7 +158,11 @@ export function pruneProcessedHistoryImages(messages: AgentMessage[]): AgentMess
         }
         continue;
       }
-      if (blockType === "image") {
+      // 6/28 PATCH: image / video / audio 全部都要 prune (跟 image 走同款 pattern).
+      // 之前 6/26 PATCH 加了 video branch 但用 IMAGE marker 语义错 ("image data removed"
+      // 出现在 video 块上). 这次重构成一个统一分支, 每个 kind 用各自的 marker.
+      const mediaMarker = MEDIA_BLOCK_TO_MARKER[blockType as MediaBlockKind];
+      if (mediaMarker) {
         prunedMessages ??= messages.slice();
         const baseMessage = prunedMessages[i];
         const baseContent =
@@ -144,7 +172,7 @@ export function pruneProcessedHistoryImages(messages: AgentMessage[]): AgentMess
         const nextContent = baseContent.slice() as typeof message.content;
         nextContent[j] = {
           type: "text",
-          text: PRUNED_HISTORY_IMAGE_MARKER,
+          text: mediaMarker,
         } as (typeof message.content)[number];
         prunedMessages[i] = cloneMessageWithContent(message, nextContent);
       }

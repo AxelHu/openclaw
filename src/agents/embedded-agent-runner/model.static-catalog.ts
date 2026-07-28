@@ -62,8 +62,14 @@ function staticModelIdMatches(params: {
 function normalizeStaticCatalogInput(
   input: readonly unknown[] | undefined,
 ): ProviderRuntimeModel["input"] {
+  // 6/28 PATCH: video 跟 image 同等过滤 (6/24 PATCH 加的 model.input
+  // schema literal union 还没同步到这里, 之前会静默 drop "video" 输入
+  // 标记, 让 model.input 看起来像只支持 text/image, 然后 anthropic-transport-stream
+  // 的 model.input filter 就把 video block 过滤掉了). 现在 type guard 加上
+  // video.
   const normalizedInput = (input ?? []).filter(
-    (item): item is "text" | "image" => item === "text" || item === "image",
+    (item): item is "text" | "image" | "video" =>
+      item === "text" || item === "image" || item === "video",
   );
   return normalizedInput.length > 0 ? normalizedInput : ["text"];
 }

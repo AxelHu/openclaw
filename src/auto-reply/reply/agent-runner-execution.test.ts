@@ -263,6 +263,7 @@ vi.mock("../heartbeat.js", () => ({
 
 vi.mock("./current-turn-images.js", () => ({
   resolveCurrentTurnImages: (params: unknown) => state.resolveCurrentTurnImagesMock(params),
+  resolveCurrentTurnMedia: (params: unknown) => state.resolveCurrentTurnImagesMock(params),
 }));
 
 vi.mock("./agent-runner-utils.js", () => ({

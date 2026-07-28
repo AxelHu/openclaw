@@ -13,6 +13,7 @@ import { withFetchPreconnect } from "../../test-utils/fetch-mock.js";
 import {
   resolveAgentTurnAttachments,
   resolveInlineAgentImageAttachments,
+  resolveInlineAgentMediaAttachments,
 } from "./agent-turn-attachments.js";
 import { tryDispatchAcpReply } from "./dispatch-acp.js";
 import {
@@ -1318,7 +1319,7 @@ describe("tryDispatchAcpReply", () => {
       data: Buffer.from("image-bytes").toString("base64"),
     };
 
-    expect(resolveInlineAgentImageAttachments([image])).toEqual([
+    expect(resolveInlineAgentMediaAttachments([image])).toEqual([
       {
         mediaType: "image/png",
         data: image.data,

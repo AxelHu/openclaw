@@ -111,17 +111,25 @@ export function resolveProviderModelInput(params: {
   modelName?: string;
   input?: unknown;
   fallbackInput?: unknown;
-}): Array<"text" | "image"> {
+}): Array<"text" | "image" | "video"> {
   const resolvedInput = Array.isArray(params.input) ? params.input : params.fallbackInput;
+  // 6/28 PATCH: video 跟 image 同等过滤 (跟 normalizeStaticCatalogInput
+  // 同款修复). 之前 type guard 限定在 "text"|"image" 把 video 静默
+  // drop 掉, M3 (input: ["text","image","video"]) 出来后变 ["text","image"],
+  // 再走 anthropic-transport-stream model.input filter 时 video block 被过滤.
+  // audio 走单独的 schema literal union (跟 model-registry.ts:video 同款), 不在这里展开.
   const normalizedInput = Array.isArray(resolvedInput)
-    ? resolvedInput.filter((item): item is "text" | "image" => item === "text" || item === "image")
+    ? resolvedInput.filter(
+        (item): item is "text" | "image" | "video" =>
+          item === "text" || item === "image" || item === "video",
+      )
     : [];
   if (
     normalizedInput.length > 0 &&
     !normalizedInput.includes("image") &&
     isLegacyFoundryVisionModelCandidate(params)
   ) {
-    return ["text", "image"];
+    return ["text", "image", "video"];
   }
   return normalizedInput.length > 0 ? normalizedInput : ["text"];
 }

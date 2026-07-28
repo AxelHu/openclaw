@@ -46,6 +46,7 @@ export type {
   ToolResultMessage,
   Usage,
   UserMessage,
+  VideoContent,
 } from "../llm/types.js";
 export {
   AssistantMessageEventStream,

@@ -88,6 +88,24 @@ export type AgentContextPruningConfig = {
   };
 };
 
+/**
+ * Same-profile transient-retry tuning. Local fork fix for #89758.
+ *
+ * Caps the number of times the embedded agent runner will retry the
+ * current auth profile on a transient reason (overloaded / timeout /
+ * format) before giving up on that profile for the current run. Each
+ * retry consumes one `MAX_RUN_LOOP_ITERATIONS` slot, so values above
+ * the run-budget headroom (currently 32 iterations) will simply
+ * surface the error earlier.
+ */
+export type AgentTransientRetryConfig = {
+  /**
+   * Maximum same-profile retries on a transient reason. 0 disables the
+   * same-profile transient retry entirely. Default: 2.
+   */
+  maxAttempts?: number;
+};
+
 export type AgentStartupContextConfig = {
   /** Enable runtime-owned startup-context prelude on bare session resets (default: true). */
   enabled?: boolean;
@@ -329,6 +347,13 @@ export type AgentDefaultsConfig = {
   cliBackends?: Record<string, CliBackendConfig>;
   /** Opt-in: prune old tool results from the LLM context to reduce token usage. */
   contextPruning?: AgentContextPruningConfig;
+  /**
+   * Same-profile transient-retry tuning. Local fork fix for #89758.
+   * Caps how many times the embedded runner retries the same profile on
+   * a transient reason (overloaded / timeout / format) before giving
+   * up on that profile for the current run.
+   */
+  transientRetry?: AgentTransientRetryConfig;
   /** Compaction tuning and pre-compaction memory flush behavior. */
   compaction?: AgentCompactionConfig;
   /** Outer run loop retry iteration boundaries. */

@@ -177,7 +177,9 @@ type PromptReleasedSessionMergeResult = {
 export interface CustomMessageEntry<T = unknown> extends SessionEntryBase {
   type: "custom_message";
   customType: string;
-  content: string | (TextContent | ImageContent)[];
+  // 6/24 PATCH: custom message content may now also contain video blocks
+  // (e.g. readVideo session tool result stored as a custom message).
+  content: string | (TextContent | ImageContent | VideoContent)[];
   details?: T;
   display: boolean;
 }
@@ -2526,7 +2528,10 @@ export class SessionManager {
    */
   appendCustomMessageEntry(
     customType: string,
-    content: string | (TextContent | ImageContent)[],
+    // 6/24 PATCH: custom message content may now also contain video
+    // blocks (e.g. a readVideo session tool result stored as a custom
+    // transcript message).
+    content: string | (TextContent | ImageContent | VideoContent)[],
     display: boolean,
     details?: unknown,
   ): string {

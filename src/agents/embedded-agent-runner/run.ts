@@ -212,6 +212,7 @@ import {
   resolveRateLimitProfileRotationLimit,
   resolveNextSameModelRateLimitRetryCount,
   resolveSameModelRateLimitRetryDelayMs,
+  resolveTransientRetryMaxAttempts,
   type RuntimeAuthState,
   scrubAnthropicRefusalMagic,
 } from "./run/helpers.js";
@@ -239,7 +240,7 @@ import type { RunEmbeddedAgentParams } from "./run/params.js";
 import { buildEmbeddedRunPayloads } from "./run/payloads.js";
 import { handleRetryLimitExhaustion } from "./run/retry-limit.js";
 import {
-  buildBeforeModelResolveAttachments,
+  buildBeforeModelResolveMedia,
   resolveEffectiveRuntimeModel,
   resolveHookModelSelection,
 } from "./run/setup.js";
@@ -1051,7 +1052,7 @@ async function runEmbeddedAgentInternal(
 
       const hookSelection = await resolveHookModelSelection({
         prompt: params.prompt,
-        attachments: buildBeforeModelResolveAttachments(params.images),
+        attachments: buildBeforeModelResolveMedia(params.images),
         provider,
         modelId,
         hookRunner,
@@ -1569,6 +1570,17 @@ async function runEmbeddedAgentInternal(
         pluginHarnessOwnsTransport && !pluginHarnessNeedsOpenClawAuthBootstrap
           ? advancePluginHarnessAuthProfile
           : advanceAuthProfile;
+      // Wrap advance so any successful profile rotation resets the
+      // same-profile transient retry counter — the new profile gets a fresh
+      // observation budget instead of inheriting the prior profile's
+      // transient count. Local fork fix for #89758.
+      const advanceAttemptAuthProfileAndResetTransientRetries = async (): Promise<boolean> => {
+        const advanced = await advanceAttemptAuthProfile();
+        if (advanced) {
+          transientRetryCount = 0;
+        }
+        return advanced;
+      };
 
       // Plugin harnesses own their model transport/auth. Running OpenClaw's generic
       // auth bootstrap here can turn synthetic provider markers into real
@@ -1632,6 +1644,22 @@ async function runEmbeddedAgentInternal(
       let compactionContinuationRetryAttempts = 0;
       let beforeAgentFinalizeRevisionAttempts = 0;
       let sameModelIdleTimeoutRetries = 0;
+      // Same-profile transient retry cap. Resolved per run from
+      // `agents.defaults.transientRetry.maxAttempts` (per-agent override
+      // also honored). Default 2 keeps the cost of a flaky profile
+      // bounded (~3 LLM calls) without abandoning a healthy profile on a
+      // single transient blip (#89758). Local fork fix.
+      const maxTransientRetryPerProfile = resolveTransientRetryMaxAttempts(
+        params.config,
+        sessionAgentId,
+      );
+      // Same-profile transient retry counter (companion to #89758 / our
+      // local fork fix). Bumps on every transient failure (timeout,
+      // overloaded, format, context_overflow) on the *current* profile
+      // and resets whenever the profile advances. Capped at
+      // maxTransientRetryPerProfile so a permanently bad profile does
+      // not eat the whole MAX_RUN_LOOP_ITERATIONS budget.
+      let transientRetryCount = 0;
       // Cost-runaway breaker for #76293. State lives at the run-loop level
       // on purpose so it survives across attempt boundaries and across
       // profile/auth retries within this embedded run (a wrapper-local
@@ -1763,8 +1791,15 @@ async function runEmbeddedAgentInternal(
         config?: RunEmbeddedAgentParams["config"];
         agentDir?: RunEmbeddedAgentParams["agentDir"];
         modelId?: string;
+        /**
+         * Raw provider error text. Forwarded to markAuthProfileFailure so
+         * the cooldown calculator can detect long-window plan-exhausted
+         * payloads (e.g. minimax 2056 "Token Plan 用量上限") and apply a
+         * 5h cooldown. Local fork fix for #89758.
+         */
+        rawError?: string;
       }) => {
-        const { profileId, reason } = failure;
+        const { profileId, reason, rawError } = failure;
         if (!profileId || !reason) {
           return;
         }
@@ -3314,7 +3349,7 @@ async function runEmbeddedAgentInternal(
             });
             if (
               promptFailoverDecision.action === "rotate_profile" &&
-              (await advanceAttemptAuthProfile())
+              (await advanceAttemptAuthProfileAndResetTransientRetries())
             ) {
               if (failedPromptProfileId && promptProfileFailureReason) {
                 void maybeMarkAuthProfileFailure({
@@ -3601,9 +3636,45 @@ async function runEmbeddedAgentInternal(
             maybeEscalateRateLimitProfileFallback,
             maybeRetrySameModelRateLimit,
             maybeBackoffBeforeOverloadFailover,
-            advanceAuthProfile: advanceAttemptAuthProfile,
+            advanceAuthProfile: advanceAttemptAuthProfileAndResetTransientRetries,
           });
           overloadProfileRotations = assistantFailoverOutcome.overloadProfileRotations;
+          // Same-profile transient retry (local fork fix for #89758). The
+          // handleAssistantFailover outcome already covers
+          // `same_model_idle_timeout`; this branch extends the same idea to
+          // broader transient reasons (overloaded, format,
+          // context_overflow) and removes the "no fallback configured" gate
+          // — having a fallback configured should not be a prerequisite for
+          // retrying a profile that just hit a transient blip. Caps at
+          // maxTransientRetryPerProfile per profile so a permanently bad
+          // profile does not eat the whole run budget.
+          if (
+            assistantFailoverOutcome.action === "continue_normal" &&
+            isTransientRetryableFailoverReason(assistantFailoverReason) &&
+            transientRetryCount < maxTransientRetryPerProfile &&
+            runLoopIterations + 1 < MAX_RUN_LOOP_ITERATIONS
+          ) {
+            transientRetryCount += 1;
+            log.warn(
+              `[transient-retry] ${provider}/${modelId} profile=${lastProfileId ?? "(unset)"} reason=${assistantFailoverReason ?? "unknown"} retrying same profile (${transientRetryCount}/${maxTransientRetryPerProfile})`,
+            );
+            traceAttempts.push({
+              provider: activeErrorContext.provider,
+              model: activeErrorContext.model,
+              result: "transient_retry",
+              ...(assistantFailoverReason ? { reason: assistantFailoverReason } : {}),
+              stage: "assistant",
+            });
+            // Note: idleTimeoutBreaker is fed by attempt outcomes, not by
+            // this retry decision, so a fresh same-profile attempt naturally
+            // gets a fresh observation step. We do not pre-reset the breaker
+            // here — the attempt below is the next observation event.
+            lastRetryFailoverReason = mergeRetryFailoverReason({
+              previous: lastRetryFailoverReason,
+              failoverReason: assistantFailoverReason,
+            });
+            continue;
+          }
           if (assistantFailoverOutcome.action === "retry") {
             const retryTraceResult =
               assistantFailoverOutcome.retryKind === "same_model_rate_limit"

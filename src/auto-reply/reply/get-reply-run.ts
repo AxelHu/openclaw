@@ -71,7 +71,7 @@ import { SILENT_REPLY_TOKEN } from "../tokens.js";
 import type { ReplyPayload } from "../types.js";
 import { applySessionHints } from "./body.js";
 import type { buildCommandContext } from "./commands.js";
-import { resolveCurrentTurnImages } from "./current-turn-images.js";
+import { resolveCurrentTurnMedia } from "./current-turn-images.js";
 import type { InlineDirectives } from "./directive-handling.js";
 import { isSystemEventProvider, resolveEffectiveReplyRoute } from "./effective-reply-route.js";
 import { shouldUseReplyFastTestRuntime } from "./get-reply-fast-path.js";
@@ -1356,10 +1356,10 @@ export async function runPreparedReply(
     sessionKey,
   });
   const currentTurnImages = await traceRunPhase("reply.resolve_current_turn_images", () =>
-    resolveCurrentTurnImages({
+    resolveCurrentTurnMedia({
       ctx,
       cfg,
-      images: opts?.images,
+      media: opts?.images,
       imageOrder: opts?.imageOrder,
       extractedFileImages: opts?.extractedFileImages,
     }),
@@ -1473,8 +1473,11 @@ export async function runPreparedReply(
     messageId: sessionCtx.MessageSidFull ?? sessionCtx.MessageSid,
     summaryLine: baseBodyTrimmedRaw,
     enqueuedAt: Date.now(),
-    images: currentTurnImages.images,
+    images: currentTurnImages.media,
     imageOrder: currentTurnImages.imageOrder,
+    ...(currentTurnImages.videoMetadataText
+      ? { videoMetadataText: currentTurnImages.videoMetadataText }
+      : {}),
     // Originating channel for reply routing.
     originatingChannel: replyRoute.channel,
     originatingTo: replyRoute.to,

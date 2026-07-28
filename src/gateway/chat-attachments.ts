@@ -23,6 +23,17 @@ export type ChatImageContent = {
   mimeType: string;
 };
 
+// 6/27 PATCH: video attachment content. Mirrors ChatImageContent shape so
+// downstream consumers (agent-runner) can iterate over a single `images`
+// array; the transport routes video blocks via its existing video branch.
+export type ChatVideoContent = {
+  type: "video";
+  data: string;
+  mimeType: string;
+};
+
+export type ChatAttachmentContent = ChatImageContent | ChatVideoContent;
+
 export type OffloadedRef = {
   mediaRef: string;
   id: string;
@@ -34,8 +45,11 @@ export type OffloadedRef = {
 
 type ParsedMessageWithImages = {
   message: string;
-  images: ChatImageContent[];
-  imageOrder: PromptImageOrderEntry[];
+  // 6/27 PATCH: video attachments flow through alongside image ones
+  // (the attachment pipeline hands video in as a base64 block, and the
+  // transport emits a video block via its existing branch).
+  images: ChatAttachmentContent[];
+  imageOrder: PromptMediaOrderEntry[];
   offloadedRefs: OffloadedRef[];
 };
 
@@ -56,6 +70,9 @@ type SavedMediaRef = {
 };
 
 const OFFLOAD_THRESHOLD_BYTES = 2_000_000;
+// 6/27 PATCH: video attachments inline up to the same cap the
+// attachment pipeline uses (AGENT_TURN_ATTACHMENT_VIDEO_MAX_BYTES).
+const VIDEO_INLINE_MAX_BYTES = DEFAULT_VIDEO_INLINE_MAX_BYTES;
 const TEXT_ONLY_OFFLOAD_LIMIT = 10;
 
 export const DEFAULT_CHAT_ATTACHMENT_MAX_MB = 20;
@@ -156,6 +173,11 @@ function normalizeMime(mime?: string): string | undefined {
 
 function isImageMime(mime?: string): boolean {
   return typeof mime === "string" && mime.startsWith("image/");
+}
+
+// 6/27 PATCH: video MIME detector (image branch + video branch are parallel).
+function isVideoMime(mime?: string): boolean {
+  return typeof mime === "string" && mime.startsWith("video/");
 }
 
 function isGenericContainerMime(mime?: string): boolean {
@@ -322,8 +344,8 @@ export async function parseMessageWithAttachments(
     return { message, images: [], imageOrder: [], offloadedRefs: [] };
   }
 
-  const images: ChatImageContent[] = [];
-  const imageOrder: PromptImageOrderEntry[] = [];
+  const images: ChatAttachmentContent[] = [];
+  const imageOrder: PromptMediaOrderEntry[] = [];
   const offloadedRefs: OffloadedRef[] = [];
   let updatedMessage = message;
   let textOnlyImageOffloadCount = 0;
@@ -383,20 +405,24 @@ export async function parseMessageWithAttachments(
         );
       }
 
+      // 6/27 PATCH: split image vs video MIME handling so video follows
+      // its own size rules (host has a 50MB attachment cap, not the 2MB
+      // image offload threshold) and survives the non-image gate.
       const isImage = isImageMime(finalMime);
+      const isVideo = isVideoMime(finalMime);
       if (isImage && !supportsInlineImages && !shouldForceImageOffload) {
         throw new UnsupportedAttachmentError(
           "text-only-image",
           `attachment ${label}: active model does not accept image inputs`,
         );
       }
-      if (!isImage && !acceptNonImage) {
+      if (!isImage && !isVideo && !acceptNonImage) {
         throw new UnsupportedAttachmentError(
           "unsupported-non-image",
           `attachment ${label}: non-image attachments (${finalMime}) are not supported on this entrypoint`,
         );
       }
-      // Agent-side hydration (loadImageFromRef via optimizeAndClampImage / GIF
+      // Agent-side hydration (loadMediaFromRef via optimizeAndClampImage / GIF
       // direct compare) caps at MAX_IMAGE_BYTES. Accepting images above that
       // would offload a file the runner later drops to null — a successful
       // response with a silently missing image. Reject here so the client
@@ -422,11 +448,19 @@ export async function parseMessageWithAttachments(
         continue;
       }
 
+      // 6/27 PATCH: video uses a separate (much larger) inline threshold
+      // because the attachment pipeline / transport can carry video up to
+      // the shared video inline cap, while image offload kicks in at 2MB.
+      const effectiveOffloadThreshold = isVideo ? VIDEO_INLINE_MAX_BYTES : OFFLOAD_THRESHOLD_BYTES;
       const shouldOffload =
-        shouldForceImageOffload || !isImage || sizeBytes > OFFLOAD_THRESHOLD_BYTES;
+        shouldForceImageOffload || (!isImage && !isVideo) || sizeBytes > effectiveOffloadThreshold;
 
       if (!shouldOffload) {
-        images.push({ type: "image", data: b64, mimeType: finalMime });
+        if (isVideo) {
+          images.push({ type: "video", data: b64, mimeType: finalMime });
+        } else {
+          images.push({ type: "image", data: b64, mimeType: finalMime });
+        }
         imageOrder.push("inline");
         continue;
       }
@@ -455,12 +489,12 @@ export async function parseMessageWithAttachments(
       savedMediaIds.push(savedMedia.id);
 
       const mediaRef = `media://inbound/${savedMedia.id}`;
-      if (isImage) {
+      if (isImage || isVideo) {
         updatedMessage += `\n[media attached: ${mediaRef}]`;
       }
       log?.info?.(
-        shouldForceImageOffload && isImage
-          ? `[Gateway] Offloaded image for text-only model. Saved: ${mediaRef}`
+        shouldForceImageOffload && (isImage || isVideo)
+          ? `[Gateway] Offloaded ${isImage ? "image" : "video"} for text-only model. Saved: ${mediaRef}`
           : `[Gateway] Offloaded attachment (${finalMime}). Saved: ${mediaRef}`,
       );
 

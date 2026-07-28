@@ -11,7 +11,7 @@ import type { SessionSystemPromptReport } from "../../config/sessions/types.js";
 import type { CliBackendConfig } from "../../config/types.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import type { ContextEngine } from "../../context-engine/types.js";
-import type { ImageContent } from "../../llm/types.js";
+import type { ImageContent, VideoContent } from "../../llm/types.js";
 import type { PromptImageOrderEntry } from "../../media/prompt-image-order.js";
 import type { CliBackendExecutionMode } from "../../plugins/cli-backend.types.js";
 import type { PluginHookChannelContext } from "../../plugins/hook-types.js";
@@ -111,7 +111,7 @@ export type RunCliAgentParams = {
   bootstrapPromptWarningSignature?: string;
   bootstrapContextMode?: BootstrapContextMode;
   bootstrapContextRunKind?: BootstrapContextRunKind;
-  images?: ImageContent[];
+  images?: Array<ImageContent | VideoContent>;
   imageOrder?: PromptImageOrderEntry[];
   skillsSnapshot?: SkillSnapshot;
   messageChannel?: string;

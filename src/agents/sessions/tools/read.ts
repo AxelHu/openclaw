@@ -213,7 +213,14 @@ function formatCompactReadCall(
 
 function formatReadResult(
   args: ReadRenderArgs | undefined,
-  result: { content: (TextContent | ImageContent)[]; details?: ReadToolDetails },
+  result: {
+    // 6/24 PATCH: read tool never returns video blocks (the readVideo
+    // session tool handles videos), but AgentToolResult.content may
+    // contain VideoContent blocks for other tools. Cast to the narrower
+    // image/text union since the read tool itself only emits those two.
+    content: (TextContent | ImageContent)[];
+    details?: ReadToolDetails;
+  },
   options: ToolRenderResultOptions,
   theme: Theme,
   showImages: boolean,
@@ -414,10 +421,14 @@ export function createReadToolDefinition(
     },
     renderResult(result, optionsLocal, theme, context) {
       const text = (context.lastComponent as Text | undefined) ?? new Text("", 0, 0);
+      // 6/24 PATCH: AgentToolResult.content may now contain VideoContent
+      // blocks, but the read tool itself never produces them. Cast to the
+      // narrower image/text union to satisfy formatReadResult's signature.
+      const readOnlyResult = result as unknown as Parameters<typeof formatReadResult>[1];
       text.setText(
         formatReadResult(
           context.args,
-          result,
+          readOnlyResult,
           optionsLocal,
           theme,
           context.showImages,

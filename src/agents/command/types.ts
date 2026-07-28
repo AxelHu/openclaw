@@ -21,6 +21,13 @@ export type ImageContent = {
   data: string;
   mimeType: string;
 };
+
+export type VideoContent = {
+  type: "video";
+  data?: string;
+  mimeType: string;
+  url?: string;
+};
 export type { AgentStreamParams } from "./shared-types.js";
 
 /** Metadata overrides for trusted internal agent command callers. */
@@ -61,8 +68,8 @@ export type AgentCommandOpts = {
   transcriptMessage?: string;
   /** Durable media metadata for the user-visible transcript turn. */
   transcriptMedia?: UserTurnInput["media"];
-  /** Optional image attachments for multimodal messages. */
-  images?: ImageContent[];
+  /** Optional image/video attachments for multimodal messages. */
+  images?: Array<ImageContent | VideoContent>;
   /** Original inline/offloaded attachment order for inbound images. */
   imageOrder?: PromptImageOrderEntry[];
   /** Optional client-provided tools (OpenResponses hosted tools). */

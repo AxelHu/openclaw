@@ -35,7 +35,7 @@ function normalizeUserMessageContent(content: unknown): string | undefined {
     if (!isRecord(block)) {
       return undefined;
     }
-    if (block.type === "image") {
+    if (block.type === "image" || block.type === "video") {
       return undefined;
     }
     if (block.type === "text" && typeof block.text === "string") {

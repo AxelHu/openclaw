@@ -1,10 +1,10 @@
-// Tracks image attachments that belong to the current reply turn.
+// Tracks image and video attachments that belong to the current reply turn.
 import { mimeTypeFromFilePath } from "@openclaw/media-core/mime";
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { logVerbose } from "../../globals.js";
 import { formatErrorMessage } from "../../infra/errors.js";
-import type { ImageContent } from "../../llm/types.js";
+import type { ImageContent, VideoContent } from "../../llm/types.js";
 import {
   stripExtractedFileImageMetadata,
   type ExtractedFileImage,
@@ -13,14 +13,16 @@ import type { PromptImageOrderEntry } from "../../media/prompt-image-order.js";
 import type { MsgContext } from "../templating.js";
 import { resolveAgentTurnAttachments } from "./agent-turn-attachments.js";
 
-type CurrentImageAttachment = {
+type CurrentMultimodalAttachment = {
   index: number;
   path: string;
   mediaType: string;
 };
 
+export type CurrentTurnMediaBlock = ImageContent | VideoContent;
+
 type OrderedTurnImage = {
-  image?: ImageContent;
+  image?: CurrentTurnMediaBlock;
   imageOrder: PromptImageOrderEntry;
   sourceIndex?: number;
   sequence: number;
@@ -34,24 +36,27 @@ function isGenericMediaType(mediaType: string | undefined): boolean {
   return normalized === "application/octet-stream" || normalized === "binary/octet-stream";
 }
 
-/** Resolves image media types from current-turn attachment metadata or filenames. */
-function resolveCurrentImageMediaType(pathValue: unknown, mediaType?: unknown): string | undefined {
+/** Resolves media types from current-turn attachment metadata or filenames. */
+function resolveCurrentMediaType(pathValue: unknown, mediaType?: unknown): string | undefined {
   const mediaPath = normalizeOptionalString(pathValue);
   if (!mediaPath) {
     return undefined;
   }
   const normalizedMediaType = normalizeOptionalString(mediaType);
-  if (normalizedMediaType?.startsWith("image/")) {
+  if (normalizedMediaType?.startsWith("image/") || normalizedMediaType?.startsWith("video/")) {
     return normalizedMediaType;
   }
   if (!isGenericMediaType(normalizedMediaType)) {
     return undefined;
   }
   const inferredType = mimeTypeFromFilePath(mediaPath);
-  return inferredType?.startsWith("image/") ? inferredType : undefined;
+  if (inferredType?.startsWith("image/") || inferredType?.startsWith("video/")) {
+    return inferredType;
+  }
+  return undefined;
 }
 
-function collectCurrentImageAttachments(ctx: MsgContext): CurrentImageAttachment[] {
+function collectCurrentMultimodalAttachments(ctx: MsgContext): CurrentMultimodalAttachment[] {
   const pathsFromArray = Array.isArray(ctx.MediaPaths) ? ctx.MediaPaths : undefined;
   const paths =
     pathsFromArray && pathsFromArray.length > 0
@@ -66,10 +71,10 @@ function collectCurrentImageAttachments(ctx: MsgContext): CurrentImageAttachment
     Array.isArray(ctx.MediaTypes) && ctx.MediaTypes.length === paths.length
       ? ctx.MediaTypes
       : undefined;
-  const attachments: CurrentImageAttachment[] = [];
+  const attachments: CurrentMultimodalAttachment[] = [];
   for (const [index, pathValue] of paths.entries()) {
     const mediaPath = normalizeOptionalString(pathValue);
-    const mediaType = resolveCurrentImageMediaType(pathValue, types?.[index] ?? ctx.MediaType);
+    const mediaType = resolveCurrentMediaType(pathValue, types?.[index] ?? ctx.MediaType);
     if (mediaPath && mediaType) {
       attachments.push({ index, path: mediaPath, mediaType });
     }
@@ -77,7 +82,7 @@ function collectCurrentImageAttachments(ctx: MsgContext): CurrentImageAttachment
   return attachments;
 }
 
-function collectDescribedImageAttachmentIndexes(ctx: MsgContext): Set<number> {
+function collectDescribedAttachmentIndexes(ctx: MsgContext): Set<number> {
   return new Set(
     ctx.MediaUnderstanding?.filter((output) => output.kind === "image.description").map(
       (output) => output.attachmentIndex,
@@ -85,9 +90,9 @@ function collectDescribedImageAttachmentIndexes(ctx: MsgContext): Set<number> {
   );
 }
 
-function createUndescribedImageContext(
+function createUndescribedAttachmentContext(
   ctx: MsgContext,
-  undescribedAttachments: CurrentImageAttachment[],
+  undescribedAttachments: CurrentMultimodalAttachment[],
 ): MsgContext {
   const first = undescribedAttachments[0];
   return {
@@ -101,7 +106,7 @@ function createUndescribedImageContext(
 
 function appendOrderedImages(params: {
   entries: OrderedTurnImage[];
-  images: ImageContent[] | undefined;
+  images: CurrentTurnMediaBlock[] | undefined;
   imageOrder?: PromptImageOrderEntry[];
   sourceIndex?: number;
 }) {
@@ -138,7 +143,7 @@ function appendOrderedImages(params: {
 }
 
 function resolveMergedTurnImages(entries: OrderedTurnImage[]): {
-  images?: ImageContent[];
+  media?: CurrentTurnMediaBlock[];
   imageOrder?: PromptImageOrderEntry[];
 } {
   if (entries.length === 0) {
@@ -153,28 +158,29 @@ function resolveMergedTurnImages(entries: OrderedTurnImage[]): {
     }
     return left.sequence - right.sequence;
   });
-  const images = merged.flatMap((entry) => (entry.image ? [entry.image] : []));
+  const media = merged.flatMap((entry) => (entry.image ? [entry.image] : []));
   return {
-    ...(images.length > 0 ? { images } : {}),
+    ...(media.length > 0 ? { media } : {}),
     imageOrder: merged.map((entry) => entry.imageOrder),
   };
 }
 
-/** Resolves current-turn image attachments that were not already described by media understanding. */
-export async function resolveCurrentTurnImages(params: {
+/** Resolves current-turn media attachments that were not already described by media understanding. */
+export async function resolveCurrentTurnMedia(params: {
   ctx: MsgContext;
   cfg: OpenClawConfig;
-  images?: ImageContent[];
+  media?: CurrentTurnMediaBlock[];
   imageOrder?: PromptImageOrderEntry[];
   extractedFileImages?: ExtractedFileImage[];
 }): Promise<{
-  images?: ImageContent[];
+  media?: CurrentTurnMediaBlock[];
   imageOrder?: PromptImageOrderEntry[];
+  videoMetadataText?: string;
 }> {
   const entries: OrderedTurnImage[] = [];
   appendOrderedImages({
     entries,
-    images: params.images,
+    images: params.media,
     imageOrder: params.imageOrder,
   });
   for (const image of params.extractedFileImages ?? []) {
@@ -185,50 +191,103 @@ export async function resolveCurrentTurnImages(params: {
     });
   }
 
-  const currentImageAttachments = collectCurrentImageAttachments(params.ctx);
-  if (currentImageAttachments.length === 0) {
+  const currentAttachments = collectCurrentMultimodalAttachments(params.ctx);
+  if (currentAttachments.length === 0) {
     return resolveMergedTurnImages(entries);
   }
-  const describedImageIndexes = collectDescribedImageAttachmentIndexes(params.ctx);
-  const undescribedImageAttachments = currentImageAttachments.filter(
-    (attachment) => !describedImageIndexes.has(attachment.index),
+  const describedIndexes = collectDescribedAttachmentIndexes(params.ctx);
+  const undescribedAttachments = currentAttachments.filter(
+    (attachment) => !describedIndexes.has(attachment.index),
   );
-  if (undescribedImageAttachments.length === 0) {
+  if (undescribedAttachments.length === 0) {
     return resolveMergedTurnImages(entries);
   }
 
   try {
-    // Only send undescribed current images natively; described images already exist as text context.
+    // Only send undescribed current attachments natively; described ones already exist as text context.
     const resolved = await resolveAgentTurnAttachments({
-      ctx: createUndescribedImageContext(params.ctx, undescribedImageAttachments),
+      ctx: createUndescribedAttachmentContext(params.ctx, undescribedAttachments),
       cfg: params.cfg,
       includeRecentHistoryImages: false,
     });
-    const images = resolved.attachments.map(
-      (attachment): ImageContent => ({
+    const media: CurrentTurnMediaBlock[] = [];
+    const videoMetadataLines: string[] = [];
+    for (const attachment of resolved.attachments) {
+      if (attachment.mediaType.startsWith("video/")) {
+        if (attachment.metadata) {
+          const m = attachment.metadata;
+          const bits: string[] = [];
+          if (m.duration !== undefined) bits.push(`duration=${m.duration.toFixed(2)}s`);
+          if (m.framerate !== undefined) bits.push(`framerate=${m.framerate.toFixed(2)}fps`);
+          if (m.width !== undefined && m.height !== undefined) {
+            bits.push(`resolution=${m.width}x${m.height}`);
+          }
+          videoMetadataLines.push(
+            `[视频元数据] ${bits.join(", ")}.\nM3 端点对视频 sparse frame sampling：帧带 "X.X second" label，label 是采样窗口内的相对时间（不是 actual 视频秒）。换算: actual ≈ label × (duration ÷ 采样窗口最大 label)，采样窗口最大 label = 你看到的所有 label 中的最大值。`,
+          );
+        }
+        media.push(
+          attachment.hostedUrl
+            ? { type: "video", mimeType: attachment.mediaType, url: attachment.hostedUrl }
+            : { type: "video", data: attachment.data, mimeType: attachment.mediaType },
+        );
+        continue;
+      }
+      media.push({
         type: "image",
         data: attachment.data,
         mimeType: attachment.mediaType,
-      }),
-    );
-    if (images.length < undescribedImageAttachments.length) {
+      });
+    }
+    if (media.length < undescribedAttachments.length) {
       logVerbose(
-        `agent-runner: native OpenClaw media resolution produced ${images.length}/${undescribedImageAttachments.length} current image attachment(s); falling back to prompt image refs`,
+        `agent-runner: native OpenClaw media resolution produced ${media.length}/${undescribedAttachments.length} current attachment(s); falling back to prompt media refs`,
       );
       return resolveMergedTurnImages(entries);
     }
-    for (const [index, image] of images.entries()) {
+    for (const [index, image] of media.entries()) {
       appendOrderedImages({
         entries,
         images: [image],
-        sourceIndex: undescribedImageAttachments[index]?.index,
+        sourceIndex: undescribedAttachments[index]?.index,
       });
     }
-    return resolveMergedTurnImages(entries);
+    const merged = resolveMergedTurnImages(entries);
+    return {
+      ...merged,
+      ...(videoMetadataLines.length > 0
+        ? { videoMetadataText: videoMetadataLines.join("\n") }
+        : {}),
+    };
   } catch (error) {
     logVerbose(
-      `agent-runner: media attachment image resolution failed, proceeding without native images: ${formatErrorMessage(error)}`,
+      `agent-runner: media attachment resolution failed, proceeding without native media: ${formatErrorMessage(error)}`,
     );
     return resolveMergedTurnImages(entries);
   }
+}
+
+/** Back-compat wrapper for image-only call sites and tests. */
+export async function resolveCurrentTurnImages(params: {
+  ctx: MsgContext;
+  cfg: OpenClawConfig;
+  images?: ImageContent[];
+  imageOrder?: PromptImageOrderEntry[];
+  extractedFileImages?: ExtractedFileImage[];
+}): Promise<{
+  images?: ImageContent[];
+  imageOrder?: PromptImageOrderEntry[];
+}> {
+  const resolved = await resolveCurrentTurnMedia({
+    ctx: params.ctx,
+    cfg: params.cfg,
+    media: params.images,
+    imageOrder: params.imageOrder,
+    extractedFileImages: params.extractedFileImages,
+  });
+  const images = resolved.media?.filter((block): block is ImageContent => block.type === "image");
+  return {
+    ...(images && images.length > 0 ? { images } : {}),
+    imageOrder: resolved.imageOrder,
+  };
 }

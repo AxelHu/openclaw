@@ -361,17 +361,26 @@ function isArtifactBlock(block: Record<string, unknown>): boolean {
   const type = asNonEmptyString(block.type)?.toLowerCase();
   if (
     type === "image" ||
+    type === "video" ||
     type === "audio" ||
     type === "file" ||
     type === "input_image" ||
+    type === "input_video" ||
     type === "input_audio" ||
     type === "input_file" ||
-    type === "image_url"
+    type === "image_url" ||
+    type === "video_url"
   ) {
     return true;
   }
   return Boolean(
-    block.url || block.openUrl || block.data || block.source || block.image_url || block.audio_url,
+    block.url ||
+    block.openUrl ||
+    block.data ||
+    block.source ||
+    block.image_url ||
+    block.video_url ||
+    block.audio_url,
   );
 }
 

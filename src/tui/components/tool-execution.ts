@@ -46,8 +46,10 @@ function extractText(result?: ToolResult): string {
   for (const entry of result.content) {
     if (entry.type === "text" && entry.text) {
       lines.push(sanitizeRenderableText(entry.text));
-    } else if (entry.type === "image") {
-      const mime = entry.mimeType ?? "image";
+    } else if (entry.type === "image" || entry.type === "video") {
+      // 6/28 PATCH: video block 也输出 mime+size 标记 (跟 image 同款 pattern).
+      // 之前 video 会 fall through 不显示, TUI 里看不到 video attachment 痕迹.
+      const mime = entry.mimeType ?? entry.type;
       const size = entry.bytes ? ` ${Math.round(entry.bytes / 1024)}kb` : "";
       const omitted = entry.omitted ? " (omitted)" : "";
       lines.push(`[${mime}${size}${omitted}]`);

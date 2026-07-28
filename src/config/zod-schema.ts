@@ -841,6 +841,7 @@ export const OpenClawSchema = z
             overloadedProfileRotations: z.number().int().nonnegative().optional(),
             overloadedBackoffMs: z.number().int().nonnegative().optional(),
             rateLimitedProfileRotations: z.number().int().nonnegative().optional(),
+            tokenPlanExhaustedHours: z.number().positive().max(24).optional(),
           })
           .strict()
           .optional(),
@@ -1178,7 +1179,7 @@ export const OpenClawSchema = z
         handshakeTimeoutMs: z.number().int().min(1).optional(),
         channelHealthCheckMinutes: z.number().int().min(0).optional(),
         channelStaleEventThresholdMinutes: z.number().int().min(1).optional(),
-        channelMaxRestartsPerHour: z.number().int().min(1).optional(),
+        channelMaxRestartsPerHour: z.number().int().min(0).optional(),
         tailscale: z
           .object({
             mode: z.union([z.literal("off"), z.literal("serve"), z.literal("funnel")]).optional(),

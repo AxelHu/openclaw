@@ -49,6 +49,10 @@ export function applyAgentCompactionSettingsFromConfig(params: {
   cfg?: OpenClawConfig;
   /** When known, the resolved context window budget for the current model. */
   contextTokenBudget?: number;
+  /** When known, the current model provider (e.g. "minimax", "openai") for per-model compaction overrides. */
+  provider?: string;
+  /** When known, the current model id (e.g. "MiniMax-M3") for per-model compaction overrides. */
+  modelId?: string;
 }): {
   didOverride: boolean;
   compaction: { reserveTokens: number; keepRecentTokens: number };
