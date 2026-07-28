@@ -92,8 +92,9 @@ function createFeishuApiError(
 // Feishu message-API error codes that signal a transient rate limit; safe to retry with backoff.
 // 230020: per-chat rate limit (ext=chat rate limit) — confirmed by real concurrent load test.
 // 11232: tenant-level "create message service trigger rate limit" (100/min, 5/sec per app/bot).
+// 2200: transient send failure observed in production; retrying is cheaper than dropping the send.
 // Distinct from FEISHU_BACKOFF_CODES in typing.ts, which covers the reaction API (99991400+).
-const FEISHU_SEND_RATE_LIMIT_CODES = new Set([230020, 11232]);
+const FEISHU_SEND_RATE_LIMIT_CODES = new Set([230020, 11232, 2200]);
 const FEISHU_SEND_MAX_RETRIES = 2;
 const FEISHU_SEND_RETRY_BASE_MS = 500;
 

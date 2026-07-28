@@ -6,6 +6,7 @@ import {
   type MessagePresentationButton,
 } from "openclaw/plugin-sdk/interactive-runtime";
 import { createFeishuCardInteractionEnvelope } from "./card-interaction.js";
+import { normalizeTextAtTagClosing } from "./mention.js";
 
 type NormalizedMessagePresentation = NonNullable<ReturnType<typeof normalizeMessagePresentation>>;
 
@@ -22,6 +23,42 @@ function escapeFeishuCardMarkdownText(text: string): string {
         return char;
     }
   });
+}
+
+/**
+ * Escape Feishu card markdown text while preserving <at> mention tags.
+ * <at> tags must remain as-is for Feishu to render mentions and trigger
+ * notifications. Uses placeholder strategy to avoid nested escaping.
+ */
+function escapeFeishuCardMarkdownPreservingMentions(text: string): string {
+  const PLACEHOLDER_PREFIX = "\x00AT_PLACEHOLDER_";
+  let placeholderIndex = 0;
+  const placeholders: string[] = [];
+
+  const protectedText = text.replace(/<at\b[^>]*>[\s\S]*?<\/at>/gi, (match) => {
+    const placeholder = `${PLACEHOLDER_PREFIX}${placeholderIndex++}`;
+    placeholders.push(match);
+    return placeholder;
+  });
+
+  const escaped = protectedText.replace(/[&<>]/g, (char) => {
+    switch (char) {
+      case "&":
+        return "&amp;";
+      case "<":
+        return "&lt;";
+      case ">":
+        return "&gt;";
+      default:
+        return char;
+    }
+  });
+
+  let result = escaped;
+  for (let i = 0; i < placeholders.length; i++) {
+    result = result.replace(`${PLACEHOLDER_PREFIX}${i}`, placeholders[i]);
+  }
+  return result;
 }
 
 function resolveSafeFeishuButtonUrl(url: string | undefined): string | undefined {
@@ -102,13 +139,25 @@ function buildFeishuCardElementsForBlock(
   block: MessagePresentationBlock,
 ): Record<string, unknown>[] {
   if (block.type === "text") {
-    return [{ tag: "markdown", content: escapeFeishuCardMarkdownText(block.text) }];
+    return [
+      {
+        tag: "markdown",
+        content: escapeFeishuCardMarkdownPreservingMentions(
+          // Close any </a> drift before the placeholder/protect pass so
+          // the regex (<at...>...</at>) actually matches; otherwise the
+          // drift tag gets HTML-escaped to literal text and Feishu
+          // drops the mention (230099). Mirrors the sendStructuredCard /
+          // sendMarkdownCard / streaming-card paths.
+          normalizeTextAtTagClosing(block.text),
+        ),
+      },
+    ];
   }
   if (block.type === "context") {
     return [
       {
         tag: "markdown",
-        content: `<font color='grey'>${escapeFeishuCardMarkdownText(block.text)}</font>`,
+        content: `<font color='grey'>${escapeFeishuCardMarkdownPreservingMentions(normalizeTextAtTagClosing(block.text))}</font>`,
       },
     ];
   }
@@ -167,17 +216,26 @@ export function buildFeishuPresentationCardElements(params: {
   return [
     {
       tag: "markdown",
-      content: renderMessagePresentationFallbackText({
-        text: params.fallbackText,
-        presentation: params.presentation.title
-          ? {
-              ...(params.presentation.tone ? { tone: params.presentation.tone } : {}),
-              blocks: params.presentation.blocks,
-            }
-          : params.presentation,
-      }),
+      content: normalizeCardMentionText(
+        renderMessagePresentationFallbackText({
+          text: params.fallbackText,
+          presentation: params.presentation.title
+            ? {
+                ...(params.presentation.tone ? { tone: params.presentation.tone } : {}),
+                blocks: params.presentation.blocks,
+              }
+            : params.presentation,
+        }),
+      ),
     },
   ];
+}
+
+// Normalize @mention tags for card lark_md format:
+// - Models output <at user_id="..."> (post text format) → card needs <at id="...">
+// - Escaped underscores (\_) in IDs need to be stripped
+function normalizeCardMentionText(text: string): string {
+  return text.replace(/<at user_id=/g, "<at id=").replace(/\\(?=[ou_])/g, "");
 }
 
 export function buildFeishuPresentationCard(params: {
