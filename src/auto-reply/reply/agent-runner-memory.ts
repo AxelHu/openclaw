@@ -358,6 +358,12 @@ function truncateMemoryFlushErrorMessage(err: unknown): string {
 export type SessionTranscriptUsageSnapshot = {
   promptTokens?: number;
   outputTokens?: number;
+  trailingTokens?: number;
+  /**
+   * @deprecated Kept for diagnostics only. Trailing-token estimation now uses
+   * per-block fixed constants (image / video) so we no longer need byte-size
+   * fallback. Read trailingTokens instead.
+   */
   trailingBytesTokens?: number;
 };
 
@@ -366,6 +372,76 @@ export type SessionTranscriptUsageSnapshot = {
 const TRANSCRIPT_OUTPUT_READ_BUFFER_TOKENS = 8192;
 const TRANSCRIPT_TAIL_CHUNK_BYTES = 64 * 1024;
 const FALLBACK_TRANSCRIPT_BYTES_PER_TOKEN = 4;
+// 6/26 PATCH: trailing-token estimator uses the same per-block constants as the
+// other OpenClaw client estimators (pruner.ts / compaction.ts / preemptive-compaction.ts
+// / tool-result-char-estimator.ts). Otherwise the byte-size fallback (byteSize / 4)
+// would count base64 data of image / video blocks as text tokens and inflate the
+// projected token count by 1-2 orders of magnitude. Owner insight (2026-06-26 12:15):
+// "直接跳过肯定不是最合适的" → 按估算不算跳过。
+const IMAGE_CHAR_ESTIMATE = 8_000;
+const VIDEO_CHAR_ESTIMATE = 200_000;
+
+/** Token estimate for one transcript line, aligned with harness/compaction.ts:estimateTokens. */
+function estimateTranscriptLineTokens(line: string): number {
+  const trimmed = line.trim();
+  if (!trimmed) {
+    return 0;
+  }
+  let parsed: { message?: { role?: string; content?: unknown } };
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch {
+    return 0;
+  }
+  const message = parsed?.message;
+  if (!message) {
+    return 0;
+  }
+  let chars = 0;
+  const role = message.role;
+  const content = message.content;
+  if (typeof content === "string") {
+    chars = content.length;
+  } else if (Array.isArray(content)) {
+    for (const block of content) {
+      if (!block || typeof block !== "object") {
+        continue;
+      }
+      const type = (block as { type?: unknown }).type;
+      if (type === "text" && typeof (block as { text?: unknown }).text === "string") {
+        chars += (block as { text: string }).text.length;
+      } else if (
+        type === "thinking" &&
+        typeof (block as { thinking?: unknown }).thinking === "string"
+      ) {
+        chars += (block as { thinking: string }).thinking.length;
+      } else if (type === "image") {
+        // 6/26 PATCH: image block 跟 pruner.ts:IMAGE_CHAR_ESTIMATE 对齐 (8K chars = 2K tokens)
+        chars += IMAGE_CHAR_ESTIMATE;
+      } else if (type === "video") {
+        // 6/26 PATCH: video block 跟 pruner.ts:VIDEO_CHAR_ESTIMATE 对齐 (200K chars = 50K tokens)
+        // 不算 base64 data 字节 — 直接按固定估算常量
+        chars += VIDEO_CHAR_ESTIMATE;
+      } else if (type === "toolCall") {
+        const name = (block as { name?: unknown }).name;
+        const args = (block as { arguments?: unknown }).arguments;
+        chars += typeof name === "string" ? name.length : 0;
+        try {
+          chars += JSON.stringify(args ?? {}).length;
+        } catch {
+          // ignore
+        }
+      }
+    }
+  }
+  if (role === "compactionSummary" || role === "branchSummary") {
+    const summary = (message as { summary?: unknown }).summary;
+    if (typeof summary === "string") {
+      chars = summary.length;
+    }
+  }
+  return Math.ceil(chars / 4);
+}
 
 function parseUsageFromTranscriptLine(line: string): ReturnType<typeof normalizeUsage> | undefined {
   const trimmed = line.trim();
@@ -425,6 +501,7 @@ function deriveTranscriptUsageSnapshot(
     | {
         usage?: ReturnType<typeof normalizeUsage>;
         trailingBytes?: number;
+        trailingTokens?: number;
       }
     | undefined,
 ): SessionTranscriptUsageSnapshot | undefined {
@@ -441,15 +518,27 @@ function deriveTranscriptUsageSnapshot(
   if (!(typeof promptTokens === "number") && !(typeof outputTokens === "number")) {
     return undefined;
   }
+  // 6/26 PATCH: prefer trailingTokens (per-block fixed estimator) when the scanner
+  // produced it. Fall back to the old byte/4 path only for callers / older builds
+  // that haven't been rebuilt yet.
+  const trailingTokensFromScan =
+    typeof snapshot.trailingTokens === "number" &&
+    Number.isFinite(snapshot.trailingTokens) &&
+    snapshot.trailingTokens >= 0
+      ? snapshot.trailingTokens
+      : undefined;
+  const trailingBytesFallbackTokens =
+    typeof snapshot.trailingBytes === "number" &&
+    Number.isFinite(snapshot.trailingBytes) &&
+    snapshot.trailingBytes >= 0
+      ? Math.ceil(snapshot.trailingBytes / FALLBACK_TRANSCRIPT_BYTES_PER_TOKEN)
+      : undefined;
   return {
     promptTokens,
     outputTokens,
-    trailingBytesTokens:
-      typeof snapshot.trailingBytes === "number" &&
-      Number.isFinite(snapshot.trailingBytes) &&
-      snapshot.trailingBytes >= 0
-        ? Math.ceil(snapshot.trailingBytes / FALLBACK_TRANSCRIPT_BYTES_PER_TOKEN)
-        : undefined,
+    trailingTokens: trailingTokensFromScan ?? trailingBytesFallbackTokens,
+    // Diagnostic-only field kept for one release.
+    trailingBytesTokens: trailingBytesFallbackTokens,
   };
 }
 
@@ -524,7 +613,12 @@ async function readSessionLogSnapshot(params: {
 
 type SessionLogUsageScan = {
   usage?: ReturnType<typeof normalizeUsage>;
+  /**
+   * @deprecated Use trailingTokens. Kept for one release to surface "the old
+   * byte-size fallback" in logs so we can confirm callers move off it.
+   */
   trailingBytes?: number;
+  trailingTokens?: number;
   byteSize: number;
 };
 
@@ -573,10 +667,19 @@ async function readLastNonzeroUsageFromSessionLog(logPath: string): Promise<Sess
         const usage = parseUsageFromTranscriptLine(lines[i] ?? "");
         if (usage) {
           const trailingLines = lines.slice(i + 1);
+          // 6/26 PATCH: estimate tokens (image / video use fixed constants) instead
+          // of byte-size / 4. Prevents base64 video data from inflating the count
+          // (1.7M tokens for a single 5MB mp4). See estimateTranscriptLineTokens.
+          const trailingTokensInChunk = trailingLines.reduce(
+            (sum, line) => sum + estimateTranscriptLineTokens(line ?? ""),
+            0,
+          );
+          // Bytes still exposed for diagnostics / unrelated callers.
           const trailingBytesInChunk = estimatePostUsageTrailingBytes(trailingLines);
           return {
             usage,
             trailingBytes: suffixBytesOutsideCombined + trailingBytesInChunk,
+            trailingTokens: trailingTokensInChunk,
             byteSize: stat.size,
           };
         }
@@ -584,13 +687,19 @@ async function readLastNonzeroUsageFromSessionLog(logPath: string): Promise<Sess
       position = start;
     }
     const usage = parseUsageFromTranscriptLine(leadingPartial);
-    return usage
-      ? {
-          usage,
-          trailingBytes: Math.max(0, stat.size - Buffer.byteLength(leadingPartial, "utf8")),
-          byteSize: stat.size,
-        }
-      : { byteSize: stat.size };
+    if (!usage) {
+      return { byteSize: stat.size };
+    }
+    const leadingPartialBytes = Buffer.byteLength(leadingPartial, "utf8");
+    return {
+      usage,
+      trailingBytes: Math.max(0, stat.size - leadingPartialBytes),
+      // 6/26 PATCH: when usage is at the very start of the file there is no
+      // trailing chunk to estimate from. Default to 0 (matching the old
+      // fast-path behaviour where trailingBytes === 0 meant "nothing to add").
+      trailingTokens: 0,
+      byteSize: stat.size,
+    };
   } finally {
     await handle.close();
   }
@@ -642,13 +751,22 @@ async function estimatePromptTokensFromSessionTranscript(params: {
         ? Math.ceil(snapshot.byteSize / FALLBACK_TRANSCRIPT_BYTES_PER_TOKEN)
         : undefined;
     const promptTokens = snapshot.usage?.promptTokens;
-    const trailingBytesTokens = snapshot.usage?.trailingBytesTokens;
+    // 6/26 PATCH: prefer trailingTokens (per-block fixed estimator) over the
+    // byte/4 fallback. The latter would inflate the count by base64 bytes
+    // for any image / video block sitting past the last nonzero usage line.
+    const trailingTokensRaw = snapshot.usage?.trailingTokens;
+    const trailingTokens =
+      typeof trailingTokensRaw === "number" &&
+      Number.isFinite(trailingTokensRaw) &&
+      trailingTokensRaw >= 0
+        ? Math.ceil(trailingTokensRaw)
+        : (snapshot.usage?.trailingBytesTokens ?? 0);
     const outputTokens = snapshot.usage?.outputTokens;
     if (
       typeof promptTokens === "number" &&
       Number.isFinite(promptTokens) &&
       promptTokens > 0 &&
-      trailingBytesTokens === 0 &&
+      trailingTokens === 0 &&
       typeof outputTokens === "number" &&
       Number.isFinite(outputTokens) &&
       outputTokens > 0
@@ -678,7 +796,10 @@ async function estimatePromptTokensFromSessionTranscript(params: {
       return Number.isFinite(tokens) && tokens > 0 ? Math.ceil(tokens) : undefined;
     })();
     if (typeof promptTokens === "number" && Number.isFinite(promptTokens) && promptTokens > 0) {
-      const usagePromptTokens = Math.ceil(promptTokens) + (trailingBytesTokens ?? 0);
+      // 6/26 PATCH: trailingTokens already per-block counted image / video at fixed
+      // constants, so adding it on top of promptTokens is correct (and no longer
+      // double-counts base64 bytes).
+      const usagePromptTokens = Math.ceil(promptTokens) + trailingTokens;
       return {
         promptTokens: Math.max(usagePromptTokens, estimatedMessageTokens ?? 0),
         outputTokens:
