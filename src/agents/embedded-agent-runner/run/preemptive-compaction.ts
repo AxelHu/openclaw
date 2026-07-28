@@ -109,6 +109,10 @@ function estimateContentBlockTokenPressure(
   if (type === "image") {
     return IMAGE_BLOCK_TOKENS;
   }
+  // 6/26 PATCH: video block 走固定估算, 不要 JSON.stringify base64
+  if (type === "video") {
+    return VIDEO_BLOCK_TOKENS;
+  }
   return CONTENT_BLOCK_OVERHEAD_TOKENS + estimateJsonPayloadTokenPressure(block, charsPerToken);
 }
 

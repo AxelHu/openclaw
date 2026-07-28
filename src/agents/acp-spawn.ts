@@ -148,20 +148,61 @@ type GatewayImageAttachmentInput = {
   };
 };
 
+// 6/27 PATCH: video blocks need a separate shape so the transport can
+// emit a `{type: "video", source: {type: "base64"|"url", ...}}` block
+// instead of casting video attachments to image (which M3 would treat
+// as a still picture and skip its native video understanding path).
+type GatewayVideoAttachmentInput = {
+  type: "video";
+  source:
+    | { type: "base64"; media_type: string; data: string }
+    | { type: "url"; media_type: string; url: string };
+};
+
+type GatewayAttachmentInput = GatewayImageAttachmentInput | GatewayVideoAttachmentInput;
+
 function toGatewayImageAttachments(
   attachments: AcpTurnAttachment[] | undefined,
-): GatewayImageAttachmentInput[] | undefined {
+): GatewayAttachmentInput[] | undefined {
   if (!attachments || attachments.length === 0) {
     return undefined;
   }
-  return attachments.map((attachment) => ({
-    type: "image",
-    source: {
-      type: "base64",
-      media_type: attachment.mediaType,
-      data: attachment.data,
-    },
-  }));
+  return attachments.map((attachment): GatewayAttachmentInput => {
+    // 6/27 PATCH: route video attachments through the video transport
+    // path instead of casting to image. Hosted URLs (mm_file://{file_id})
+    // take the URL branch; inline base64 takes the base64 branch. The
+    // previous behaviour silently downgraded video to still-image, so
+    // M3 never exercised its native video understanding even when the
+    // attachment pipeline produced a valid inline base64 video.
+    if (attachment.mediaType.startsWith("video/")) {
+      if (attachment.hostedUrl) {
+        return {
+          type: "video",
+          source: {
+            type: "url",
+            media_type: attachment.mediaType,
+            url: attachment.hostedUrl,
+          },
+        };
+      }
+      return {
+        type: "video",
+        source: {
+          type: "base64",
+          media_type: attachment.mediaType,
+          data: attachment.data,
+        },
+      };
+    }
+    return {
+      type: "image",
+      source: {
+        type: "base64",
+        media_type: attachment.mediaType,
+        data: attachment.data,
+      },
+    };
+  });
 }
 
 export type SpawnAcpContext = {

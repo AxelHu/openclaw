@@ -30,7 +30,7 @@ describe("loadPromptRefImages", () => {
   });
 
   it("returns empty results when the prompt has no image refs", async () => {
-    const loadImageFromRefSpy = vi.spyOn(promptImageUtils, "loadImageFromRef");
+    const loadImageFromRefSpy = vi.spyOn(promptImageUtils, "loadMediaFromRef");
     const sanitizeImageBlocksSpy = vi.spyOn(toolImages, "sanitizeImageBlocks");
 
     await expect(
@@ -45,7 +45,7 @@ describe("loadPromptRefImages", () => {
   });
 
   it("does not reload OpenClaw CLI image cache paths from prior prompt text", async () => {
-    const loadImageFromRefSpy = vi.spyOn(promptImageUtils, "loadImageFromRef");
+    const loadImageFromRefSpy = vi.spyOn(promptImageUtils, "loadMediaFromRef");
     const sanitizeImageBlocksSpy = vi.spyOn(toolImages, "sanitizeImageBlocks");
 
     await expect(
@@ -78,7 +78,7 @@ describe("loadPromptRefImages", () => {
     };
 
     const loadImageFromRefSpy = vi
-      .spyOn(promptImageUtils, "loadImageFromRef")
+      .spyOn(promptImageUtils, "loadMediaFromRef")
       .mockResolvedValueOnce(loadedImage);
     const sanitizeImageBlocksSpy = vi
       .spyOn(toolImages, "sanitizeImageBlocks")
@@ -114,7 +114,7 @@ describe("loadPromptRefImages", () => {
     };
 
     const loadImageFromRefSpy = vi
-      .spyOn(promptImageUtils, "loadImageFromRef")
+      .spyOn(promptImageUtils, "loadMediaFromRef")
       .mockResolvedValueOnce(loadedImage)
       .mockResolvedValueOnce(null);
     const sanitizeImageBlocksSpy = vi
