@@ -82,6 +82,9 @@ Standard files OpenClaw expects inside the workspace:
   <Accordion title="HEARTBEAT.md - heartbeat checklist">
     Optional tiny checklist for heartbeat runs. Keep it short to avoid token burn.
   </Accordion>
+  <Accordion title="ENVIRONMENT.md - host, network, runtime context">
+    Per-host environment information: WSL networking mode, MCP services, local paths, agent host identity. Loaded every session when present. Keep it small and machine-specific — do not commit shared environment assumptions.
+  </Accordion>
   <Accordion title="BOOT.md - startup checklist">
     Optional startup checklist run automatically on gateway restart (when [internal hooks](/automation/hooks) are enabled). Keep it short; use the message tool for outbound sends.
   </Accordion>
@@ -132,7 +135,7 @@ Run these steps on the machine where the Gateway runs (that is where the workspa
     ```bash
     cd ~/.openclaw/workspace
     git init
-    git add AGENTS.md SOUL.md TOOLS.md IDENTITY.md USER.md HEARTBEAT.md memory/
+    git add AGENTS.md SOUL.md TOOLS.md IDENTITY.md USER.md HEARTBEAT.md ENVIRONMENT.md memory/
     git commit -m "Add agent workspace"
     ```
 

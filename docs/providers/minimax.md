@@ -134,7 +134,10 @@ Model refs follow the auth path: `minimax/<model>` for API-key setups, `minimax-
                 id: "MiniMax-M3",
                 name: "MiniMax M3",
                 reasoning: true,
-                input: ["text", "image"],
+                // 6/25 PATCH: 加 video, M3 走 /anthropic 端点原生支持 type=video
+                //   跟内建 catalog (extensions/minimax/provider-models.ts) 对齐，
+                //   避免 user 复制此示例时把 input 缩成 ["text", "image"] 静默丢掉 video
+                input: ["text", "image", "video"],
                 cost: { input: 0.6, output: 2.4, cacheRead: 0.12, cacheWrite: 0 },
                 contextWindow: 1000000,
                 maxTokens: 131072,
