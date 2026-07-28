@@ -122,7 +122,7 @@ export function extractMentionTagsFromText(text: string): {
 
   // Match <at user_id="ou_xxx">name</at> (post text format)
   let result = text.replace(
-    /<at\s+user_id="(ou_[A-Za-z0-9]+)"\s*>([^<]*)<\/at>/g,
+    /<at\s+user_id="(ou_[A-Za-z0-9_]+)"\s*>([^<]*)<\/at>/g,
     (_, openId: string, name: string) => {
       push(openId, name.trim());
       const display = name.trim();
@@ -132,7 +132,7 @@ export function extractMentionTagsFromText(text: string): {
 
   // Match <at id="ou_xxx">name</at> or <at id=ou_xxx>name</at> (card format)
   result = result.replace(
-    /<at\s+id="?(ou_[A-Za-z0-9]+)"?\s*>([^<]*)<\/at>/g,
+    /<at\s+id="?(ou_[A-Za-z0-9_]+)"?\s*>([^<]*)<\/at>/g,
     (_, openId: string, name: string) => {
       push(openId, name.trim());
       const display = name.trim();
@@ -217,6 +217,6 @@ export function normalizeTextAtTagClosing(text: string): string {
     return text;
   }
   return text
-    .replace(/<at\s+user_id="(ou_[A-Za-z0-9]+)"\s*>([^<]*)<\/a>/g, '<at user_id="$1">$2</at>')
-    .replace(/<at\s+id="?(ou_[A-Za-z0-9]+)"?\s*>([^<]*)<\/a>/g, '<at id="$1">$2</at>');
+    .replace(/<at\s+user_id="(ou_[A-Za-z0-9_]+)"\s*>([^<]*)<\/a>/g, '<at user_id="$1">$2</at>')
+    .replace(/<at\s+id="?(ou_[A-Za-z0-9_]+)"?\s*>([^<]*)<\/a>/g, '<at id="$1">$2</at>');
 }

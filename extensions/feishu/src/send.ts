@@ -11,7 +11,13 @@ import { resolveFeishuRuntimeAccount } from "./accounts.js";
 import { createFeishuClient } from "./client.js";
 import { requestFeishuApi } from "./comment-shared.js";
 import type { MentionTarget } from "./mention-target.types.js";
-import { buildMentionedCardContent } from "./mention.js";
+import {
+  buildMentionedCardContent,
+  extractMentionTagsFromText,
+  mergeMentionsWithExtracted,
+  normalizeCardMentionTags,
+  normalizeTextAtTagClosing,
+} from "./mention.js";
 import { resolveFeishuCardTemplate } from "./native-card.js";
 import { parsePostContent } from "./post.js";
 import {
@@ -25,6 +31,7 @@ import type { FeishuChatType, FeishuMessageInfo, FeishuSendResult } from "./type
 export { resolveFeishuCardTemplate };
 
 const WITHDRAWN_REPLY_ERROR_CODES = new Set([230011, 231003]);
+const INVALID_USER_RESOURCE_CODES = new Set([230099]);
 const INTERACTIVE_CARD_FALLBACK_TEXT = "[Interactive Card]";
 const POST_FALLBACK_TEXT = "[Rich text message]";
 function shouldFallbackFromReplyTarget(response: { code?: number; msg?: string }): boolean {
@@ -80,6 +87,11 @@ function isInvalidUserResourceError(err: unknown): boolean {
     INVALID_USER_RESOURCE_CODES.has(response.data.code)
   ) {
     return true;
+  }
+  // Wrapped error shape from createFeishuApiError: err.cause holds the original error.
+  const cause = (err as { cause?: unknown }).cause;
+  if (cause && cause !== err) {
+    return isInvalidUserResourceError(cause);
   }
   return false;
 }

@@ -1,9 +1,3 @@
-// 6/24 PATCH: Tests for video placeholder filter and downgrade logic.
-// transform-messages.ts was extended to support VideoContent in:
-// - replaceImagesWithPlaceholder (filter video if model doesn't support)
-// - downgradeUnsupportedImages (separate image/video capability check)
-// - Model.input.includes("video") check (skip filter if model supports)
-
 import { describe, expect, it } from "vitest";
 import type { Message, Model, VideoContent } from "../types.js";
 import { transformMessages } from "./transform-messages.js";
@@ -33,8 +27,8 @@ const imageBlock = {
   mimeType: "image/jpeg" as const,
 };
 
-describe("transformMessages - video support (6/24 PATCH)", () => {
-  describe("model with video + image support (minimax M3)", () => {
+describe("transformMessages video support", () => {
+  describe("model with video + image support", () => {
     it("preserves both image and video blocks in user message", () => {
       const model = makeModel(["text", "image", "video"]);
       const messages: Message[] = [
@@ -94,7 +88,7 @@ describe("transformMessages - video support (6/24 PATCH)", () => {
     });
   });
 
-  describe("model without video support (e.g. M2.7, M2.5)", () => {
+  describe("model without video support", () => {
     it("replaces video block with placeholder, keeps image", () => {
       const model = makeModel(["text", "image"]);
       const messages: Message[] = [
@@ -115,7 +109,7 @@ describe("transformMessages - video support (6/24 PATCH)", () => {
       ]);
     });
 
-    it("replaces video with placeholder, removes image too (text-only model)", () => {
+    it("replaces video with placeholder, removes image too for text-only model", () => {
       const model = makeModel(["text"]);
       const messages: Message[] = [
         {
@@ -158,36 +152,32 @@ describe("transformMessages - video support (6/24 PATCH)", () => {
     });
   });
 
-  describe("image-only model (legacy behavior preserved)", () => {
-    it("still replaces image with placeholder (no video filter needed)", () => {
-      const model = makeModel(["text"]);
-      const messages: Message[] = [
-        {
-          role: "user",
-          content: [{ type: "text", text: "Look at this." }, imageBlock],
-          timestamp: 0,
-        },
-      ];
+  it("preserves legacy image placeholder behavior", () => {
+    const model = makeModel(["text"]);
+    const messages: Message[] = [
+      {
+        role: "user",
+        content: [{ type: "text", text: "Look at this." }, imageBlock],
+        timestamp: 0,
+      },
+    ];
 
-      const result = transformMessages(messages, model);
+    const result = transformMessages(messages, model);
 
-      const userMessage = result.find((m) => m.role === "user");
-      expect(userMessage?.content).toEqual([
-        { type: "text", text: "Look at this." },
-        { type: "text", text: "(image omitted: model does not support images)" },
-      ]);
-    });
+    const userMessage = result.find((m) => m.role === "user");
+    expect(userMessage?.content).toEqual([
+      { type: "text", text: "Look at this." },
+      { type: "text", text: "(image omitted: model does not support images)" },
+    ]);
   });
 
-  describe("text-only message (no image/video) - unchanged", () => {
-    it("preserves text messages as-is", () => {
-      const model = makeModel(["text", "image", "video"]);
-      const messages: Message[] = [{ role: "user", content: "just text", timestamp: 0 }];
+  it("preserves text messages as-is", () => {
+    const model = makeModel(["text", "image", "video"]);
+    const messages: Message[] = [{ role: "user", content: "just text", timestamp: 0 }];
 
-      const result = transformMessages(messages, model);
+    const result = transformMessages(messages, model);
 
-      const userMessage = result.find((m) => m.role === "user");
-      expect(userMessage?.content).toBe("just text");
-    });
+    const userMessage = result.find((m) => m.role === "user");
+    expect(userMessage?.content).toBe("just text");
   });
 });
