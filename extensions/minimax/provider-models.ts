@@ -14,7 +14,9 @@ export const MINIMAX_TEXT_MODEL_CATALOG = {
   "MiniMax-M3": {
     name: "MiniMax M3",
     reasoning: true,
-    input: ["text", "image"],
+    // 6/24 PATCH: 加 video, minimax 文档明确支持
+    // 见 platform.minimaxi.com/docs/api-reference/text-anthropic-api
+    input: ["text", "image", "video"],
     contextWindow: 1_000_000,
   },
   "MiniMax-M2.7": {

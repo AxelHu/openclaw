@@ -127,7 +127,12 @@ function resolveMinimaxDynamicModel(params: {
     baseUrl:
       normalizeOptionalString(params.ctx.providerConfig?.baseUrl) ?? resolveMinimaxCatalogBaseUrl(),
     reasoning: catalogModel.model.reasoning,
-    input: [...catalogModel.model.input],
+    // 6/24 PATCH: catalog may now include "video" in its input array (see
+    // extensions/minimax/provider-models.ts). The compiled `Model` type in
+    // dist/ still only lists text/image because packages/llm-core has not
+    // been rebuilt; cast through the wider source type so we can add the
+    // `video` modality at runtime without a build step.
+    input: [...catalogModel.model.input] as unknown as ("text" | "image")[],
     cost: resolveMinimaxApiCost(catalogModel.id),
     contextWindow: catalogModel.model.contextWindow,
     maxTokens: DEFAULT_MINIMAX_MAX_TOKENS,
