@@ -129,6 +129,62 @@ describe("resolveCodexAppServerSpawnEnv", () => {
     });
   });
 
+  it("falls back to hardcoded Shadowsocks URL (http://127.0.0.1:1080) when no env proxy is set", () => {
+    const env = resolveCodexAppServerSpawnEnv(
+      { env: { SOMETHING: "x" } },
+      { SOMETHING: "y", PATH: "/usr/bin" },
+    );
+    expect(env.HTTPS_PROXY).toBe("http://127.0.0.1:1080");
+    expect(env.HTTP_PROXY).toBe("http://127.0.0.1:1080");
+    expect(env.NO_PROXY).toBe("127.0.0.1,localhost,::1");
+  });
+
+  it("injects HTTPS_PROXY only into spawn env when parent has HTTPS_PROXY set", () => {
+    const env = resolveCodexAppServerSpawnEnv(
+      { env: {} },
+      { HTTPS_PROXY: "http://127.0.0.1:1080", PATH: "/usr/bin" },
+    );
+    expect(env.HTTPS_PROXY).toBe("http://127.0.0.1:1080");
+    expect(env.HTTP_PROXY).toBe("http://127.0.0.1:1080");
+    expect(env.https_proxy).toBe("http://127.0.0.1:1080");
+    expect(env.http_proxy).toBe("http://127.0.0.1:1080");
+    expect(env.NO_PROXY).toBe("127.0.0.1,localhost,::1");
+    expect(env.no_proxy).toBe("127.0.0.1,localhost,::1");
+  });
+
+  it("prefers OPENCLAW_CODEX_PROXY over the parent HTTPS_PROXY", () => {
+    const env = resolveCodexAppServerSpawnEnv(
+      { env: {} },
+      {
+        HTTPS_PROXY: "http://parent:1234",
+        OPENCLAW_CODEX_PROXY: "http://codex:7890",
+      },
+    );
+    expect(env.HTTPS_PROXY).toBe("http://codex:7890");
+    expect(env.HTTP_PROXY).toBe("http://codex:7890");
+  });
+
+  it("disables proxy injection when OPENCLAW_CODEX_PROXY is explicitly empty even if HTTPS_PROXY is set", () => {
+    const env = resolveCodexAppServerSpawnEnv(
+      { env: {} },
+      { HTTPS_PROXY: "http://parent:1234", OPENCLAW_CODEX_PROXY: "" },
+    );
+    expect(env.HTTPS_PROXY).toBeUndefined();
+    expect(env.HTTP_PROXY).toBeUndefined();
+  });
+
+  it("honors OPENCLAW_CODEX_NO_PROXY override of the noProxy list", () => {
+    const env = resolveCodexAppServerSpawnEnv(
+      { env: {} },
+      {
+        HTTPS_PROXY: "http://127.0.0.1:1080",
+        OPENCLAW_CODEX_NO_PROXY: "10.0.0.0/8,.internal",
+      },
+    );
+    expect(env.NO_PROXY).toBe("10.0.0.0/8,.internal");
+    expect(env.no_proxy).toBe("10.0.0.0/8,.internal");
+  });
+
   it("clears denied env vars case-insensitively on Windows", () => {
     expect({
       ...resolveCodexAppServerSpawnEnv(
