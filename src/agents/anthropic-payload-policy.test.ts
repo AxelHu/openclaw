@@ -25,6 +25,17 @@ function textBlock(text: string, cache_control?: { type: "ephemeral"; ttl?: "1h"
   };
 }
 
+function inboundMetadataText(prompt: string) {
+  return [
+    "Conversation info (untrusted metadata):",
+    "```json",
+    '{"message_id":"msg-live","sender":"Alice"}',
+    "```",
+    "",
+    prompt,
+  ].join("\n");
+}
+
 function boundarySystemPayload(): TestPayload {
   return {
     system: [
@@ -195,6 +206,196 @@ describe("anthropic payload policy", () => {
           type: "tool_result",
           tool_use_id: "tool_2",
           content: "next chunk",
+          cache_control: { type: "ephemeral" },
+        },
+      ],
+    });
+  });
+
+  it("anchors message cache on the block before a volatile inbound metadata user turn", () => {
+    const policy = resolveAnthropicPayloadPolicy({
+      provider: "anthropic",
+      api: "anthropic-messages",
+      baseUrl: "https://api.anthropic.com/v1",
+      cacheRetention: "short",
+      enableCacheControl: true,
+    });
+    const payload: TestPayload = {
+      system: [{ type: "text", text: "Follow policy." }],
+      messages: [
+        {
+          role: "user",
+          content: [{ type: "text", text: "Stable historical question." }],
+        },
+        {
+          role: "assistant",
+          content: [{ type: "text", text: "Stable historical answer." }],
+        },
+        {
+          role: "user",
+          content: [{ type: "text", text: inboundMetadataText("Live external-channel ask.") }],
+        },
+      ],
+    };
+
+    applyAnthropicPayloadPolicyToParams(payload, policy);
+
+    expect(payload.messages[0]).toEqual({
+      role: "user",
+      content: [{ type: "text", text: "Stable historical question." }],
+    });
+    expect(payload.messages[1]).toEqual({
+      role: "assistant",
+      content: [
+        {
+          type: "text",
+          text: "Stable historical answer.",
+          cache_control: { type: "ephemeral" },
+        },
+      ],
+    });
+    expect(payload.messages[2]).toEqual({
+      role: "user",
+      content: [{ type: "text", text: inboundMetadataText("Live external-channel ask.") }],
+    });
+  });
+
+  it("keeps the trailing tool-result marker when only one marker remains", () => {
+    const policy = resolveAnthropicPayloadPolicy({
+      provider: "anthropic",
+      api: "anthropic-messages",
+      baseUrl: "https://api.anthropic.com/v1",
+      cacheRetention: "short",
+      enableCacheControl: true,
+    });
+    const payload: TestPayload = {
+      system: [
+        { type: "text", text: "Claude Code identity." },
+        { type: "text", text: "Follow policy." },
+      ],
+      tools: [{ name: "Read", cache_control: { type: "ephemeral" } }],
+      messages: [
+        {
+          role: "user",
+          content: [{ type: "text", text: "Stable historical question." }],
+        },
+        {
+          role: "assistant",
+          content: [{ type: "text", text: "Stable historical answer." }],
+        },
+        {
+          role: "user",
+          content: [{ type: "text", text: inboundMetadataText("Live external-channel ask.") }],
+        },
+        {
+          role: "assistant",
+          content: [{ type: "text", text: "I'll inspect the log." }],
+        },
+        {
+          role: "user",
+          content: [{ type: "tool_result", tool_use_id: "tool_1", content: "log chunk" }],
+        },
+      ],
+    };
+
+    applyAnthropicPayloadPolicyToParams(payload, policy);
+
+    expect(payload.messages[0]).toEqual({
+      role: "user",
+      content: [
+        {
+          type: "text",
+          text: "Stable historical question.",
+        },
+      ],
+    });
+    expect(payload.messages[1]).toEqual({
+      role: "assistant",
+      content: [
+        {
+          type: "text",
+          text: "Stable historical answer.",
+        },
+      ],
+    });
+    expect(payload.messages[2]).toEqual({
+      role: "user",
+      content: [{ type: "text", text: inboundMetadataText("Live external-channel ask.") }],
+    });
+    expect(payload.messages[4]).toEqual({
+      role: "user",
+      content: [
+        {
+          type: "tool_result",
+          tool_use_id: "tool_1",
+          content: "log chunk",
+          cache_control: { type: "ephemeral" },
+        },
+      ],
+    });
+  });
+
+  it("keeps trailing tool-result marker while skipping a volatile inbound metadata user turn", () => {
+    const policy = resolveAnthropicPayloadPolicy({
+      provider: "anthropic",
+      api: "anthropic-messages",
+      baseUrl: "https://api.anthropic.com/v1",
+      cacheRetention: "short",
+      enableCacheControl: true,
+    });
+    const payload: TestPayload = {
+      system: [{ type: "text", text: "Follow policy." }],
+      messages: [
+        {
+          role: "user",
+          content: [{ type: "text", text: "Stable historical question." }],
+        },
+        {
+          role: "assistant",
+          content: [{ type: "text", text: "Use the tool." }],
+        },
+        {
+          role: "user",
+          content: [{ type: "text", text: inboundMetadataText("Live external-channel ask.") }],
+        },
+        {
+          role: "assistant",
+          content: [{ type: "text", text: "I'll inspect the log." }],
+        },
+        {
+          role: "user",
+          content: [{ type: "tool_result", tool_use_id: "tool_1", content: "log chunk" }],
+        },
+      ],
+    };
+
+    applyAnthropicPayloadPolicyToParams(payload, policy);
+
+    expect(payload.messages[0]).toEqual({
+      role: "user",
+      content: [{ type: "text", text: "Stable historical question." }],
+    });
+    expect(payload.messages[1]).toEqual({
+      role: "assistant",
+      content: [
+        {
+          type: "text",
+          text: "Use the tool.",
+          cache_control: { type: "ephemeral" },
+        },
+      ],
+    });
+    expect(payload.messages[2]).toEqual({
+      role: "user",
+      content: [{ type: "text", text: inboundMetadataText("Live external-channel ask.") }],
+    });
+    expect(payload.messages[4]).toEqual({
+      role: "user",
+      content: [
+        {
+          type: "tool_result",
+          tool_use_id: "tool_1",
+          content: "log chunk",
           cache_control: { type: "ephemeral" },
         },
       ],

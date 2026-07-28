@@ -2,6 +2,7 @@ import {
   splitSystemPromptCacheBoundary,
   stripSystemPromptCacheBoundary,
 } from "@openclaw/ai/internal/shared";
+import { hasInboundMetadataSentinel } from "../auto-reply/reply/strip-inbound-meta.js";
 /**
  * Anthropic-family request payload policy helpers.
  * Applies service-tier and cache-control markers only when provider endpoint
@@ -141,6 +142,40 @@ function stripAnthropicSystemPromptBoundary(system: unknown): void {
   }
 }
 
+function contentHasInboundMetadataSentinel(content: unknown): boolean {
+  if (typeof content === "string") {
+    return hasInboundMetadataSentinel(content);
+  }
+  if (!Array.isArray(content)) {
+    return false;
+  }
+  return content.some((block) => {
+    if (!block || typeof block !== "object") {
+      return false;
+    }
+    const text = (block as { text?: unknown }).text;
+    return typeof text === "string" && hasInboundMetadataSentinel(text);
+  });
+}
+
+function isCacheablePreInboundMetadataBlock(
+  blockRecord: Record<string, unknown>,
+  role: unknown,
+): boolean {
+  if (role === "assistant") {
+    return blockRecord.type === "text" || blockRecord.type === "tool_use";
+  }
+  if (role === "user") {
+    return (
+      blockRecord.type === "text" ||
+      blockRecord.type === "image" ||
+      blockRecord.type === "video" ||
+      blockRecord.type === "tool_result"
+    );
+  }
+  return false;
+}
+
 function applyAnthropicCacheControlToMessages(
   messages: unknown,
   cacheControl: AnthropicEphemeralCacheControl,
@@ -152,6 +187,7 @@ function applyAnthropicCacheControlToMessages(
   }
 
   let fallbackToolResult: Record<string, unknown> | undefined;
+  let crossedVolatileInboundMetadata = false;
 
   for (let i = messages.length - 1; i >= 0; i--) {
     const message = messages[i];
@@ -160,12 +196,24 @@ function applyAnthropicCacheControlToMessages(
     }
 
     const record = message as Record<string, unknown>;
-    if (record.role !== "user" || cacheBreakpointOptOutMessageIndexes.has(i)) {
+    if (
+      (record.role !== "user" && record.role !== "assistant") ||
+      cacheBreakpointOptOutMessageIndexes.has(i)
+    ) {
       continue;
     }
 
     const content = record.content;
+    const hasVolatileInboundMetadata =
+      record.role === "user" && contentHasInboundMetadataSentinel(content);
+    if (hasVolatileInboundMetadata) {
+      crossedVolatileInboundMetadata = true;
+      continue;
+    }
     if (typeof content === "string") {
+      if (record.role !== "user") {
+        continue;
+      }
       if (fallbackToolResult && markerLimit === 1) {
         fallbackToolResult.cache_control = cacheControl;
         return;
@@ -194,7 +242,13 @@ function applyAnthropicCacheControlToMessages(
       }
 
       const blockRecord = block as Record<string, unknown>;
-      if (blockRecord.type === "text" || blockRecord.type === "image") {
+      const isPrimaryCandidate = crossedVolatileInboundMetadata
+        ? isCacheablePreInboundMetadataBlock(blockRecord, record.role)
+        : record.role === "user" &&
+          (blockRecord.type === "text" ||
+            blockRecord.type === "image" ||
+            blockRecord.type === "video");
+      if (isPrimaryCandidate) {
         if (fallbackToolResult && markerLimit === 1) {
           fallbackToolResult.cache_control = cacheControl;
           return;
@@ -205,7 +259,11 @@ function applyAnthropicCacheControlToMessages(
         }
         return;
       }
-      if (blockRecord.type === "tool_result" && fallbackToolResult === undefined) {
+      if (
+        record.role === "user" &&
+        blockRecord.type === "tool_result" &&
+        fallbackToolResult === undefined
+      ) {
         fallbackToolResult = blockRecord;
       }
     }
@@ -256,7 +314,7 @@ export function resolveAnthropicPayloadPolicy(
 export function applyAnthropicPayloadPolicyToParams(
   payloadObj: Record<string, unknown>,
   policy: AnthropicPayloadPolicy,
-  cacheBreakpointOptOutMessageIndexes: ReadonlySet<number>,
+  cacheBreakpointOptOutMessageIndexes: ReadonlySet<number> = new Set(),
 ): void {
   if (
     policy.allowsServiceTier &&

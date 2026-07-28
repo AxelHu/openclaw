@@ -342,13 +342,18 @@ function toClaudeCodeName(name: string): string {
 function convertContentBlocks(content: readonly unknown[]) {
   const text = extractToolResultText(content);
   const mediaPlaceholder = describeToolResultMediaPlaceholder(content);
-  const hasImages =
+  const hasMedia =
     Array.isArray(content) &&
     content.some(
-      (item) =>
-        item && typeof item === "object" && (item as Record<string, unknown>).type === "image",
+      (item) => {
+        if (!item || typeof item !== "object") {
+          return false;
+        }
+        const type = (item as Record<string, unknown>).type;
+        return type === "image" || type === "video";
+      },
     );
-  if (!hasImages) {
+  if (!hasMedia) {
     return sanitizeNonEmptyTransportPayloadText(text, mediaPlaceholder ?? "(no output)");
   }
   const blocks: Array<
@@ -356,6 +361,10 @@ function convertContentBlocks(content: readonly unknown[]) {
     | {
         type: "image";
         source: { type: "base64"; media_type: string; data: string };
+      }
+    | {
+        type: "video";
+        source: { type: "base64" | "url"; media_type: string; data?: string; url?: string };
       }
   > = [];
   let hasTextBlock = false;
@@ -369,20 +378,33 @@ function convertContentBlocks(content: readonly unknown[]) {
       blocks.push({ type: "text", text: sanitizeTransportPayloadText(blockText) });
       hasTextBlock = true;
     }
-    if (record.type !== "image") {
+    if (record.type === "image") {
+      blocks.push({
+        type: "image" as const,
+        source: {
+          type: "base64",
+          media_type: typeof record.mimeType === "string" ? record.mimeType : "image/png",
+          data: typeof record.data === "string" ? record.data : "",
+        },
+      });
       continue;
     }
-    blocks.push({
-      type: "image" as const,
-      source: {
-        type: "base64",
-        media_type: typeof record.mimeType === "string" ? record.mimeType : "image/png",
-        data: typeof record.data === "string" ? record.data : "",
-      },
-    });
+    if (record.type === "video") {
+      const data = typeof record.data === "string" ? record.data : undefined;
+      const url = typeof record.url === "string" ? record.url : undefined;
+      blocks.push({
+        type: "video" as const,
+        source: {
+          type: data ? "base64" : "url",
+          media_type: typeof record.mimeType === "string" ? record.mimeType : "video/mp4",
+          ...(data ? { data } : {}),
+          ...(url ? { url } : {}),
+        },
+      });
+    }
   }
   if (!hasTextBlock) {
-    blocks.unshift({ type: "text", text: mediaPlaceholder ?? "(see attached image)" });
+    blocks.unshift({ type: "text", text: mediaPlaceholder ?? "(see attached media)" });
   }
   return blocks;
 }
@@ -431,27 +453,56 @@ function convertAnthropicMessages(
             type: "image";
             source: { type: "base64"; media_type: string; data: string };
           }
-      > = msg.content.map((item) =>
-        item.type === "text"
-          ? {
-              type: "text",
-              text: sanitizeTransportPayloadText(item.text),
-            }
-          : {
-              type: "image",
-              source: {
-                type: "base64",
-                media_type: item.mimeType,
-                data: item.data,
-              },
+        | {
+            type: "video";
+            source: {
+              type: "base64" | "url";
+              media_type: string;
+              data?: string;
+              url?: string;
+            };
+          }
+      > = msg.content.map((item) => {
+        if (item.type === "text") {
+          return {
+            type: "text" as const,
+            text: sanitizeTransportPayloadText(item.text),
+          };
+        }
+        if (item.type === "image") {
+          return {
+            type: "image" as const,
+            source: {
+              type: "base64" as const,
+              media_type: item.mimeType,
+              data: item.data,
             },
-      );
-      let filteredBlocks = model.input.includes("image")
-        ? blocks
-        : blocks.filter((block) => block.type !== "image");
-      filteredBlocks = filteredBlocks.filter(
-        (block) => block.type !== "text" || block.text.trim().length > 0,
-      );
+          };
+        }
+        // video block (6/24 PATCH: support minimax M3 native video input)
+        return {
+          type: "video" as const,
+          source: {
+            type: (item.data ? "base64" : "url") as "base64" | "url",
+            media_type: item.mimeType,
+            ...(item.data ? { data: item.data } : {}),
+            ...(item.url ? { url: item.url } : {}),
+          },
+        };
+      });
+      // Per-block kind check against model.input — supports image / video
+      // independently. Block is kept iff its kind is allowed.
+      // 6/28 PATCH: dropped the unreachable `audio` branch — the block union
+      // here is text|image|video, no audio variant (LLM-core doesn't define
+      // AudioContent), so `block.type === "audio"` was always false and
+      // caused TS to narrow `block` to `never`.
+      const supportedInputs = new Set(model.input);
+      const filteredBlocks = blocks.filter((block) => {
+        if (block.type === "text") return block.text.trim().length > 0;
+        if (block.type === "image") return supportedInputs.has("image");
+        if (block.type === "video") return supportedInputs.has("video");
+        return false;
+      });
       if (filteredBlocks.length === 0) {
         continue;
       }
