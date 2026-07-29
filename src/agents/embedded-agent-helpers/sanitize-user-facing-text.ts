@@ -33,6 +33,7 @@ import {
   isRateLimitErrorMessage,
   isTimeoutErrorMessage,
 } from "./failover-matches.js";
+import { formatSensitiveImageRejectionErrorCopy } from "./image-rejection-error.js";
 
 /** Format the billing failure copy with optional provider/model context.
  *

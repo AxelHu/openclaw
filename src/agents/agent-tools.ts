@@ -20,6 +20,11 @@ import { resolveEventSessionRoutingPolicy } from "../infra/event-session-routing
 import { applyExecPolicyLayer } from "../infra/exec-policy.js";
 import { resolveMergedSafeBinProfileFixtures } from "../infra/exec-safe-bin-runtime-policy.js";
 import { logWarn } from "../logger.js";
+import {
+  buildMediaUnderstandingRegistry,
+  getMediaUnderstandingProvider,
+} from "../media-understanding/provider-registry.js";
+import type { VideoUploadRequest } from "../media-understanding/types.js";
 import type { PluginHookChannelContext } from "../plugins/hook-types.js";
 import { getPluginToolMeta } from "../plugins/tools.js";
 import { GATEWAY_OWNER_ONLY_CORE_TOOLS } from "../security/dangerous-tools.js";
@@ -76,6 +81,8 @@ import type { SandboxContext } from "./sandbox.js";
 import { SANDBOX_AGENT_WORKSPACE_MOUNT } from "./sandbox/constants.js";
 import { resolveReadOnlyWorkspaceSkillMounts } from "./sandbox/workspace-mounts.js";
 import { createCodingTools, createReadTool } from "./sessions/index.js";
+import type { ToolsOptions } from "./sessions/tools/index.js";
+import { resolveVideoDeliveryPolicy } from "./sessions/tools/video-inline-policy.js";
 import {
   EXEC_TOOL_DISPLAY_SUMMARY,
   PROCESS_TOOL_DISPLAY_SUMMARY,

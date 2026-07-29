@@ -4,9 +4,10 @@ import { estimateBase64DecodedBytes } from "@openclaw/media-core/base64";
 import { MAX_IMAGE_BYTES } from "@openclaw/media-core/constants";
 import { extensionForMime, mimeTypeFromFilePath } from "@openclaw/media-core/mime";
 import { normalizeOptionalLowercaseString } from "@openclaw/normalization-core/string-coerce";
+import { DEFAULT_VIDEO_INLINE_MAX_BYTES } from "../agents/sessions/tools/video-inline-policy.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { formatErrorMessage } from "../infra/errors.js";
-import type { PromptImageOrderEntry } from "../media/prompt-image-order.js";
+import type { PromptImageOrderEntry, PromptMediaOrderEntry } from "../media/prompt-image-order.js";
 import { sniffMimeFromBase64 } from "../media/sniff-mime-from-base64.js";
 import { deleteMediaBuffer, saveMediaBuffer, type SavedMedia } from "../media/store.js";
 
