@@ -1428,7 +1428,7 @@ export class AgentSession {
    */
   private async queueSteer(
     text: string,
-    images?: ImageContent[],
+    images?: Array<ImageContent | VideoContent>,
     transcriptContext?: {
       message: PersistedUserTurnMessage;
       recorder: UserTurnTranscriptRecorder;
@@ -1436,7 +1436,7 @@ export class AgentSession {
   ): Promise<void> {
     this.steeringMessages.push(text);
     this.emitQueueUpdate();
-    const content: (TextContent | ImageContent)[] = [{ type: "text", text }];
+    const content: (TextContent | ImageContent | VideoContent)[] = [{ type: "text", text }];
     if (images) {
       content.push(...images);
     }

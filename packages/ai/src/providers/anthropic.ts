@@ -1471,6 +1471,12 @@ function convertMessages(
               text: sanitizeSurrogates(item.text),
             };
           }
+          if (item.type !== "image") {
+            return {
+              type: "text",
+              text: "(video omitted: provider does not support videos)",
+            };
+          }
           return {
             type: "image",
             source: {

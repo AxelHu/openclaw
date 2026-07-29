@@ -844,6 +844,7 @@ export async function markAuthProfileFailure(params: {
         reason,
         cfgResolved,
         modelId,
+        rawError,
       });
       nextStats = currentWhamResult
         ? applyWhamCooldownResult({
@@ -906,6 +907,7 @@ export async function markAuthProfileFailure(params: {
     reason,
     cfgResolved,
     modelId,
+    rawError,
   });
   nextStats = currentWhamResult
     ? applyWhamCooldownResult({

@@ -1121,7 +1121,7 @@ async function agentCommandInternal(
             throw agentPolicyError;
           }
 
-          const acpImageAttachments = resolveInlineAgentImageAttachments(opts.images);
+          const acpImageAttachments = resolveInlineAgentMediaAttachments(opts.images);
           assertAgentRunLifecycleGenerationCurrent(lifecycleGeneration);
           await acpManager.runTurn({
             cfg,

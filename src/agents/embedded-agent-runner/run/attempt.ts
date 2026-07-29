@@ -491,6 +491,7 @@ import {
   installHistoryImagePruneContextTransform,
   pruneProcessedHistoryImages,
 } from "./history-image-prune.js";
+import { recoverRecentSensitiveImageRejection } from "./image-rejection-recovery.js";
 import { detectAndLoadPromptImages } from "./images.js";
 import {
   buildAttemptReplayMetadata,
@@ -5460,6 +5461,12 @@ export async function runEmbeddedAttempt(
               });
             } catch (entryErr) {
               log.warn(`failed to persist prompt error entry: ${String(entryErr)}`);
+            }
+          } else if (!promptError && !compactionOccurredThisAttempt) {
+            const terminalAssistantError =
+              getAssistantTerminalErrorMessage(currentAttemptAssistant);
+            if (terminalAssistantError) {
+              recoverSensitiveImageRejection(terminalAssistantError);
             }
           }
 

@@ -37,7 +37,7 @@ import {
   publishOwnedSessionFileSnapshot,
 } from "../../config/sessions/transcript-write-context.js";
 import { CURRENT_SESSION_VERSION } from "../../config/sessions/version.js";
-import type { ImageContent, Message, TextContent } from "../../llm/types.js";
+import type { ImageContent, Message, TextContent, VideoContent } from "../../llm/types.js";
 import { logWarn } from "../../logger.js";
 import { getAgentDir as getDefaultAgentDir, getSessionsDir } from "../config.js";
 import {

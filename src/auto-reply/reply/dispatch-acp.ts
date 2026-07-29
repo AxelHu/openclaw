@@ -399,7 +399,10 @@ export async function tryDispatchAcpReply(params: {
   runId?: string;
   sessionKey?: string;
   toolsAllow?: string[];
-  images?: Array<{ data: string; mimeType: string }>;
+  images?: Array<
+    | { type?: "image"; data: string; mimeType: string }
+    | { type: "video"; data?: string; mimeType: string; url?: string }
+  >;
   extractedFileImages?: ExtractedFileImage[];
   abortSignal?: AbortSignal;
   inboundAudio: boolean;

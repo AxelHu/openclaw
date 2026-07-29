@@ -29,6 +29,7 @@ const JSON_PAYLOAD_CHARS_PER_TOKEN = 3;
 const MESSAGE_BOUNDARY_OVERHEAD_TOKENS = 12;
 const CONTENT_BLOCK_OVERHEAD_TOKENS = 6;
 const IMAGE_BLOCK_TOKENS = 2_000;
+const VIDEO_BLOCK_TOKENS = 67_000;
 const TRUNCATION_ROUTE_BUFFER_TOKENS = 512;
 
 /** Pre-prompt routing decision plus the budget facts used to explain it in logs and session state. */

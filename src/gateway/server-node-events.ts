@@ -20,6 +20,7 @@ import {
   NODE_PRESENCE_ALIVE_EVENT,
   normalizeNodePresenceAliveReason,
 } from "../shared/node-presence.js";
+import type { ChatAttachmentContent } from "./chat-attachments.js";
 import type { NodeEvent, NodeEventContext } from "./server-node-events-types.js";
 import {
   agentCommandFromIngress,
@@ -483,7 +484,7 @@ export const handleNodeEvent = async (
       const normalizedAttachments = normalizeRpcAttachmentsToChatAttachments(
         link?.attachments ?? undefined,
       );
-      let images: Array<{ type: "image"; data: string; mimeType: string }> = [];
+      let images: ChatAttachmentContent[] = [];
       let imageOrder: PromptImageOrderEntry[] = [];
       let offloadedRefs: Awaited<ReturnType<typeof parseMessageWithAttachments>>["offloadedRefs"] =
         [];

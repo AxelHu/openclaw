@@ -38,7 +38,6 @@ import {
   isTimeoutErrorMessage,
   matchesFormatErrorPattern,
 } from "./failover-matches.js";
-import { formatSensitiveImageRejectionErrorCopy } from "./image-rejection-error.js";
 import {
   classifyProviderPluginError,
   classifyProviderSpecificError,

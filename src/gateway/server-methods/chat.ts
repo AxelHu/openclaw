@@ -141,7 +141,6 @@ import {
 } from "../chat-abort.js";
 import {
   type ChatAttachmentContent,
-  type ChatImageContent,
   MediaOffloadError,
   type OffloadedRef,
   parseMessageWithAttachments,

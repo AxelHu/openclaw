@@ -94,7 +94,7 @@ const MEDIA_URI_REGEX = /\bmedia:\/\/inbound\/([^\]\s/\\]+)/;
 /**
  * Result of detecting an image reference in text.
  */
-interface DetectedImageRef {
+export interface DetectedMediaRef {
   /** The raw matched string from the prompt */
   raw: string;
   /** The type of reference */

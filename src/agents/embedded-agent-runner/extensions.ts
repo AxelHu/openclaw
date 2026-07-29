@@ -56,7 +56,14 @@ function buildAgentToolResultMiddlewareFactory(
 ): ExtensionFactory {
   const runner = createAgentToolResultMiddlewareRunner({ runtime: "openclaw" });
   return (agent) => {
-    agent.on("tool_result", async (rawEvent: unknown, ctx: { cwd?: string }) => {
+    (
+      agent as unknown as {
+        on: (
+          event: string,
+          listener: (rawEvent: unknown, ctx: { cwd?: string }) => unknown,
+        ) => unknown;
+      }
+    ).on("tool_result", async (rawEvent: unknown, ctx: { cwd?: string }) => {
       const event = recordFromUnknown(rawEvent) as AgentToolResultEvent;
       if (!event.toolName) {
         return undefined;

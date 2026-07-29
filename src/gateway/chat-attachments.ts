@@ -79,7 +79,7 @@ const TEXT_ONLY_OFFLOAD_LIMIT = 10;
 export const DEFAULT_CHAT_ATTACHMENT_MAX_MB = 20;
 
 export async function persistInboundImagesForTranscript(params: {
-  images: ChatImageContent[];
+  images: ChatAttachmentContent[];
   imageOrder: PromptImageOrderEntry[];
   offloadedRefs: OffloadedRef[];
   log: Pick<AttachmentLog, "warn">;

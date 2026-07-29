@@ -489,7 +489,7 @@ export async function prepareCliPromptImagePayload(params: {
             imageOrder: params.imageOrder,
             maxBytes: MAX_IMAGE_BYTES,
           })
-        ).images
+        ).images.filter((block): block is ImageContent => block.type === "image")
       : imageOnlyBlocks && imageOnlyBlocks.length > 0
         ? imageOnlyBlocks
         : await loadPromptRefImages({ prompt, workspaceDir: params.workspaceDir });

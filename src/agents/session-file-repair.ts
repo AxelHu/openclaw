@@ -20,6 +20,7 @@ import { extractToolCallsFromAssistant, extractToolResultId } from "./tool-call-
  */
 const BLANK_USER_FALLBACK_TEXT = "(continue)";
 const CORRUPTED_IMAGE_FALLBACK_TEXT = "[image omitted: corrupted base64 payload]";
+const CORRUPTED_VIDEO_FALLBACK_TEXT = "[video omitted: corrupted base64 payload]";
 
 type RepairReport = {
   repaired: boolean;
@@ -680,6 +681,7 @@ type RepairEntriesResult = {
   droppedBlankUserMessages: number;
   rewrittenUserMessages: number;
   removedCorruptedImageBlocks: number;
+  removedCorruptedVideoBlocks: number;
 };
 
 function repairSessionLines(lines: string[]): RepairEntriesResult {
@@ -689,6 +691,7 @@ function repairSessionLines(lines: string[]): RepairEntriesResult {
   let droppedBlankUserMessages = 0;
   let rewrittenUserMessages = 0;
   let removedCorruptedImageBlocks = 0;
+  let removedCorruptedVideoBlocks = 0;
 
   for (const line of lines) {
     if (!line.trim()) {
@@ -751,6 +754,7 @@ function repairSessionLines(lines: string[]): RepairEntriesResult {
     droppedBlankUserMessages,
     rewrittenUserMessages,
     removedCorruptedImageBlocks,
+    removedCorruptedVideoBlocks,
   };
 }
 
@@ -760,7 +764,8 @@ function hasEntryRepairs(result: RepairEntriesResult): boolean {
     result.rewrittenAssistantMessages > 0 ||
     result.droppedBlankUserMessages > 0 ||
     result.rewrittenUserMessages > 0 ||
-    result.removedCorruptedImageBlocks > 0
+    result.removedCorruptedImageBlocks > 0 ||
+    result.removedCorruptedVideoBlocks > 0
   );
 }
 
@@ -886,6 +891,7 @@ export async function repairSessionFileIfNeeded(params: {
     droppedBlankUserMessages,
     rewrittenUserMessages,
     removedCorruptedImageBlocks,
+    removedCorruptedVideoBlocks,
   } = repairedEntries;
 
   if (entries.length === 0) {
@@ -972,6 +978,7 @@ export async function repairSessionFileIfNeeded(params: {
       droppedBlankUserMessages,
       rewrittenUserMessages,
       removedCorruptedImageBlocks,
+      removedCorruptedVideoBlocks,
       reason: `repair failed: ${err instanceof Error ? err.message : "unknown error"}`,
     };
   }

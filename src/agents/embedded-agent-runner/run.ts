@@ -263,6 +263,9 @@ import { mapThinkingLevelForProvider } from "./utils.js";
 type ApiKeyInfo = ResolvedProviderAuth;
 
 const MAX_SAME_MODEL_IDLE_TIMEOUT_RETRIES = 1;
+function isTransientRetryableFailoverReason(reason: FailoverReason | null): boolean {
+  return reason === "timeout" || reason === "overloaded" || reason === "format";
+}
 const EMBEDDED_RUN_LANE_TIMEOUT_GRACE_MS = 30_000;
 const EMBEDDED_RUN_LANE_HEARTBEAT_MS = EMBEDDED_RUN_LANE_TIMEOUT_GRACE_MS / 2;
 const MID_TURN_PRECHECK_CONTINUATION_PROMPT =
@@ -1816,6 +1819,7 @@ async function runEmbeddedAgentInternal(
           agentDir,
           runId: params.runId,
           modelId: failure.modelId,
+          rawError,
         });
       };
       const markAuthProfileSuccessAfterRun = () => {
