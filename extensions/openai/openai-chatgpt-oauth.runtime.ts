@@ -3,10 +3,10 @@ import path from "node:path";
 import { formatErrorMessage } from "openclaw/plugin-sdk/error-runtime";
 import { resolveTimerTimeoutMs } from "openclaw/plugin-sdk/number-runtime";
 import type { ProviderAuthContext } from "openclaw/plugin-sdk/plugin-entry";
-import { ensureGlobalUndiciEnvProxyDispatcher } from "openclaw/plugin-sdk/runtime-env";
 import { formatCliCommand } from "openclaw/plugin-sdk/setup-tools";
 import { loginOpenAICodex } from "./openai-chatgpt-oauth-flow.runtime.js";
 import type { OAuthCredentials } from "./openai-chatgpt-oauth-types.runtime.js";
+import { resolveOpenAIOAuthDispatcherPolicy } from "./openai-chatgpt-provider.runtime.js";
 
 const manualInputPromptMessage = "Paste the authorization code (or full redirect URL):";
 const openAICodexOAuthOriginator = "openclaw";
@@ -273,7 +273,7 @@ export async function loginOpenAICodexOAuth(params: {
 }): Promise<OAuthCredentials | null> {
   const { prompter, runtime, isRemote, openUrl, localBrowserMessage } = params;
 
-  ensureGlobalUndiciEnvProxyDispatcher();
+  const openAIOAuthDispatcherPolicy = resolveOpenAIOAuthDispatcherPolicy();
 
   const preflight = await runOpenAIOAuthTlsPreflight();
   if (!preflight.ok && preflight.kind === "tls-cert") {
@@ -349,6 +349,7 @@ export async function loginOpenAICodexOAuth(params: {
         }),
       onProgress: (msg: string) => updateProgress(msg),
       signal: params.signal,
+      dispatcherPolicy: openAIOAuthDispatcherPolicy,
     });
     stopProgress("OpenAI OAuth complete");
     return creds ?? null;

@@ -13,6 +13,7 @@ export {
   ssrfPolicyFromHttpBaseUrlAllowedHostname,
   ssrfPolicyFromHttpBaseUrlAllowedOrigin,
   type LookupFn,
+  type PinnedDispatcherPolicy,
   type SsrFPolicy,
 } from "../infra/net/ssrf.js";
 export { formatErrorMessage } from "../infra/errors.js";

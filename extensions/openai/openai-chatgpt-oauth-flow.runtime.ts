@@ -12,7 +12,7 @@ import {
   resolveOAuthTokenLifetimeMs,
 } from "openclaw/plugin-sdk/provider-oauth-runtime";
 import { readResponseWithLimit } from "openclaw/plugin-sdk/response-limit-runtime";
-import { fetchWithSsrFGuard } from "openclaw/plugin-sdk/ssrf-runtime";
+import { fetchWithSsrFGuard, type PinnedDispatcherPolicy } from "openclaw/plugin-sdk/ssrf-runtime";
 import { resolveCodexAuthIdentity } from "./openai-chatgpt-auth-identity.js";
 import {
   createOAuthLoginCancelledError,
@@ -57,6 +57,14 @@ type NodeOAuthRuntime = {
 type TokenRequestOptions = {
   signal?: AbortSignal;
   timeoutMs?: number;
+  /**
+   * Dispatcher policy applied to the OpenAI auth token endpoint. Bundled
+   * plugin runtime layers (e.g. `openai-chatgpt-provider.runtime.ts`) populate
+   * this from `OPENCLAW_OPENAI_OAUTH_PROXY` so the auth request can route
+   * through an explicit proxy when the gateway region is rejected by OpenAI's
+   * auth server without affecting other outbound HTTPS.
+   */
+  dispatcherPolicy?: PinnedDispatcherPolicy;
 };
 
 const loadNodeOAuthModules = createLazyRuntimeModule(() =>
@@ -178,6 +186,9 @@ async function postTokenForm(
     timeoutMs,
     signal: options.signal,
     auditContext: "openai-chatgpt-oauth-token",
+    ...(options.dispatcherPolicy
+      ? { dispatcherPolicy: options.dispatcherPolicy, mode: "trusted_explicit_proxy" as const }
+      : {}),
   });
   try {
     const responseBody = await readResponseWithLimit(
@@ -217,7 +228,7 @@ async function exchangeAuthorizationCode(
         code_verifier: verifier,
         redirect_uri: redirectUri,
       }),
-      { signal: options.signal, timeoutMs },
+      { signal: options.signal, timeoutMs, dispatcherPolicy: options.dispatcherPolicy },
     );
   } catch (error) {
     return {
@@ -265,7 +276,7 @@ async function refreshAccessToken(
         refresh_token: refreshToken,
         client_id: CLIENT_ID,
       }),
-      { signal: options.signal, timeoutMs },
+      { signal: options.signal, timeoutMs, dispatcherPolicy: options.dispatcherPolicy },
     );
 
     if (!response.ok) {
@@ -435,6 +446,14 @@ export async function loginOpenAICodex(options: {
   onManualCodeInput?: () => Promise<string>;
   originator?: string;
   signal?: AbortSignal;
+  /**
+   * Dispatcher policy applied to the token endpoint exchange (`POST
+   * https://auth.openai.com/oauth/token`). Populated by callers like
+   * `openai-chatgpt-oauth.runtime.ts` so the auth exchange can route through
+   * an explicit proxy when the gateway region is rejected by OpenAI's auth
+   * server without affecting other outbound HTTPS.
+   */
+  dispatcherPolicy?: PinnedDispatcherPolicy;
 }): Promise<OAuthCredentials> {
   throwIfOAuthLoginAborted(options.signal);
   const { verifier, redirectUri, state, url } = await createAuthorizationFlow(options.originator);
@@ -540,6 +559,7 @@ export async function loginOpenAICodex(options: {
 
     const tokenResult = await exchangeAuthorizationCode(code, verifier, redirectUri, {
       signal: options.signal,
+      dispatcherPolicy: options.dispatcherPolicy,
     });
     if (tokenResult.type !== "success") {
       throw new Error(tokenResult.message);
@@ -564,8 +584,11 @@ export async function loginOpenAICodex(options: {
 /**
  * Refresh OpenAI Codex OAuth token
  */
-export async function refreshOpenAICodexToken(refreshToken: string): Promise<OAuthCredentials> {
-  const result = await refreshAccessToken(refreshToken);
+export async function refreshOpenAICodexToken(
+  refreshToken: string,
+  options: TokenRequestOptions = {},
+): Promise<OAuthCredentials> {
+  const result = await refreshAccessToken(refreshToken, options);
   if (result.type !== "success") {
     throw new Error(result.message);
   }
