@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 // Memory Core doctor contract migrates shipped workspace dreaming state.
 import fsSync from "node:fs";
+import type { Stats } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { DatabaseSync } from "node:sqlite";
@@ -776,50 +777,56 @@ async function archiveLegacyMemorySidecar(params: {
   if (existingSources.length === 0) {
     return;
   }
-  const existingArchives = (
-    await Promise.all(
-      existingSources.map(async (sourcePath) => {
-        const archivedPath = `${sourcePath}.migrated`;
-        return (await legacyStateFileExists(archivedPath)) ? archivedPath : null;
-      }),
-    )
-  ).filter((filePath): filePath is string => filePath !== null);
-  if (existingArchives.length > 0) {
-    params.warnings.push(
-      `Left migrated Memory Core legacy memory index sidecar in place because ${existingArchives[0]} already exists`,
-    );
-    return;
-  }
-  const renamed: Array<{ sourcePath: string; archivedPath: string }> = [];
   for (const sourcePath of existingSources) {
-    const archivedPath = `${sourcePath}.migrated`;
-    try {
-      await fs.rename(sourcePath, archivedPath);
-      renamed.push({ sourcePath, archivedPath });
-    } catch (err) {
-      for (const entry of renamed.toReversed()) {
-        try {
-          if (
-            (await legacyStateFileExists(entry.archivedPath)) &&
-            !(await legacyStateFileExists(entry.sourcePath))
-          ) {
-            await fs.rename(entry.archivedPath, entry.sourcePath);
-          }
-        } catch (rollbackErr) {
-          params.warnings.push(
-            `Failed restoring Memory Core legacy memory index sidecar ${entry.archivedPath}: ${String(rollbackErr)}`,
-          );
-        }
-      }
-      params.warnings.push(
-        `Failed archiving Memory Core legacy memory index sidecar ${sourcePath}: ${String(err)}; restored ${renamed.length} already archived file(s)`,
-      );
-      return;
+    await archiveLegacyStateSource({
+      filePath: sourcePath,
+      label: "Memory Core legacy memory index sidecar",
+      changes: params.changes,
+      warnings: params.warnings,
+    });
+  }
+}
+
+async function statRegularFile(filePath: string): Promise<Stats | null> {
+  try {
+    const stat = await fs.stat(filePath);
+    return stat.isFile() ? stat : null;
+  } catch {
+    return null;
+  }
+}
+
+async function removeEmptyLegacyMemorySidecarPlaceholder(params: {
+  source: LegacyMemorySidecarSource;
+  changes: string[];
+}): Promise<boolean> {
+  const sourceStat = await statRegularFile(params.source.legacyPath);
+  if (!sourceStat || sourceStat.size !== 0) {
+    return false;
+  }
+  const hasPreservedState =
+    (await legacyStateFileExists(`${params.source.legacyPath}.migrated`)) ||
+    (await legacyStateFileExists(params.source.agentDatabasePath));
+  if (!hasPreservedState) {
+    return false;
+  }
+  for (const suffix of LEGACY_MEMORY_SIDECAR_SUFFIXES.slice(1)) {
+    const companionStat = await statRegularFile(`${params.source.legacyPath}${suffix}`);
+    if (companionStat && companionStat.size > 0) {
+      return false;
+    }
+  }
+  for (const suffix of LEGACY_MEMORY_SIDECAR_SUFFIXES) {
+    const filePath = `${params.source.legacyPath}${suffix}`;
+    const stat = await statRegularFile(filePath);
+    if (stat?.size === 0) {
+      await fs.rm(filePath, { force: true });
     }
   }
   params.changes.push(
-    `Archived Memory Core legacy memory index sidecar -> ${params.source.legacyPath}.migrated`,
+    `Removed empty Memory Core legacy memory index sidecar placeholder ${params.source.legacyPath}`,
   );
+  return true;
 }
 
 async function preserveLegacyMemorySidecarRetryPath(params: {
@@ -902,6 +909,9 @@ async function migrateLegacyMemorySidecarSource(params: {
   changes: string[];
   warnings: string[];
 }): Promise<{ archiveReady: boolean }> {
+  if (await removeEmptyLegacyMemorySidecarPlaceholder(params)) {
+    return { archiveReady: false };
+  }
   await fs.mkdir(path.dirname(params.source.agentDatabasePath), { recursive: true });
   const sqlite = requireNodeSqlite();
   const db = new sqlite.DatabaseSync(params.source.agentDatabasePath, { allowExtension: true });

@@ -638,6 +638,47 @@ describe("memory-core doctor dreaming migration", () => {
     await expect(fs.access(`${legacyPath}.migrated`)).resolves.toBeUndefined();
   });
 
+  it("archives migrated legacy memory sidecars under a numbered suffix when an archive exists", async () => {
+    const stateDir = path.join(rootDir, "state");
+    const legacyPath = path.join(stateDir, "memory", "main.sqlite");
+    const agentPath = path.join(stateDir, "agents", "main", "agent", "openclaw-agent.sqlite");
+    await writeLegacyMemorySidecar(legacyPath);
+    await fs.copyFile(legacyPath, `${legacyPath}.migrated`);
+    await createCanonicalMemoryIndex(agentPath, "canonical memory remains authoritative");
+
+    const result = await legacyMemoryIndexMigration().migrateLegacyState(migrationParams());
+
+    expect(result.warnings).toEqual([]);
+    expect(result.changes).toEqual([
+      "Resolved Memory Core legacy memory index conflict for agent main by keeping canonical per-agent SQLite rows",
+      `Archived Memory Core legacy memory index sidecar legacy source -> ${legacyPath}.migrated.2`,
+    ]);
+    await expect(fs.access(legacyPath)).rejects.toThrow();
+    await expect(fs.access(`${legacyPath}.migrated`)).resolves.toBeUndefined();
+    await expect(fs.access(`${legacyPath}.migrated.2`)).resolves.toBeUndefined();
+  });
+
+  it("removes empty legacy memory sidecar placeholders when migrated state exists", async () => {
+    const stateDir = path.join(rootDir, "state");
+    const legacyPath = path.join(stateDir, "memory", "main.sqlite");
+    await fs.mkdir(path.dirname(legacyPath), { recursive: true });
+    await fs.writeFile(legacyPath, "");
+    await fs.writeFile(`${legacyPath}-wal`, "");
+    await fs.writeFile(`${legacyPath}.migrated`, "archived memory index");
+
+    const result = await legacyMemoryIndexMigration().migrateLegacyState(migrationParams());
+
+    expect(result.warnings).toEqual([]);
+    expect(result.changes).toEqual([
+      `Removed empty Memory Core legacy memory index sidecar placeholder ${legacyPath}`,
+    ]);
+    await expect(fs.access(legacyPath)).rejects.toThrow();
+    await expect(fs.access(`${legacyPath}-wal`)).rejects.toThrow();
+    await expect(fs.readFile(`${legacyPath}.migrated`, "utf8")).resolves.toBe(
+      "archived memory index",
+    );
+  });
+
   it("creates migrated FTS tables with the configured legacy tokenizer", async () => {
     const stateDir = path.join(rootDir, "state");
     const legacyPath = path.join(stateDir, "memory", "main.sqlite");
