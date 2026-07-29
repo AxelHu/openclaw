@@ -10,8 +10,13 @@ import { formatErrorMessage } from "../../infra/errors.js";
 import { withFileLock } from "../../infra/file-lock.js";
 import { redactSensitiveText } from "../../logging/redact.js";
 import { asDateTimestampMs } from "../../shared/number-coercion.js";
-import { readCodexCliCredentials } from "../cli-credentials.js";
-import { OAUTH_REFRESH_CALL_TIMEOUT_MS, OAUTH_REFRESH_LOCK_OPTIONS, log } from "./constants.js";
+import { readCodexCliCredentialsCached } from "../cli-credentials.js";
+import {
+  OAUTH_REFRESH_CALL_TIMEOUT_MS,
+  OAUTH_REFRESH_LOCK_OPTIONS,
+  OPENAI_CODEX_DEFAULT_PROFILE_ID,
+  log,
+} from "./constants.js";
 import { shouldMirrorRefreshedOAuthCredential } from "./oauth-identity.js";
 import { OAuthRefreshFailureError } from "./oauth-refresh-failure.js";
 import {
@@ -363,6 +368,7 @@ export function createOAuthManager(adapter: OAuthManagerAdapter) {
   }
 
   let refreshQueue = new KeyedAsyncQueue();
+  const runtimeFallbackCredentialCache = new Map<string, OAuthCredential>();
 
   function refreshQueueKey(provider: string, profileId: string): string {
     return `${provider}\u0000${profileId}`;
@@ -682,6 +688,25 @@ export function createOAuthManager(adapter: OAuthManagerAdapter) {
       credential: adoptedCredential,
       readBootstrapCredential: adapter.readBootstrapCredential,
     });
+    const runtimeFallbackKey = refreshQueueKey(params.credential.provider, params.profileId);
+    const cachedRuntimeFallback = runtimeFallbackCredentialCache.get(runtimeFallbackKey);
+    if (cachedRuntimeFallback) {
+      if (
+        cachedRuntimeFallback.provider !== params.credential.provider ||
+        !hasUsableOAuthCredential(cachedRuntimeFallback) ||
+        !isSafeToAdoptBootstrapOAuthIdentity(params.credential, cachedRuntimeFallback)
+      ) {
+        runtimeFallbackCredentialCache.delete(runtimeFallbackKey);
+      } else if (!params.forceRefresh) {
+        return {
+          apiKey: await adapter.buildApiKey(cachedRuntimeFallback.provider, cachedRuntimeFallback, {
+            cfg: params.cfg,
+            agentDir: params.agentDir,
+          }),
+          credential: cachedRuntimeFallback,
+        };
+      }
+    }
     const attemptedCredentials: OAuthCredential[] = [];
 
     if (!params.forceRefresh && hasUsableOAuthCredential(effectiveCredential)) {
@@ -798,18 +823,29 @@ export function createOAuthManager(adapter: OAuthManagerAdapter) {
           // keep the original refresh error below
         }
       }
-      // v6.8-style fallback: when the in-memory refresh_token is stale
+      // v6.8-style fallback: when the canonical refresh_token is stale
       // (e.g. the user re-logged in via `codex login --device-auth` and
       // OpenAI rotated the refresh_token), read the fresh credentials from
-      // the codex CLI auth.json on disk and recover. Restores the
-      // `readExternalCliFallbackCredential` behaviour that v6.8 carried
-      // and v7.1 dropped. Only applies to the openai provider because other
-      // providers do not share the codex CLI auth storage.
-      if (params.credential.provider === "openai") {
+      // the codex CLI auth.json on disk and recover. Cache the recovered
+      // credential for this gateway process so later turns do not repeat the
+      // failed canonical refresh. Keep the cache runtime-only: `.codex` stays
+      // the single disk source and OpenClaw does not write back into Codex CLI
+      // auth state. Forced refreshes still fail closed per the v7.1 policy.
+      if (
+        params.credential.provider === "openai" &&
+        params.profileId === OPENAI_CODEX_DEFAULT_PROFILE_ID &&
+        !params.forceRefresh
+      ) {
         try {
-          const cliCred = readCodexCliCredentials({ allowKeychainPrompt: false });
+          const cliCred = readCodexCliCredentialsCached({
+            allowKeychainPrompt: false,
+            ttlMs: 0,
+          });
           if (
             cliCred &&
+            cliCred.provider === params.credential.provider &&
+            hasUsableOAuthCredential(cliCred) &&
+            isSafeToAdoptBootstrapOAuthIdentity(params.credential, cliCred) &&
             cliCred.refresh &&
             cliCred.refresh !== params.credential.refresh &&
             canReuseOAuthCredentialAfterRefreshFailure({
@@ -818,6 +854,7 @@ export function createOAuthManager(adapter: OAuthManagerAdapter) {
               candidate: cliCred,
             })
           ) {
+            runtimeFallbackCredentialCache.set(runtimeFallbackKey, cliCred);
             log.info("recovered OAuth credentials from codex CLI auth.json", {
               profileId: params.profileId,
               provider: params.credential.provider,
@@ -847,6 +884,7 @@ export function createOAuthManager(adapter: OAuthManagerAdapter) {
 
   function resetRefreshQueuesForTest(): void {
     refreshQueue = new KeyedAsyncQueue();
+    runtimeFallbackCredentialCache.clear();
   }
 
   return {

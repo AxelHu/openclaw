@@ -24,6 +24,7 @@ import {
 } from "./store.js";
 import type { AuthProfileStore, OAuthCredential } from "./types.js";
 let resolveApiKeyForProfile: typeof import("./oauth.js").resolveApiKeyForProfile;
+let resetOAuthRefreshQueuesForTest: typeof import("./oauth.js").resetOAuthRefreshQueuesForTest;
 let resolveApiKeyForProvider: typeof import("../model-auth.js").resolveApiKeyForProvider;
 let hasAvailableAuthForProvider: typeof import("../model-auth.js").hasAvailableAuthForProvider;
 let markAuthProfileSuccess: typeof import("./profiles.js").markAuthProfileSuccess;
@@ -149,13 +150,14 @@ describe("resolveApiKeyForProfile openai refresh fallback", () => {
 
   beforeAll(async () => {
     tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-codex-refresh-fallback-"));
-    ({ resolveApiKeyForProfile } = await import("./oauth.js"));
+    ({ resolveApiKeyForProfile, resetOAuthRefreshQueuesForTest } = await import("./oauth.js"));
     ({ hasAvailableAuthForProvider, resolveApiKeyForProvider } = await import("../model-auth.js"));
     ({ markAuthProfileSuccess } = await import("./profiles.js"));
   });
 
   beforeEach(async () => {
     resetFileLockStateForTest();
+    resetOAuthRefreshQueuesForTest();
     getOAuthApiKeyMock.mockReset();
     getOAuthApiKeyMock.mockImplementation(async () => {
       throw new Error("Failed to extract accountId from token");
@@ -178,6 +180,7 @@ describe("resolveApiKeyForProfile openai refresh fallback", () => {
 
   afterEach(async () => {
     resetFileLockStateForTest();
+    resetOAuthRefreshQueuesForTest();
     clearRuntimeAuthProfileStoreSnapshots();
     closeOpenClawAgentDatabasesForTest();
     envSnapshot.restore();
@@ -188,7 +191,7 @@ describe("resolveApiKeyForProfile openai refresh fallback", () => {
     await fs.rm(tempRoot, { recursive: true, force: true });
   });
 
-  it("fails closed instead of using matching cached Codex CLI credentials when openai refresh fails", async () => {
+  it("caches matching Codex CLI recovery credentials after openai refresh fails", async () => {
     const profileId = "openai:default";
     saveAuthProfileStore(
       createExpiredOauthStore({
@@ -208,14 +211,25 @@ describe("resolveApiKeyForProfile openai refresh fallback", () => {
       accountId: "acct-cached",
     });
 
-    await expect(
-      resolveApiKeyForProfile({
-        store: ensureAuthProfileStore(agentDir),
-        profileId,
-        agentDir,
-      }),
-    ).rejects.toThrow(/OAuth token refresh failed for openai/);
+    const first = await resolveApiKeyForProfile({
+      store: ensureAuthProfileStore(agentDir),
+      profileId,
+      agentDir,
+    });
+    const second = await resolveApiKeyForProfile({
+      store: ensureAuthProfileStore(agentDir),
+      profileId,
+      agentDir,
+    });
+
+    expect(first).toEqual({
+      apiKey: "cached-access-token",
+      provider: "openai",
+      email: undefined,
+    });
+    expect(second).toEqual(first);
     expect(refreshProviderOAuthCredentialWithPluginMock).toHaveBeenCalledTimes(1);
+    expect(readCodexCliCredentialsCachedMock).toHaveBeenCalledTimes(1);
   });
 
   it("surfaces refresh contention once without local lock details", async () => {
