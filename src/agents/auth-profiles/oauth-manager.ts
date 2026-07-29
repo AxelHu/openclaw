@@ -10,6 +10,7 @@ import { formatErrorMessage } from "../../infra/errors.js";
 import { withFileLock } from "../../infra/file-lock.js";
 import { redactSensitiveText } from "../../logging/redact.js";
 import { asDateTimestampMs } from "../../shared/number-coercion.js";
+import { readCodexCliCredentials } from "../cli-credentials.js";
 import { OAUTH_REFRESH_CALL_TIMEOUT_MS, OAUTH_REFRESH_LOCK_OPTIONS, log } from "./constants.js";
 import { shouldMirrorRefreshedOAuthCredential } from "./oauth-identity.js";
 import { OAuthRefreshFailureError } from "./oauth-refresh-failure.js";
@@ -791,6 +792,43 @@ export function createOAuthManager(adapter: OAuthManagerAdapter) {
                 agentDir: params.agentDir,
               }),
               credential: mainCred,
+            };
+          }
+        } catch {
+          // keep the original refresh error below
+        }
+      }
+      // v6.8-style fallback: when the in-memory refresh_token is stale
+      // (e.g. the user re-logged in via `codex login --device-auth` and
+      // OpenAI rotated the refresh_token), read the fresh credentials from
+      // the codex CLI auth.json on disk and recover. Restores the
+      // `readExternalCliFallbackCredential` behaviour that v6.8 carried
+      // and v7.1 dropped. Only applies to the openai provider because other
+      // providers do not share the codex CLI auth storage.
+      if (params.credential.provider === "openai") {
+        try {
+          const cliCred = readCodexCliCredentials({ allowKeychainPrompt: false });
+          if (
+            cliCred &&
+            cliCred.refresh &&
+            cliCred.refresh !== params.credential.refresh &&
+            canReuseOAuthCredentialAfterRefreshFailure({
+              forceRefresh: params.forceRefresh,
+              attempted: effectiveCredential,
+              candidate: cliCred,
+            })
+          ) {
+            log.info("recovered OAuth credentials from codex CLI auth.json", {
+              profileId: params.profileId,
+              provider: params.credential.provider,
+              expires: new Date(cliCred.expires).toISOString(),
+            });
+            return {
+              apiKey: await adapter.buildApiKey(cliCred.provider, cliCred, {
+                cfg: params.cfg,
+                agentDir: params.agentDir,
+              }),
+              credential: cliCred,
             };
           }
         } catch {
