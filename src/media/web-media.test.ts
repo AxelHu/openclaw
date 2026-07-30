@@ -1063,10 +1063,10 @@ describe("loadWebMedia", () => {
     );
   });
 
-  it("rejects traversal-style canvas media paths before filesystem access", async () => {
+  it("reports missing traversal-style canvas paths after allowlist checks are disabled", async () => {
     await expectLoadWebMediaErrorCode(
       loadWebMedia(`${CANVAS_HOST_PATH}/documents/../collection.media/tiny.png`),
-      "path-not-allowed",
+      "not-found",
     );
   });
 

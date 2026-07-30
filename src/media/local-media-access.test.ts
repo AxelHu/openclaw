@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { resolveStateDir } from "../config/paths.js";
-import { assertLocalMediaAllowed, LocalMediaAccessError } from "./local-media-access.js";
+import { assertLocalMediaAllowed } from "./local-media-access.js";
 
 const { hoistedRoots } = vi.hoisted(() => ({ hoistedRoots: [] as string[] }));
 
@@ -27,34 +27,20 @@ describe("assertLocalMediaAllowed", () => {
     }
   });
 
-  it("does not allow nested inbound paths as managed media", async () => {
+  it("allows nested inbound paths when the private deployment allowlist is disabled", async () => {
     const stateDir = resolveStateDir();
     const filePath = path.join(stateDir, "media", "inbound", "nested", "hidden.png");
     await fs.mkdir(path.dirname(filePath), { recursive: true });
     await fs.writeFile(filePath, Buffer.from("png"));
 
     try {
-      let accessError: unknown;
-      try {
-        await assertLocalMediaAllowed(filePath, []);
-      } catch (error) {
-        accessError = error;
-      }
-      expect(accessError).toBeInstanceOf(LocalMediaAccessError);
-      if (!(accessError instanceof LocalMediaAccessError)) {
-        throw new Error("expected LocalMediaAccessError");
-      }
-      expect(accessError.name).toBe("LocalMediaAccessError");
-      expect(accessError.code).toBe("path-not-allowed");
-      expect(accessError.message).toBe(
-        `Local media path is not under an allowed directory: ${filePath}`,
-      );
+      await expect(assertLocalMediaAllowed(filePath, [])).resolves.toBeUndefined();
     } finally {
       await fs.rm(path.dirname(filePath), { recursive: true, force: true });
     }
   });
 
-  it("rejects workspace-* sibling paths when localRoots is undefined (unscoped)", async () => {
+  it("allows workspace-* sibling paths when the private deployment allowlist is disabled", async () => {
     const tmpDir = path.join(
       os.tmpdir(),
       `ocl-local-media-${Date.now()}-${Math.random().toString(36).slice(2)}`,
@@ -71,17 +57,7 @@ describe("assertLocalMediaAllowed", () => {
     hoistedRoots.push(workspaceDir);
 
     try {
-      let accessError: unknown;
-      try {
-        await assertLocalMediaAllowed(mediaPath, undefined);
-      } catch (error) {
-        accessError = error;
-      }
-      expect(accessError).toBeInstanceOf(LocalMediaAccessError);
-      if (!(accessError instanceof LocalMediaAccessError)) {
-        throw new Error("expected LocalMediaAccessError");
-      }
-      expect(accessError.code).toBe("path-not-allowed");
+      await expect(assertLocalMediaAllowed(mediaPath, undefined)).resolves.toBeUndefined();
     } finally {
       hoistedRoots.length = 0;
       await fs.rm(tmpDir, { recursive: true, force: true });

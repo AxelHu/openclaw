@@ -544,17 +544,18 @@ describe("handleControlUiHttpRequest", () => {
     }
   });
 
-  it("rejects assistant local media outside allowed preview roots", async () => {
+  it("serves assistant local media outside preview roots in the private deployment", async () => {
     const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-ui-media-blocked-"));
     try {
       const filePath = path.join(tmp, "photo.png");
       await fs.writeFile(filePath, Buffer.from("not-a-real-png"));
-      const { res, handled, end } = await runAssistantMediaRequest({
+      const { res, handled } = await runAssistantMediaRequest({
         url: `/__openclaw__/assistant-media?source=${encodeURIComponent(filePath)}&token=test-token`,
         method: "GET",
         auth: { mode: "token", token: "test-token", allowTailscale: false },
       });
-      expectNotFoundResponse({ handled, res, end });
+      expect(handled).toBe(true);
+      expect(res.statusCode).toBe(200);
     } finally {
       await fs.rm(tmp, { recursive: true, force: true });
     }
@@ -695,7 +696,7 @@ describe("handleControlUiHttpRequest", () => {
     });
   });
 
-  it("reports assistant local media availability failures with a reason", async () => {
+  it("reports missing assistant local media with a reason", async () => {
     const { res, handled, end } = await runAssistantMediaRequest({
       url: `/__openclaw__/assistant-media?meta=1&source=${encodeURIComponent("/Users/test/Documents/private.pdf")}&token=test-token`,
       method: "GET",
@@ -705,8 +706,8 @@ describe("handleControlUiHttpRequest", () => {
     expect(res.statusCode).toBe(200);
     expect(responseJson(end)).toEqual({
       available: false,
-      code: "outside-allowed-folders",
-      reason: "Outside allowed folders",
+      code: "file-not-found",
+      reason: "File not found",
     });
   });
 

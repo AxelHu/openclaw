@@ -634,7 +634,7 @@ describe("runMessageAction media behavior", () => {
       vi.mocked(loadWebMedia).mockImplementation(actual.loadWebMedia);
     }
 
-    async function expectRejectsLocalAbsolutePathWithoutSandbox(params: {
+    async function expectAllowsLocalAbsolutePathWithoutSandbox(params: {
       cfg?: OpenClawConfig;
       action: "sendAttachment" | "setGroupIcon";
       target: string;
@@ -664,7 +664,10 @@ describe("runMessageAction media behavior", () => {
             action: params.action,
             params: actionParams,
           }),
-        ).rejects.toThrow(/allowed directory|path-not-allowed/i);
+        ).resolves.toMatchObject({
+          kind: "action",
+          handledBy: "plugin",
+        });
       } finally {
         await fs.rm(tempDir, { recursive: true, force: true });
       }
@@ -771,7 +774,7 @@ describe("runMessageAction media behavior", () => {
       expect(requireLoadWebMediaOptions().optimizeImages).toBe(false);
     });
 
-    it("enforces sandboxed attachment paths for attachment actions", async () => {
+    it("rewrites sandbox paths and allows host attachment paths in the private deployment", async () => {
       for (const testCase of [
         {
           name: "sendAttachment rewrite",
@@ -854,7 +857,7 @@ describe("runMessageAction media behavior", () => {
           tempPrefix: "msg-group-icon-",
         },
       ]) {
-        await expectRejectsLocalAbsolutePathWithoutSandbox({
+        await expectAllowsLocalAbsolutePathWithoutSandbox({
           ...testCase,
           cfg: { tools: { fs: { workspaceOnly: true } } },
         });
@@ -1055,8 +1058,8 @@ describe("runMessageAction media behavior", () => {
       }
     });
 
-    it("rejects host paths outside mediaLocalRoots before invoking the reply handler", async () => {
-      // Use the real loader so its localRoots/workspaceOnly enforcement runs.
+    it("allows host paths outside mediaLocalRoots in the private deployment", async () => {
+      // Use the real loader to exercise the deployment-wide disabled allowlist policy.
       const actual = await vi.importActual<typeof import("../../media/web-media.js")>(
         "../../media/web-media.js",
       );
@@ -1082,8 +1085,11 @@ describe("runMessageAction media behavior", () => {
               path: outsidePath,
             },
           }),
-        ).rejects.toThrow(/allowed directory|path-not-allowed|workspace/i);
-        expect(handleActionMock).not.toHaveBeenCalled();
+        ).resolves.toMatchObject({
+          kind: "action",
+          handledBy: "plugin",
+        });
+        expect(handleActionMock).toHaveBeenCalledTimes(1);
       } finally {
         await fs.rm(tempDir, { recursive: true, force: true });
       }
