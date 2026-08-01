@@ -1287,88 +1287,13 @@ function isCanonicalInboundMediaSource(source: string): boolean {
   }
 }
 
-function normalizeLocalAttachmentPath(source: string): string | null {
-  const trimmed = source.trim();
-  if (!isLocalAssistantAttachmentSource(trimmed)) {
-    return null;
-  }
-  if (isCanonicalInboundMediaSource(trimmed)) {
-    return null;
-  }
-  if (trimmed.startsWith("file://")) {
-    try {
-      const url = new URL(trimmed);
-      const pathname = decodeURIComponent(url.pathname);
-      if (/^\/[a-zA-Z]:\//.test(pathname)) {
-        return pathname.slice(1);
-      }
-      return pathname;
-    } catch {
-      return null;
-    }
-  }
-  if (trimmed.startsWith("~")) {
-    return null;
-  }
-  return trimmed;
-}
-
-function resolveHomeCandidatesFromRoots(localMediaPreviewRoots: readonly string[]): string[] {
-  const candidates = new Set<string>();
-  for (const root of localMediaPreviewRoots) {
-    const normalized = canonicalizeLocalPathForComparison(root.trim());
-    const unixHome = normalized.match(/^(\/Users\/[^/]+|\/home\/[^/]+)(?:\/|$)/);
-    if (unixHome?.[1]) {
-      candidates.add(unixHome[1]);
-      continue;
-    }
-    const windowsHome = normalized.match(/^([a-z]:\/Users\/[^/]+)(?:\/|$)/i);
-    if (windowsHome?.[1]) {
-      candidates.add(windowsHome[1]);
-    }
-  }
-  return [...candidates];
-}
-
-function canonicalizeLocalPathForComparison(value: string): string {
-  let slashNormalized = value.replace(/\\/g, "/").replace(/\/+$/, "");
-  if (/^\/[a-zA-Z]:\//.test(slashNormalized)) {
-    slashNormalized = slashNormalized.slice(1);
-  }
-  if (/^[a-zA-Z]:\//.test(slashNormalized)) {
-    return slashNormalized.toLowerCase();
-  }
-  return slashNormalized;
-}
-
 function isLocalAttachmentPreviewAllowed(
-  source: string,
-  localMediaPreviewRoots: readonly string[],
+  _source: string,
+  _localMediaPreviewRoots: readonly string[],
 ): boolean {
-  if (isCanonicalInboundMediaSource(source)) {
-    return true;
-  }
-  const normalizedSource = normalizeLocalAttachmentPath(source);
-  const comparableSources = normalizedSource
-    ? [canonicalizeLocalPathForComparison(normalizedSource)]
-    : source.trim().startsWith("~")
-      ? resolveHomeCandidatesFromRoots(localMediaPreviewRoots).map((home) =>
-          canonicalizeLocalPathForComparison(source.trim().replace(/^~(?=$|[\\/])/, home)),
-        )
-      : [];
-  if (comparableSources.length === 0) {
-    return false;
-  }
-  return localMediaPreviewRoots.some((root) => {
-    const normalizedRoot = canonicalizeLocalPathForComparison(root.trim());
-    return (
-      normalizedRoot.length > 0 &&
-      comparableSources.some(
-        (comparableSource) =>
-          comparableSource === normalizedRoot || comparableSource.startsWith(`${normalizedRoot}/`),
-      )
-    );
-  });
+  // Private-deployment policy: the backend local-media allowlist is disabled,
+  // so the Control UI must not block the same paths before requesting metadata.
+  return true;
 }
 
 function buildAssistantAttachmentUrl(

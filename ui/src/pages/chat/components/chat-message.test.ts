@@ -2576,36 +2576,55 @@ describe("grouped chat rendering", () => {
     expect(container.querySelector(".chat-assistant-attachment-card--blocked")).toBeNull();
   });
 
-  it("renders blocked local assistant files as unavailable with a reason", () => {
+  it("proxies local assistant files outside preview roots in private deployments", async () => {
     resetAssistantAttachmentAvailabilityCacheForTest();
+    const fetchMock = vi.fn(async (url: string) => {
+      if (!url.includes("meta=1")) {
+        throw new Error(`Unexpected fetch: ${url}`);
+      }
+      return {
+        ok: true,
+        json: async () => mediaTicketPayload("ticket-outside-root"),
+      };
+    });
+    vi.stubGlobal("fetch", fetchMock as unknown as typeof fetch);
     const container = document.createElement("div");
-    renderAssistantMessage(
-      container,
-      {
-        id: "assistant-blocked-local-media",
-        role: "assistant",
-        content: "Blocked\nMEDIA:/Users/test/Documents/private.pdf\nDone",
-        timestamp: Date.now(),
-      },
-      {
-        showToolCalls: false,
-        basePath: "/openclaw",
-        localMediaPreviewRoots: ["/tmp/openclaw"],
-      },
-    );
+    const renderMessage = () =>
+      renderAssistantMessage(
+        container,
+        {
+          id: "assistant-local-media-outside-root",
+          role: "assistant",
+          content: "Blocked\nMEDIA:/Users/test/Documents/private.pdf\nDone",
+          timestamp: Date.now(),
+        },
+        {
+          showToolCalls: false,
+          basePath: "/openclaw",
+          localMediaPreviewRoots: ["/tmp/openclaw"],
+          onRequestUpdate: renderMessage,
+        },
+      );
 
-    expect(container.querySelector(".chat-assistant-attachment-card__link")).toBeNull();
-    const blockedCard = container.querySelector(".chat-assistant-attachment-card--blocked");
-    expect(blockedCard?.querySelector(".chat-assistant-attachment-card__title")?.textContent).toBe(
-      "private.pdf",
+    renderMessage();
+    await flushAssistantAttachmentAvailabilityChecks();
+
+    const [fetchUrl, fetchInit] = requireFetchCall(fetchMock, 0);
+    expect(fetchUrl).toBe(
+      "/openclaw/__openclaw__/assistant-media?source=%2FUsers%2Ftest%2FDocuments%2Fprivate.pdf&meta=1",
     );
-    expect(blockedCard?.querySelector(".chat-assistant-attachment-badge")?.textContent).toBe(
-      "Unavailable",
-    );
+    expectSameOriginGet(fetchInit);
     expect(
-      blockedCard?.querySelector(".chat-assistant-attachment-card__reason")?.textContent?.trim(),
-    ).toBe("Outside allowed folders");
+      container
+        .querySelector<HTMLAnchorElement>(".chat-assistant-attachment-card__link")
+        ?.getAttribute("href"),
+    ).toBe(
+      "/openclaw/__openclaw__/assistant-media?source=%2FUsers%2Ftest%2FDocuments%2Fprivate.pdf&mediaTicket=ticket-outside-root",
+    );
+    expect(container.querySelector(".chat-assistant-attachment-card--blocked")).toBeNull();
+    expect(container.querySelector(".chat-assistant-attachment-card__reason")).toBeNull();
     expect(container.querySelector(".chat-text")?.textContent?.trim()).toBe("Blocked\nDone");
+    vi.unstubAllGlobals();
   });
 
   it("allows platform-specific local assistant attachments inside preview roots", async () => {
