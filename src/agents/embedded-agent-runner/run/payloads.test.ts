@@ -301,7 +301,7 @@ describe("buildEmbeddedRunPayloads tool-error warnings", () => {
         content: [
           {
             type: "text",
-            text: "Previous transcript reply.",
+            text: "Previous transcript reply.\n\nMEDIA:/tmp/stale-reply.png",
             textSignature: JSON.stringify({
               v: 1,
               id: "item_previous",
@@ -313,6 +313,35 @@ describe("buildEmbeddedRunPayloads tool-error warnings", () => {
     });
 
     expectSinglePayloadText(payloads, "Current room event reply.");
+    expect(payloads[0]?.mediaUrl).toBeUndefined();
+    expect(payloads[0]?.mediaUrls).toBeUndefined();
+  });
+
+  it("recovers media from a matching canonical assistant when the current attempt lookup is missing", () => {
+    const payloads = buildPayloads({
+      assistantTexts: ["Attached image"],
+      currentAssistant: null,
+      lastAssistant: {
+        role: "assistant",
+        stopReason: "stop",
+        content: [
+          {
+            type: "text",
+            text: "Attached image\n\nMEDIA:/tmp/reply-image.png",
+            textSignature: JSON.stringify({
+              v: 1,
+              id: "item_current",
+              phase: "final_answer",
+            }),
+          },
+        ],
+      } as AssistantMessage,
+    });
+
+    expect(payloads).toHaveLength(1);
+    expect(payloads[0]?.text).toBe("Attached image");
+    expect(payloads[0]?.mediaUrl).toBe("/tmp/reply-image.png");
+    expect(payloads[0]?.mediaUrls).toEqual(["/tmp/reply-image.png"]);
   });
 
   it("delivers only the final assistant answer when accumulated text includes pre-tool progress", () => {
@@ -412,54 +441,6 @@ describe("buildEmbeddedRunPayloads tool-error warnings", () => {
     });
 
     expect(payloads).toEqual([]);
-  });
-
-  it("marks an undelivered media final for channel fallback in message-tool-only mode", () => {
-    const payloads = buildPayloads({
-      assistantTexts: ["Attached image"],
-      lastAssistant: {
-        role: "assistant",
-        stopReason: "stop",
-        content: [
-          {
-            type: "text",
-            text: "Attached image\n\nMEDIA:/tmp/reply-image.png",
-            textSignature: JSON.stringify({
-              v: 1,
-              id: "item_final",
-              phase: "final_answer",
-            }),
-          },
-        ],
-      } as AssistantMessage,
-      sourceReplyDeliveryMode: "message_tool_only",
-      sessionKey: "agent:main:feishu:group:oc_test",
-      agentId: "main",
-      runId: "run-media-fallback",
-    });
-
-    expect(payloads).toHaveLength(1);
-    expect(payloads[0]).toMatchObject({
-      text: "Attached image",
-      mediaUrl: "/tmp/reply-image.png",
-      mediaUrls: ["/tmp/reply-image.png"],
-    });
-    expect(getReplyPayloadMetadata(payloads[0] as object)).toMatchObject({
-      deliverDespiteSourceReplySuppression: true,
-    });
-  });
-
-  it("keeps an undelivered text-only final private in message-tool-only mode", () => {
-    const payloads = buildPayloads({
-      assistantTexts: ["ordinary final should stay private"],
-      sourceReplyDeliveryMode: "message_tool_only",
-      sessionKey: "agent:main:feishu:group:oc_test",
-    });
-
-    expect(payloads).toHaveLength(1);
-    expect(getReplyPayloadMetadata(payloads[0] as object)).not.toMatchObject({
-      deliverDespiteSourceReplySuppression: true,
-    });
   });
 
   it("preserves rich-only internal message-tool source replies", () => {

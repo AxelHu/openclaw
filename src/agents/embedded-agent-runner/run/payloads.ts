@@ -646,10 +646,6 @@ export function buildEmbeddedRunPayloads(params: {
   const deliveredSourceReplyViaMessageTool =
     params.sourceReplyDeliveryMode === "message_tool_only" &&
     params.didDeliverSourceReplyViaMessageTool === true;
-  const allowUndeliveredMediaFinalFallback =
-    params.sourceReplyDeliveryMode === "message_tool_only" &&
-    !hasSourceReplyPayload &&
-    !deliveredSourceReplyViaMessageTool;
 
   const useMarkdown = params.toolResultFormat === "markdown";
   const suppressAssistantArtifacts =
@@ -660,8 +656,30 @@ export function buildEmbeddedRunPayloads(params: {
     .map((text) => sanitizeAssistantVisibleStreamText(text))
     .filter((text) => text.trim().length > 0);
   const currentAssistant = params.currentAssistant ?? undefined;
+  const matchingCanonicalMediaAssistant = (() => {
+    if (currentAssistant || nonEmptyAssistantTexts.length !== 1 || !params.lastAssistant) {
+      return undefined;
+    }
+    const rawAnswerText = resolveRawAssistantAnswerText(params.lastAssistant);
+    if (!rawAnswerText) {
+      return undefined;
+    }
+    const parsedAnswer = parseReplyDirectives(rawAnswerText);
+    const hasMediaDirective =
+      (parsedAnswer.mediaUrls?.length ?? 0) > 0 || parsedAnswer.audioAsVoice === true;
+    if (!hasMediaDirective) {
+      return undefined;
+    }
+    const streamedText = normalizeTextForComparison(nonEmptyAssistantTexts[0] ?? "");
+    const canonicalText = normalizeTextForComparison(parsedAnswer.text ?? "");
+    return streamedText.length > 0 && streamedText === canonicalText
+      ? params.lastAssistant
+      : undefined;
+  })();
   const assistantForPayload =
-    currentAssistant ?? (nonEmptyAssistantTexts.length === 1 ? undefined : params.lastAssistant);
+    currentAssistant ??
+    matchingCanonicalMediaAssistant ??
+    (nonEmptyAssistantTexts.length === 1 ? undefined : params.lastAssistant);
   const lastAssistantStopReason = assistantForPayload?.stopReason;
   const lastAssistantErrored = lastAssistantStopReason === "error";
   const lastAssistantAborted = lastAssistantStopReason === "aborted";
@@ -992,19 +1010,6 @@ export function buildEmbeddedRunPayloads(params: {
             sourceReplyTranscriptMirror,
           });
         }
-      }
-      if (
-        allowUndeliveredMediaFinalFallback &&
-        !item.sourceReplyMirror &&
-        !item.isError &&
-        !item.isReasoning &&
-        (payload.mediaUrls?.length ?? 0) > 0
-      ) {
-        // A MEDIA directive is an explicit request for visible channel delivery.
-        // If a message-tool-only model returns that directive as its private final
-        // without calling `message`, preserve the attachment instead of silently
-        // dropping the entire reply. Text-only private finals remain suppressed.
-        markReplyPayloadForSourceSuppressionDelivery(payload);
       }
       if (payload.text && isSilentReplyPayloadText(payload.text, SILENT_REPLY_TOKEN)) {
         const silentText = payload.text;
