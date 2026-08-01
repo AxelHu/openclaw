@@ -414,6 +414,54 @@ describe("buildEmbeddedRunPayloads tool-error warnings", () => {
     expect(payloads).toEqual([]);
   });
 
+  it("marks an undelivered media final for channel fallback in message-tool-only mode", () => {
+    const payloads = buildPayloads({
+      assistantTexts: ["Attached image"],
+      lastAssistant: {
+        role: "assistant",
+        stopReason: "stop",
+        content: [
+          {
+            type: "text",
+            text: "Attached image\n\nMEDIA:/tmp/reply-image.png",
+            textSignature: JSON.stringify({
+              v: 1,
+              id: "item_final",
+              phase: "final_answer",
+            }),
+          },
+        ],
+      } as AssistantMessage,
+      sourceReplyDeliveryMode: "message_tool_only",
+      sessionKey: "agent:main:feishu:group:oc_test",
+      agentId: "main",
+      runId: "run-media-fallback",
+    });
+
+    expect(payloads).toHaveLength(1);
+    expect(payloads[0]).toMatchObject({
+      text: "Attached image",
+      mediaUrl: "/tmp/reply-image.png",
+      mediaUrls: ["/tmp/reply-image.png"],
+    });
+    expect(getReplyPayloadMetadata(payloads[0] as object)).toMatchObject({
+      deliverDespiteSourceReplySuppression: true,
+    });
+  });
+
+  it("keeps an undelivered text-only final private in message-tool-only mode", () => {
+    const payloads = buildPayloads({
+      assistantTexts: ["ordinary final should stay private"],
+      sourceReplyDeliveryMode: "message_tool_only",
+      sessionKey: "agent:main:feishu:group:oc_test",
+    });
+
+    expect(payloads).toHaveLength(1);
+    expect(getReplyPayloadMetadata(payloads[0] as object)).not.toMatchObject({
+      deliverDespiteSourceReplySuppression: true,
+    });
+  });
+
   it("preserves rich-only internal message-tool source replies", () => {
     const presentation = {
       blocks: [

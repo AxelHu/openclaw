@@ -646,6 +646,10 @@ export function buildEmbeddedRunPayloads(params: {
   const deliveredSourceReplyViaMessageTool =
     params.sourceReplyDeliveryMode === "message_tool_only" &&
     params.didDeliverSourceReplyViaMessageTool === true;
+  const allowUndeliveredMediaFinalFallback =
+    params.sourceReplyDeliveryMode === "message_tool_only" &&
+    !hasSourceReplyPayload &&
+    !deliveredSourceReplyViaMessageTool;
 
   const useMarkdown = params.toolResultFormat === "markdown";
   const suppressAssistantArtifacts =
@@ -988,6 +992,19 @@ export function buildEmbeddedRunPayloads(params: {
             sourceReplyTranscriptMirror,
           });
         }
+      }
+      if (
+        allowUndeliveredMediaFinalFallback &&
+        !item.sourceReplyMirror &&
+        !item.isError &&
+        !item.isReasoning &&
+        (payload.mediaUrls?.length ?? 0) > 0
+      ) {
+        // A MEDIA directive is an explicit request for visible channel delivery.
+        // If a message-tool-only model returns that directive as its private final
+        // without calling `message`, preserve the attachment instead of silently
+        // dropping the entire reply. Text-only private finals remain suppressed.
+        markReplyPayloadForSourceSuppressionDelivery(payload);
       }
       if (payload.text && isSilentReplyPayloadText(payload.text, SILENT_REPLY_TOKEN)) {
         const silentText = payload.text;
