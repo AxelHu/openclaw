@@ -1495,7 +1495,9 @@ export async function runMemoryFlushIfNeeded(params: {
           onAgentEvent: (evt) => {
             if (evt.stream === "compaction") {
               const phase = typeof evt.data.phase === "string" ? evt.data.phase : "";
-              if (phase === "end") {
+              // A terminal event can also describe an aborted/incomplete compaction.
+              // Only advance durable session state when the runtime confirms completion.
+              if (phase === "end" && evt.data.completed === true) {
                 memoryCompactionCompleted = true;
               }
             }
@@ -1514,13 +1516,10 @@ export async function runMemoryFlushIfNeeded(params: {
         return result;
       },
     });
-    const flushedCompactionCount =
-      activeSessionEntry?.compactionCount ??
-      (params.sessionKey ? activeSessionStore?.[params.sessionKey]?.compactionCount : 0) ??
-      0;
+    let completedCompactionCount: number | undefined;
     if (memoryCompactionCompleted) {
       const previousSessionId = activeSessionEntry?.sessionId ?? params.followupRun.run.sessionId;
-      await memoryDeps.incrementCompactionCount({
+      completedCompactionCount = await memoryDeps.incrementCompactionCount({
         cfg: params.cfg,
         sessionEntry: activeSessionEntry,
         sessionStore: activeSessionStore,
@@ -1548,6 +1547,13 @@ export async function runMemoryFlushIfNeeded(params: {
         }
       }
     }
+    // If the flush turn itself compacted, the persisted flush marker belongs to
+    // the successor cycle; stamping the old count causes every later turn to flush again.
+    const flushedCompactionCount =
+      completedCompactionCount ??
+      activeSessionEntry?.compactionCount ??
+      (params.sessionKey ? activeSessionStore?.[params.sessionKey]?.compactionCount : 0) ??
+      0;
     if (visibleErrorPayloads.length > 0) {
       // Preserve any completed transcript rotation, then count the maintenance error.
       // Do not stamp memory-flush success for a resolved run that returned an error.

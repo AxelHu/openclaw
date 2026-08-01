@@ -242,7 +242,7 @@ describe("runMemoryFlushIfNeeded", () => {
     await fs.rm(rootDir, { recursive: true, force: true });
   });
 
-  it("runs a memory flush turn, rotates after compaction, and persists metadata", async () => {
+  it("runs a memory flush turn, rotates after completed compaction, and marks the new cycle flushed", async () => {
     const storePath = path.join(rootDir, "sessions.json");
     const sessionKey = "main";
     const sessionEntry: SessionEntry = {
@@ -256,9 +256,15 @@ describe("runMemoryFlushIfNeeded", () => {
 
     runEmbeddedAgentMock.mockImplementationOnce(
       async (params: {
-        onAgentEvent?: (evt: { stream: string; data: { phase: string } }) => void;
+        onAgentEvent?: (evt: {
+          stream: string;
+          data: { phase: string; completed?: boolean };
+        }) => void;
       }) => {
-        params.onAgentEvent?.({ stream: "compaction", data: { phase: "end" } });
+        params.onAgentEvent?.({
+          stream: "compaction",
+          data: { phase: "end", completed: true },
+        });
         return {
           payloads: [],
           meta: { agentMeta: { sessionId: "session-rotated" } },
@@ -319,8 +325,76 @@ describe("runMemoryFlushIfNeeded", () => {
     };
     expect(persisted.main.sessionId).toBe("session-rotated");
     expect(persisted.main.compactionCount).toBe(2);
-    expect(persisted.main.memoryFlushCompactionCount).toBe(1);
+    expect(persisted.main.memoryFlushCompactionCount).toBe(2);
     expect(persisted.main.memoryFlushAt).toBe(1_700_000_000_000);
+
+    await runMemoryFlushIfNeeded({
+      cfg: { agents: { defaults: { compaction: { memoryFlush: {} } } } },
+      followupRun,
+      sessionCtx: { Provider: "whatsapp" } as unknown as TemplateContext,
+      defaultModel: "anthropic/claude-opus-4-6",
+      agentCfgContextTokens: 100_000,
+      resolvedVerboseLevel: "off",
+      sessionEntry: result.sessionEntry,
+      sessionStore,
+      sessionKey,
+      storePath,
+      isHeartbeat: false,
+      replyOperation: createReplyOperation(),
+    });
+
+    expect(runEmbeddedAgentMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not rotate the flush session for an incomplete compaction event", async () => {
+    const storePath = path.join(rootDir, "sessions.json");
+    const sessionKey = "main";
+    const sessionEntry: SessionEntry = {
+      sessionId: "session",
+      updatedAt: Date.now(),
+      totalTokens: 80_000,
+      compactionCount: 1,
+    };
+    const sessionStore = { [sessionKey]: sessionEntry };
+    await writeTestSessionStore(storePath, sessionKey, sessionEntry);
+
+    runEmbeddedAgentMock.mockImplementationOnce(
+      async (params: {
+        onAgentEvent?: (evt: {
+          stream: string;
+          data: { phase: string; completed?: boolean };
+        }) => void;
+      }) => {
+        params.onAgentEvent?.({
+          stream: "compaction",
+          data: { phase: "end", completed: false },
+        });
+        return { payloads: [], meta: {} };
+      },
+    );
+
+    const result = await runMemoryFlushIfNeeded({
+      cfg: { agents: { defaults: { compaction: { memoryFlush: {} } } } },
+      followupRun: createTestFollowupRun(),
+      sessionCtx: { Provider: "whatsapp" } as unknown as TemplateContext,
+      defaultModel: "anthropic/claude-opus-4-6",
+      agentCfgContextTokens: 100_000,
+      resolvedVerboseLevel: "off",
+      sessionEntry,
+      sessionStore,
+      sessionKey,
+      storePath,
+      isHeartbeat: false,
+      replyOperation: createReplyOperation(),
+    });
+
+    expect(result.outcome).toBe("completed");
+    expect(incrementCompactionCountMock).not.toHaveBeenCalled();
+    const persisted = JSON.parse(await fs.readFile(storePath, "utf8")) as {
+      main: SessionEntry;
+    };
+    expect(persisted.main.compactionCount).toBe(1);
+    expect(persisted.main.memoryFlushCompactionCount).toBe(1);
   });
 
   it("revalidates immutable Ultra for each memory-flush fallback candidate", async () => {
@@ -394,9 +468,15 @@ describe("runMemoryFlushIfNeeded", () => {
     const visibleErrorPayloads: Array<{ text?: string; isError?: boolean }> = [];
     runEmbeddedAgentMock.mockImplementationOnce(
       async (params: {
-        onAgentEvent?: (event: { stream: string; data: { phase: string } }) => void;
+        onAgentEvent?: (event: {
+          stream: string;
+          data: { phase: string; completed?: boolean };
+        }) => void;
       }) => {
-        params.onAgentEvent?.({ stream: "compaction", data: { phase: "end" } });
+        params.onAgentEvent?.({
+          stream: "compaction",
+          data: { phase: "end", completed: true },
+        });
         return {
           payloads: [
             { text: "normal silent maintenance reply" },
