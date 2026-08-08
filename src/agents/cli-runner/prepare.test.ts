@@ -2703,7 +2703,10 @@ describe("shouldSkipLocalCliCredentialEpoch", () => {
       expect(ensureMcpLoopbackServer).not.toHaveBeenCalled();
       expect(createMcpLoopbackServerConfig).not.toHaveBeenCalled();
       expect(context.preparedBackend.mcpConfigHash).toBeUndefined();
-      expect(context.preparedBackend.env).toBeUndefined();
+      expect(context.preparedBackend.env).toMatchObject({
+        OPENCLAW_AGENT_ID: "main",
+        OPENCLAW_AGENT_WORKSPACE: dir,
+      });
       expect(context.preparedBackend.backend.args).toEqual(["--print"]);
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });

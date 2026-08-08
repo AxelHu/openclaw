@@ -141,6 +141,50 @@ describe("exec resolve_exec_env hook wiring", () => {
     mocks.spawnInputs.length = 0;
   });
 
+  it("adds immutable agent identity env to lazy gateway exec subprocesses", async () => {
+    const exec = createOpenClawCodingTools({
+      agentId: "main",
+      sessionKey: "agent:main:telegram:chat-1",
+      workspaceDir: process.cwd(),
+      spawnWorkspaceDir: "/agent-workspaces/workspace-main",
+      cwd: process.cwd(),
+      exec: { host: "gateway", security: "full", ask: "off" },
+    }).find((tool) => tool.name === "exec");
+    expect(exec).toBeDefined();
+    const [definition] = toToolDefinitions([exec!], {
+      agentId: "main",
+      sessionKey: "agent:main:telegram:chat-1",
+      channelId: "chat-1",
+    });
+
+    await definition.execute(
+      "call-agent-identity",
+      {
+        command: "echo ok",
+        env: {
+          OPENCLAW_AGENT_ID: "wrong-agent",
+          OPENCLAW_AGENT_WORKSPACE: "/wrong/workspace",
+        },
+      },
+      undefined,
+      undefined,
+      testExtensionContext,
+    );
+
+    expect(mocks.gatewayParams[0]?.requestedEnv).toMatchObject({
+      OPENCLAW_AGENT_ID: "main",
+      OPENCLAW_AGENT_WORKSPACE: "/agent-workspaces/workspace-main",
+    });
+    expect(mocks.gatewayParams[0]?.env).toMatchObject({
+      OPENCLAW_AGENT_ID: "main",
+      OPENCLAW_AGENT_WORKSPACE: "/agent-workspaces/workspace-main",
+    });
+    expect(mocks.spawnInputs[0]?.env).toMatchObject({
+      OPENCLAW_AGENT_ID: "main",
+      OPENCLAW_AGENT_WORKSPACE: "/agent-workspaces/workspace-main",
+    });
+  });
+
   it("adds only channel identity env to gateway exec subprocesses", async () => {
     const tool = createExecTool({
       host: "auto",
@@ -685,6 +729,7 @@ describe("exec resolve_exec_env hook wiring", () => {
     expect(mocks.hookRunner.runResolveExecEnv!).toHaveBeenCalledTimes(1);
     expect(mocks.gatewayParams[0]?.requestedEnv).toEqual({
       EXISTING: "request",
+      OPENCLAW_AGENT_ID: "main",
       PLUGIN_SAFE: "yes",
     });
   });
@@ -733,6 +778,8 @@ describe("exec resolve_exec_env hook wiring", () => {
     expect(mocks.hookRunner.runResolveExecEnv!).toHaveBeenCalledTimes(1);
     expect(mocks.gatewayParams[0]?.requestedEnv).toEqual({
       LAZY_PLUGIN_SAFE: "yes",
+      OPENCLAW_AGENT_ID: "main",
+      OPENCLAW_AGENT_WORKSPACE: process.cwd(),
       REQUEST_SAFE: "request",
     });
   });
@@ -785,6 +832,7 @@ describe("exec resolve_exec_env hook wiring", () => {
     );
     expect(mocks.nodeHostParams[0]?.requestedEnv).toEqual({
       NODE_PLUGIN_SAFE: "node",
+      OPENCLAW_AGENT_ID: "main",
       REQUEST_SAFE: "request",
     });
     expect(mocks.nodeHostParams[0]?.requestedEnv).not.toHaveProperty("GATEWAY_PLUGIN_SAFE");
@@ -834,6 +882,7 @@ describe("exec resolve_exec_env hook wiring", () => {
     );
     expect(mocks.nodeHostParams[0]?.requestedEnv).toEqual({
       NODE_PLUGIN_SAFE: "node",
+      OPENCLAW_AGENT_ID: "main",
       REQUEST_SAFE: "request",
     });
     expect(mocks.nodeHostParams[0]?.workdir).toBe("/remote/node/workspace");
@@ -876,6 +925,7 @@ describe("exec resolve_exec_env hook wiring", () => {
 
     expect(mocks.hookRunner.runResolveExecEnv!).not.toHaveBeenCalled();
     expect(mocks.gatewayParams[0]?.requestedEnv).toEqual({
+      OPENCLAW_AGENT_ID: "main",
       REQUEST_SAFE: "request",
     });
   });
@@ -898,6 +948,7 @@ describe("exec resolve_exec_env hook wiring", () => {
     });
 
     expect(mocks.gatewayParams[0]?.requestedEnv).toEqual({
+      OPENCLAW_AGENT_ID: "main",
       REQUEST_SAFE: "request",
     });
   });
@@ -943,6 +994,7 @@ describe("exec resolve_exec_env hook wiring", () => {
     });
     expect(mocks.hookRunner.runResolveExecEnv!).toHaveBeenCalledTimes(1);
     expect(mocks.gatewayParams[0]?.requestedEnv).toEqual({
+      OPENCLAW_AGENT_ID: "main",
       PLUGIN_SAFE: "yes",
       REQUEST_SAFE: "request",
     });

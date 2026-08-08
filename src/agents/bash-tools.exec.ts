@@ -52,6 +52,7 @@ import { createLazyImportLoader } from "../shared/lazy-promise.js";
 import { normalizeDeliveryContext } from "../utils/delivery-context.js";
 import { safeJsonStringify } from "../utils/safe-json.js";
 import { splitShellArgs } from "../utils/shell-argv.js";
+import { buildAgentSubprocessEnv } from "./agent-subprocess-env.js";
 import type { HookContext } from "./agent-tools.before-tool-call.js";
 import { stripMalformedXmlArgValueSuffixFromKeys } from "./agent-tools.params.js";
 import { markBackgrounded } from "./bash-process-registry.js";
@@ -1780,11 +1781,21 @@ export function createExecTool(
         const inheritedBaseEnv = coerceEnv(process.env);
         const resolvedExecEnvState = getResolvedExecEnvPreparedState(params);
         const channelContextEnv = buildChannelContextEnv(defaults?.channelContext);
+        const agentContextEnv = buildAgentSubprocessEnv({
+          agentId,
+          workspaceDir: host === "gateway" ? defaults?.workspaceDir : undefined,
+        });
         const requestedEnv: Record<string, string> | undefined =
           params.env !== undefined ||
           resolvedExecEnvState?.pluginEnv !== undefined ||
-          channelContextEnv !== undefined
-            ? { ...params.env, ...resolvedExecEnvState?.pluginEnv, ...channelContextEnv }
+          channelContextEnv !== undefined ||
+          Object.keys(agentContextEnv).length > 0
+            ? {
+                ...params.env,
+                ...resolvedExecEnvState?.pluginEnv,
+                ...channelContextEnv,
+                ...agentContextEnv,
+              }
             : undefined;
         const hostEnvResult =
           host === "sandbox"

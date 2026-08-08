@@ -35,6 +35,7 @@ import { resolveUserPath } from "../../utils.js";
 import { normalizeMessageChannel } from "../../utils/message-channel.js";
 import { resolveAgentWorkspaceDir } from "../agent-scope-config.js";
 import { resolveAgentDir, resolveSessionAgentIds } from "../agent-scope.js";
+import { buildAgentSubprocessEnv } from "../agent-subprocess-env.js";
 import { externalCliDiscoveryForProviderAuth } from "../auth-profiles/external-cli-discovery.js";
 import { resolveApiKeyForProfile } from "../auth-profiles/oauth.js";
 import { resolveAuthProfileOrder } from "../auth-profiles/order.js";
@@ -650,10 +651,14 @@ export async function prepareCliRunContext(
       authProfileId: effectiveAuthProfileId,
       skipLocalCredential: skipLocalCredentialEpoch,
     });
-    const preparedBackendEnv =
-      preparedExecution?.env && Object.keys(preparedExecution.env).length > 0
-        ? { ...preparedBackend.env, ...preparedExecution.env }
-        : preparedBackend.env;
+    const preparedBackendEnv = {
+      ...preparedBackend.env,
+      ...preparedExecution?.env,
+      ...buildAgentSubprocessEnv({
+        agentId: sessionAgentId,
+        workspaceDir,
+      }),
+    };
     const preparedBackendBeforeExecution =
       preparedBackend.beforeExecution || preparedExecution?.beforeExecution
         ? async () => {

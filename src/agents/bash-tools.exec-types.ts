@@ -40,6 +40,8 @@ export type ExecToolDefaults = {
   config?: OpenClawConfig;
   autoReviewer?: ExecAutoReviewer;
   agentId?: string;
+  /** Canonical host workspace for the owning agent. */
+  workspaceDir?: string;
   backgroundMs?: number;
   timeoutSec?: number;
   approvalWarningText?: string;
