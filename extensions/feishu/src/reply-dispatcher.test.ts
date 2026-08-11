@@ -597,23 +597,29 @@ describe("createFeishuReplyDispatcher streaming behavior", () => {
     expect(sendMarkdownCardFeishuMock).not.toHaveBeenCalled();
   });
 
-  it("passes mention-forward targets to non-streaming plain text replies without rewriting body text", async () => {
+  it("does not inherit mention-forward targets into non-streaming final replies", async () => {
     useNonStreamingAutoAccount();
 
-    const { options } = createDispatcherHarness({
+    const overrides = {
       replyToMessageId: "om_msg",
       mentionTargets: [{ openId: "ou_target", name: "Target User", key: "@_user_1" }],
-    });
+    } as Partial<ReplyDispatcherArgs>;
+    const { options } = createDispatcherHarness(overrides);
     await options.deliver(
-      { text: 'plain text <at user_id="ou_body">Body User</at>' },
+      {
+        text: "⚠️ Auto-compaction could not recover this turn. Please retry.",
+        isError: true,
+      },
       { kind: "final" },
     );
 
     expect(sendMessageFeishuMock).toHaveBeenCalledTimes(1);
     expectMockArgFields(sendMessageFeishuMock, "message send params", {
-      text: 'plain text <at user_id="ou_body">Body User</at>',
-      mentions: [{ openId: "ou_target", name: "Target User", key: "@_user_1" }],
+      text: "⚠️ Auto-compaction could not recover this turn. Please retry.",
     });
+    expect(firstMockArg(sendMessageFeishuMock, "message send params")).not.toHaveProperty(
+      "mentions",
+    );
   });
 
   it("does not attach automatic mentions to card replies", async () => {
@@ -686,7 +692,7 @@ describe("createFeishuReplyDispatcher streaming behavior", () => {
     });
   });
 
-  it("sends complete chunked blocks to the DM target", async () => {
+  it("does not inherit mention-forward targets into independently sent blocks", async () => {
     useNonStreamingBlockAccount();
     const runtime = getFeishuRuntimeMock();
     runtime.channel.text.resolveTextChunkLimit.mockReturnValue(10);
@@ -694,11 +700,12 @@ describe("createFeishuReplyDispatcher streaming behavior", () => {
       text === "First paragraph." ? ["First ", "paragraph."] : [text],
     );
     const mentions = [{ openId: "ou_target", name: "Target User", key: "@_user_1" }];
-    const { options } = createDispatcherHarness({
+    const overrides = {
       chatId: "oc_p2p_chat",
       sendTarget: "user:ou_sender",
       mentionTargets: mentions,
-    });
+    } as Partial<ReplyDispatcherArgs>;
+    const { options } = createDispatcherHarness(overrides);
 
     await options.deliver({ text: "First paragraph." }, { kind: "block" });
     await options.deliver(
@@ -711,10 +718,10 @@ describe("createFeishuReplyDispatcher streaming behavior", () => {
     expectMockArgFields(sendMessageFeishuMock, "first block chunk", {
       to: "user:ou_sender",
       text: "First ",
-      mentions,
     });
     expectMockArgFields(sendMessageFeishuMock, "second block chunk", { text: "paragraph." }, 1);
     expectMockArgFields(sendMessageFeishuMock, "second block", { text: "Second paragraph." }, 2);
+    expect(sendMessageFeishuMock.mock.calls[0]?.[0]).not.toHaveProperty("mentions");
     expect(sendMessageFeishuMock.mock.calls[1]?.[0]).not.toHaveProperty("mentions");
     expect(sendMessageFeishuMock.mock.calls[2]?.[0]).not.toHaveProperty("mentions");
     expectMockArgFields(sendMediaFeishuMock, "block media", {
