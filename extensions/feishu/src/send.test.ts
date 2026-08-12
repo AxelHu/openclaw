@@ -216,6 +216,51 @@ describe("getMessageFeishu", () => {
     });
   });
 
+  it("normalizes malformed inline at-tag closings before building the post payload", async () => {
+    const create = vi.fn().mockResolvedValue({ code: 0, data: { message_id: "om_normalized" } });
+    mockCreateFeishuClient.mockReturnValue({
+      im: {
+        message: {
+          create,
+          reply: vi.fn(),
+          get: mockClientGet,
+          list: mockClientList,
+          patch: mockClientPatch,
+        },
+      },
+    });
+
+    await sendMessageFeishu({
+      cfg: {} as ClawdbotConfig,
+      to: "oc_send",
+      text: '<at user_id="ou_target">Target User</a> hello',
+    });
+
+    expect(mockConvertMarkdownTables).toHaveBeenCalledWith(
+      '<at user_id="ou_target">Target User</at> hello',
+      "preserve",
+    );
+    expect(create).toHaveBeenCalledWith({
+      params: { receive_id_type: "chat_id" },
+      data: {
+        receive_id: "oc_send",
+        msg_type: "post",
+        content: JSON.stringify({
+          zh_cn: {
+            content: [
+              [
+                {
+                  tag: "md",
+                  text: '<at user_id="ou_target">Target User</at> hello',
+                },
+              ],
+            ],
+          },
+        }),
+      },
+    });
+  });
+
   it("sends automatic mentions as native post elements without rewriting body text", async () => {
     const create = vi.fn().mockResolvedValue({ code: 0, data: { message_id: "om_mentions" } });
     mockCreateFeishuClient.mockReturnValue({

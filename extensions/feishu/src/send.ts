@@ -636,7 +636,7 @@ export async function sendMessageFeishu(
     channel: "feishu",
   });
 
-  const messageText = convertMarkdownTables(text ?? "", tableMode);
+  const messageText = convertMarkdownTables(normalizeTextAtTagClosing(text ?? ""), tableMode);
 
   const { content, msgType } = buildFeishuPostMessagePayload({ messageText, mentions });
 
