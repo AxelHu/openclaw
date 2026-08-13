@@ -30,7 +30,13 @@ import {
 
 type StateDbTestDatabase = Pick<
   OpenClawStateKyselyDatabase,
-  "diagnostic_events" | "schema_meta" | "skill_curator_state" | "skill_lifecycle" | "skill_usage"
+  | "diagnostic_events"
+  | "schema_meta"
+  | "skill_curator_state"
+  | "skill_lifecycle"
+  | "skill_usage"
+  | "skill_usage_events"
+  | "skill_usage_tracking_state"
 >;
 
 const stateDbTempDirs: string[] = [];
@@ -126,6 +132,20 @@ describe("openclaw state database", () => {
     );
     executeSqliteQuerySync(
       database.db,
+      kysely.insertInto("skill_usage_events").values({
+        event_key: "event-1",
+        occurred_at_ms: 2,
+        skill_file: "/skills/daily-brief/SKILL.md",
+        skill_key: "daily-brief",
+        skill_name: "Daily Brief",
+        skill_source: "workspace",
+        activation: "read",
+        agent_id: "main",
+        tool_name: "read",
+      }),
+    );
+    executeSqliteQuerySync(
+      database.db,
       kysely.insertInto("skill_lifecycle").values({
         skill_key: "daily-brief",
         skill_name: "Daily Brief",
@@ -161,6 +181,18 @@ describe("openclaw state database", () => {
       }),
     );
 
+    expect(
+      executeSqliteQueryTakeFirstSync(
+        database.db,
+        kysely.selectFrom("skill_usage_tracking_state").selectAll().where("id", "=", 1),
+      ),
+    ).toMatchObject({ id: 1, started_at_ms: expect.any(Number) });
+    expect(
+      executeSqliteQuerySync(
+        database.db,
+        kysely.selectFrom("skill_usage_events").select(["event_key", "activation"]),
+      ).rows,
+    ).toEqual([{ event_key: "event-1", activation: "read" }]);
     expect(
       executeSqliteQuerySync(
         database.db,

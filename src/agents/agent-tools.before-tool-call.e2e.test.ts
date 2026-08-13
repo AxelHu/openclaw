@@ -977,6 +977,97 @@ describe("before_tool_call loop detection behavior", () => {
     });
   });
 
+  it("records exact resolved skill instruction reads performed through shell tools", async () => {
+    const firstFile = path.join(os.homedir(), ".openclaw", "skills", "first", "SKILL.md");
+    const secondFile = path.join(os.homedir(), ".openclaw", "skills", "second", "SKILL.md");
+    const execute = vi.fn().mockResolvedValue({ content: [{ type: "text", text: "skills" }] });
+    const tool = wrapToolWithBeforeToolCallHook({ name: "bash", execute } as any, {
+      agentId: "main",
+      sessionKey: "session-key",
+      sessionId: "session-id",
+      runId: "run-1",
+      skillsSnapshot: {
+        prompt: "",
+        skills: [],
+        resolvedSkills: [
+          {
+            name: "first",
+            description: "First",
+            filePath: firstFile,
+            baseDir: path.dirname(firstFile),
+            sourceInfo: { source: "openclaw-managed" },
+            disableModelInvocation: false,
+            source: "openclaw-managed",
+          },
+          {
+            name: "second",
+            description: "Second",
+            filePath: secondFile,
+            baseDir: path.dirname(secondFile),
+            sourceInfo: { source: "openclaw-managed" },
+            disableModelInvocation: false,
+            source: "openclaw-managed",
+          },
+        ],
+      },
+    });
+
+    await withSkillUsageDiagnosticEvents(async (emitted, privateData, flush) => {
+      await tool.execute(
+        "tool-call-shell-skill-read",
+        {
+          command: `sed -n '1,200p' ~/.openclaw/skills/first/SKILL.md && cat ${secondFile}`,
+        },
+        undefined,
+        undefined,
+      );
+      await flush();
+
+      expect(emitted.filter((event) => event.type === "skill.used")).toMatchObject([
+        { activation: "read", skillName: "first", toolName: "exec" },
+        { activation: "read", skillName: "second", toolName: "exec" },
+      ]);
+      expect(privateData.map((entry) => entry.skillUsage?.skillFile).filter(Boolean)).toEqual([
+        firstFile,
+        secondFile,
+      ]);
+    });
+  });
+
+  it("does not infer shell skill reads from echoed or partial path text", async () => {
+    const skillFile = path.join(os.homedir(), ".openclaw", "skills", "first", "SKILL.md");
+    const execute = vi.fn().mockResolvedValue({ content: [{ type: "text", text: "noop" }] });
+    const tool = wrapToolWithBeforeToolCallHook({ name: "exec", execute } as any, {
+      agentId: "main",
+      sessionKey: "session-key",
+      skillsSnapshot: {
+        prompt: "",
+        skills: [],
+        resolvedSkills: [
+          createCanonicalFixtureSkill({
+            name: "first",
+            description: "First",
+            filePath: skillFile,
+            baseDir: path.dirname(skillFile),
+            source: "openclaw-managed",
+          }),
+        ],
+      },
+    });
+
+    await withSkillUsageDiagnosticEvents(async (emitted, _privateData, flush) => {
+      await tool.execute(
+        "tool-call-shell-non-read",
+        { command: `echo ${skillFile} && cat ${skillFile}.backup` },
+        undefined,
+        undefined,
+      );
+      await flush();
+
+      expect(emitted.filter((event) => event.type === "skill.used")).toEqual([]);
+    });
+  });
+
   it("accounts sandbox skill reads against the original canonical file", async () => {
     const workspaceDir = "/workspace";
     const readPath = "/workspace/.openclaw/sandbox-skills/skills/demo/SKILL.md";

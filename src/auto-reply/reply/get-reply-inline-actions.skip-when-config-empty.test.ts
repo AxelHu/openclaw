@@ -17,12 +17,14 @@ import type { TypingController } from "./typing.js";
 const {
   buildStatusReplyMock,
   createOpenClawToolsMock,
+  emitTrustedSkillUsedDiagnosticEventMock,
   getChannelPluginMock,
   handleCommandsMock,
   listSkillCommandsForWorkspaceMock,
 } = vi.hoisted(() => ({
   buildStatusReplyMock: vi.fn(),
   createOpenClawToolsMock: vi.fn(),
+  emitTrustedSkillUsedDiagnosticEventMock: vi.fn(),
   getChannelPluginMock: vi.fn(),
   handleCommandsMock: vi.fn(),
   listSkillCommandsForWorkspaceMock: vi.fn(),
@@ -44,6 +46,17 @@ vi.mock("../../skills/discovery/chat-commands.runtime.js", () => ({
 vi.mock("../../agents/openclaw-tools.runtime.js", () => ({
   createOpenClawTools: (...args: unknown[]) => createOpenClawToolsMock(...args),
 }));
+
+vi.mock("../../infra/diagnostic-events.js", async () => {
+  const actual = await vi.importActual<typeof import("../../infra/diagnostic-events.js")>(
+    "../../infra/diagnostic-events.js",
+  );
+  return {
+    ...actual,
+    emitTrustedSkillUsedDiagnosticEvent: (...args: unknown[]) =>
+      emitTrustedSkillUsedDiagnosticEventMock(...args),
+  };
+});
 
 vi.mock("../../channels/plugins/index.js", () => ({
   getChannelPlugin: (...args: unknown[]) => getChannelPluginMock(...args),
@@ -219,7 +232,9 @@ function officeHoursSkillCommands(): SkillCommandSpec[] {
   return [
     {
       name: "office_hours",
+      skillFile: "/tmp/workspace/skills/office-hours/SKILL.md",
       skillName: "office-hours",
+      skillSource: "workspace",
       description: "Office hours",
       promptTemplate: "Act as an engineering advisor.\n\nFocus on:\n$ARGUMENTS",
       sourceFilePath: "/tmp/plugin/commands/office-hours.md",
@@ -235,6 +250,7 @@ describe("handleInlineActions", () => {
     listSkillCommandsForWorkspaceMock.mockReturnValue([]);
     getChannelPluginMock.mockReset();
     createOpenClawToolsMock.mockReset();
+    emitTrustedSkillUsedDiagnosticEventMock.mockReset();
     buildStatusReplyMock.mockReset();
     buildStatusReplyMock.mockResolvedValue({ text: "status" });
     createOpenClawToolsMock.mockReturnValue([]);
@@ -775,6 +791,16 @@ describe("handleInlineActions", () => {
     );
     const commandArgs = mockObjectArg(handleCommandsMock, "handleCommands");
     expect(commandArgs.skillCommands).toEqual(skillCommands);
+    expect(emitTrustedSkillUsedDiagnosticEventMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "skill.used",
+        activation: "command",
+        agentId: "main",
+        sessionKey: "s:main",
+        skillName: "office-hours",
+      }),
+      { skillUsage: { skillFile: "/tmp/workspace/skills/office-hours/SKILL.md" } },
+    );
   });
 
   it("passes requesterAgentIdOverride into inline tool runtimes", async () => {

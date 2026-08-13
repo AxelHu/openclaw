@@ -35,6 +35,29 @@ CREATE TABLE IF NOT EXISTS skill_usage (
 CREATE INDEX IF NOT EXISTS idx_skill_usage_key
   ON skill_usage(skill_key, skill_file);
 
+CREATE TABLE IF NOT EXISTS skill_usage_tracking_state (
+  id INTEGER NOT NULL PRIMARY KEY CHECK (id = 1),
+  started_at_ms INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS skill_usage_events (
+  event_key TEXT NOT NULL PRIMARY KEY,
+  occurred_at_ms INTEGER NOT NULL,
+  skill_file TEXT NOT NULL,
+  skill_key TEXT NOT NULL,
+  skill_name TEXT NOT NULL,
+  skill_source TEXT NOT NULL,
+  activation TEXT NOT NULL CHECK (activation IN ('command', 'read')),
+  agent_id TEXT,
+  tool_name TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_skill_usage_events_occurred
+  ON skill_usage_events(occurred_at_ms);
+
+CREATE INDEX IF NOT EXISTS idx_skill_usage_events_skill_occurred
+  ON skill_usage_events(skill_key, occurred_at_ms);
+
 CREATE TABLE IF NOT EXISTS skill_lifecycle (
   skill_file TEXT NOT NULL PRIMARY KEY,
   skill_key TEXT NOT NULL,

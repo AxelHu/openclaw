@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { canonicalizePath } from "../../agents/utils/paths.js";
@@ -25,6 +26,7 @@ export const ARCHIVE_AFTER_MS = 90 * 24 * 60 * 60_000;
 export const CURATOR_SWEEP_INTERVAL_MS = 24 * 60 * 60_000;
 export const CURATOR_INITIAL_DELAY_MS = 5 * 60_000;
 export const DOCTOR_WEDGED_AFTER_MS = 7 * 24 * 60 * 60_000;
+export const SKILL_USAGE_EVENT_RETENTION_MS = 120 * 24 * 60 * 60_000;
 
 const log = createSubsystemLogger("skills/curator");
 const CURATOR_STATE_ID = 1;
@@ -35,7 +37,11 @@ export type SkillLifecycleState = "active" | "archived" | "stale";
 
 type CuratorDatabase = Pick<
   OpenClawStateDatabase,
-  "skill_curator_state" | "skill_lifecycle" | "skill_usage"
+  | "skill_curator_state"
+  | "skill_lifecycle"
+  | "skill_usage"
+  | "skill_usage_events"
+  | "skill_usage_tracking_state"
 >;
 
 type CuratedSkill = {
@@ -103,7 +109,20 @@ function canonicalSkillKey(name: string): string {
 }
 
 export function recordSkillUsage(
-  event: Pick<DiagnosticSkillUsedEvent, "agentId" | "skillName" | "skillSource" | "ts"> & {
+  event: Pick<
+    DiagnosticSkillUsedEvent,
+    | "activation"
+    | "agentId"
+    | "runId"
+    | "sessionId"
+    | "sessionKey"
+    | "skillName"
+    | "skillSource"
+    | "toolCallId"
+    | "toolName"
+    | "ts"
+  > & {
+    seq?: number;
     skillFile?: string;
   },
   options: OpenClawStateDatabaseOptions = {},
@@ -117,8 +136,41 @@ export function recordSkillUsage(
   }
   const skillFile = canonicalizePath(path.resolve(rawSkillFile));
   const skillKey = canonicalSkillKey(event.skillName);
+  const activation = event.activation;
+  const eventKey = createHash("sha256")
+    .update(
+      JSON.stringify([
+        event.runId ?? "",
+        event.sessionId ?? "",
+        event.sessionKey ?? "",
+        event.toolCallId ?? `event:${event.ts}:${event.seq ?? ""}`,
+        skillFile,
+        activation,
+      ]),
+    )
+    .digest("hex");
   runOpenClawStateWriteTransaction(({ db }) => {
     const kysely = getNodeSqliteKysely<CuratorDatabase>(db);
+    const inserted = executeSqliteQuerySync(
+      db,
+      kysely
+        .insertInto("skill_usage_events")
+        .values({
+          event_key: eventKey,
+          occurred_at_ms: event.ts,
+          skill_file: skillFile,
+          skill_key: skillKey,
+          skill_name: event.skillName,
+          skill_source: event.skillSource,
+          activation,
+          agent_id: event.agentId ?? null,
+          tool_name: event.toolName ?? null,
+        })
+        .onConflict((conflict) => conflict.column("event_key").doNothing()),
+    );
+    if (inserted.numAffectedRows === 0n) {
+      return;
+    }
     executeSqliteQuerySync(
       db,
       kysely
@@ -368,6 +420,12 @@ export async function runSkillCuratorSweep(
     const existingCurated: CuratedSkill[] = [];
     const result = runOpenClawStateWriteTransaction(({ db }) => {
       const kysely = getNodeSqliteKysely<CuratorDatabase>(db);
+      executeSqliteQuerySync(
+        db,
+        kysely
+          .deleteFrom("skill_usage_events")
+          .where("occurred_at_ms", "<", nowMs - SKILL_USAGE_EVENT_RETENTION_MS),
+      );
       const lifecycleRows = executeSqliteQuerySync(
         db,
         kysely.selectFrom("skill_lifecycle").selectAll(),

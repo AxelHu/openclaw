@@ -9,6 +9,7 @@ import { getChannelPlugin } from "../../channels/plugins/index.js";
 import type { SessionEntry } from "../../config/sessions.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { logVerbose } from "../../globals.js";
+import { emitTrustedSkillUsedDiagnosticEvent } from "../../infra/diagnostic-events.js";
 import { formatErrorMessage } from "../../infra/errors.js";
 import { generateSecureToken } from "../../infra/secure-random.js";
 import { createLazyImportLoader } from "../../shared/lazy-promise.js";
@@ -16,6 +17,7 @@ import {
   listReservedChatSlashCommandNames,
   resolveSkillCommandInvocation,
 } from "../../skills/discovery/chat-commands.js";
+import { resolveSkillTelemetrySourceValue } from "../../skills/loading/source.js";
 import type { SkillCommandSpec } from "../../skills/types.js";
 import { markCommandReplyForDelivery } from "../reply-payload.js";
 import type { MsgContext, TemplateContext } from "../templating.js";
@@ -426,6 +428,21 @@ export async function handleInlineActions(params: {
         };
       }
     }
+
+    emitTrustedSkillUsedDiagnosticEvent(
+      {
+        type: "skill.used",
+        sessionKey,
+        sessionId: targetSessionEntry?.sessionId,
+        agentId,
+        skillName: skillInvocation.command.skillName,
+        skillSource: resolveSkillTelemetrySourceValue(skillInvocation.command.skillSource),
+        activation: "command",
+      },
+      skillInvocation.command.skillFile
+        ? { skillUsage: { skillFile: skillInvocation.command.skillFile } }
+        : undefined,
+    );
 
     const rewrittenBody = skillInvocation.command.promptTemplate
       ? expandBundleCommandPromptTemplate(
