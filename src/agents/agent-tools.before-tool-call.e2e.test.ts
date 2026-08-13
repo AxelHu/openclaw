@@ -871,6 +871,55 @@ describe("before_tool_call loop detection behavior", () => {
     });
   });
 
+  it("emits skill usage diagnostics even when outer runtimes own tool diagnostics", async () => {
+    const workspaceDir = path.join("/tmp", "openclaw-skill-usage-outer-runtime");
+    const skillBaseDir = path.join(workspaceDir, ".agents", "skills", "demo-skill");
+    const skillFilePath = path.join(skillBaseDir, "SKILL.md");
+    const execute = vi.fn().mockResolvedValue({ content: [{ type: "text", text: "skill" }] });
+    const tool = wrapToolWithBeforeToolCallHook(
+      { name: "read", execute } as any,
+      {
+        agentId: "main",
+        sessionKey: "session-key",
+        sessionId: "session-id",
+        runId: "run-1",
+        workspaceDir,
+        skillsSnapshot: {
+          prompt: "",
+          skills: [{ name: "demo-skill" }],
+          resolvedSkills: [
+            createCanonicalFixtureSkill({
+              name: "demo-skill",
+              description: "Demo",
+              filePath: skillFilePath,
+              baseDir: skillBaseDir,
+              source: "workspace",
+            }),
+          ],
+        },
+        loopDetection: { enabled: false },
+      },
+      { emitDiagnostics: false },
+    );
+
+    await withSkillUsageDiagnosticEvents(async (emitted, privateData, flush) => {
+      await tool.execute("tool-call-skill-read", { path: skillFilePath }, undefined, undefined);
+      await flush();
+
+      expect(emitted).toMatchObject([
+        {
+          type: "skill.used",
+          agentId: "main",
+          skillName: "demo-skill",
+          activation: "read",
+          toolName: "read",
+        },
+      ]);
+      expect(emitted.map((event) => event.type)).toEqual(["skill.used"]);
+      expect(privateData[0]?.skillUsage?.skillFile).toBe(skillFilePath);
+    });
+  });
+
   it("emits skill usage diagnostics when a run reads a known skill instruction file", async () => {
     const workspaceDir = path.join("/tmp", "openclaw-skill-usage");
     const skillBaseDir = path.join(workspaceDir, ".agents", "skills", "demo-skill");
@@ -990,24 +1039,20 @@ describe("before_tool_call loop detection behavior", () => {
         prompt: "",
         skills: [],
         resolvedSkills: [
-          {
+          createCanonicalFixtureSkill({
             name: "first",
             description: "First",
             filePath: firstFile,
             baseDir: path.dirname(firstFile),
-            sourceInfo: { source: "openclaw-managed" },
-            disableModelInvocation: false,
             source: "openclaw-managed",
-          },
-          {
+          }),
+          createCanonicalFixtureSkill({
             name: "second",
             description: "Second",
             filePath: secondFile,
             baseDir: path.dirname(secondFile),
-            sourceInfo: { source: "openclaw-managed" },
-            disableModelInvocation: false,
             source: "openclaw-managed",
-          },
+          }),
         ],
       },
     });
@@ -1016,7 +1061,7 @@ describe("before_tool_call loop detection behavior", () => {
       await tool.execute(
         "tool-call-shell-skill-read",
         {
-          command: `sed -n '1,200p' ~/.openclaw/skills/first/SKILL.md && cat ${secondFile}`,
+          command: `/bin/bash -lc "sed -n '1,200p' ~/.openclaw/skills/first/SKILL.md && cat ${secondFile}"`,
         },
         undefined,
         undefined,

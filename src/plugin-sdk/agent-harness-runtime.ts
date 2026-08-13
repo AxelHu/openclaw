@@ -183,6 +183,10 @@ export { resolveAttemptFsWorkspaceOnly } from "../agents/embedded-agent-runner/r
 export { resolveAttemptSpawnWorkspaceDir } from "../agents/embedded-agent-runner/run/attempt.thread-helpers.js";
 export { buildEmbeddedAttemptToolRunContext } from "../agents/embedded-agent-runner/run/attempt.tool-run-context.js";
 export {
+  mapSandboxSkillUsagePaths,
+  resolveSandboxSkillRuntimeInputs,
+} from "../agents/embedded-agent-runner/sandbox-skills.js";
+export {
   applyEmbeddedAttemptToolsAllow,
   resolveEmbeddedAttemptToolConstructionPlan,
 } from "../agents/embedded-agent-runner/run/attempt-tool-construction-plan.js";
@@ -323,6 +327,7 @@ export {
   hasBeforeToolCallPolicy,
   isToolWrappedWithBeforeToolCallHook,
   requestDeferredPluginToolApproval,
+  recordSuccessfulSkillUsageForToolCall,
   runBeforeToolCallHook,
   setBeforeToolCallDiagnosticsEnabled,
   wrapToolWithBeforeToolCallHook,

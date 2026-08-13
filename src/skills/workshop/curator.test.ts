@@ -189,9 +189,7 @@ describe("skill curator usage", () => {
     const database = openOpenClawStateDatabase({ env: process.env });
     expect(
       database.db
-        .prepare(
-          "SELECT activation, agent_id FROM skill_usage_events ORDER BY occurred_at_ms, activation",
-        )
+        .prepare("SELECT activation, agent_id FROM skill_usage_events ORDER BY activation")
         .all(),
     ).toEqual([
       { activation: "command", agent_id: "writer" },
@@ -217,6 +215,33 @@ describe("skill curator usage", () => {
     };
     recordSkillUsage(event, { env: process.env });
     recordSkillUsage(event, { env: process.env });
+
+    const database = openOpenClawStateDatabase({ env: process.env });
+    expect(database.db.prepare("SELECT COUNT(*) AS count FROM skill_usage_events").get()).toEqual({
+      count: 1,
+    });
+    expect(database.db.prepare("SELECT use_count FROM skill_usage").get()).toEqual({
+      use_count: 1,
+    });
+  });
+
+  it("deduplicates dynamic and native delivery for the same tool call", () => {
+    const skillFile = path.join(rootDir, "agent", "skills", "runtime-overlap", "SKILL.md");
+    addAppliedSkill({ name: "Runtime Overlap", appliedAtMs: 100 });
+    const event = {
+      activation: "read" as const,
+      agentId: "main",
+      runId: "run-overlap",
+      sessionId: "session-overlap",
+      sessionKey: "agent:main:overlap",
+      skillFile,
+      skillName: "Runtime Overlap",
+      skillSource: "workspace" as const,
+      toolCallId: "call-overlap",
+      ts: 200,
+    };
+    recordSkillUsage({ ...event, toolName: "exec" }, { env: process.env });
+    recordSkillUsage({ ...event, toolName: "bash" }, { env: process.env });
 
     const database = openOpenClawStateDatabase({ env: process.env });
     expect(database.db.prepare("SELECT COUNT(*) AS count FROM skill_usage_events").get()).toEqual({

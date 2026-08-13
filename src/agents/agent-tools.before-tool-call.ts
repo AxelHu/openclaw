@@ -779,16 +779,43 @@ function shellInstructionReadMatches(params: {
   const matches = new Map<string, SkillUsageMatch>();
   const fileArguments = new Set<string>();
   const fileReaders = new Set(["cat", "head", "tail", "less", "more", "bat", "sed"]);
-  for (const shellCommand of splitTopLevelShellCommands(command)) {
-    const argv = splitShellArgs(shellCommand);
-    const executable = argv?.[0] ? path.basename(argv[0]).toLowerCase() : "";
-    if (!argv || !fileReaders.has(executable)) {
-      continue;
+  const commandShells = new Set(["bash", "dash", "sh", "zsh"]);
+  const collectFileArguments = (raw: string, depth = 0) => {
+    if (depth > 3) {
+      return;
     }
-    for (const argument of argv.slice(1)) {
-      fileArguments.add(argument);
+    for (const shellCommand of splitTopLevelShellCommands(raw)) {
+      const argv = splitShellArgs(shellCommand);
+      const executable = argv?.[0] ? path.basename(argv[0]).toLowerCase() : "";
+      if (!argv) {
+        continue;
+      }
+      if (fileReaders.has(executable)) {
+        for (const argument of argv.slice(1)) {
+          fileArguments.add(argument);
+        }
+        continue;
+      }
+      if (!commandShells.has(executable)) {
+        continue;
+      }
+      const commandOptionIndex = argv.findIndex(
+        (argument, index) =>
+          index > 0 &&
+          (argument === "--command" ||
+            argument === "-c" ||
+            (/^-[A-Za-z]*c[A-Za-z]*$/u.test(argument) && argument.length > 2)),
+      );
+      const nestedCommand =
+        commandOptionIndex >= 0 && commandOptionIndex + 1 < argv.length
+          ? argv[commandOptionIndex + 1]
+          : undefined;
+      if (nestedCommand) {
+        collectFileArguments(nestedCommand, depth + 1);
+      }
     }
-  }
+  };
+  collectFileArguments(command);
   if (fileArguments.size === 0) {
     return [];
   }
@@ -885,6 +912,33 @@ function emitSkillUsedDiagnostic(params: {
     },
     params.match.skillFile ? { skillUsage: { skillFile: params.match.skillFile } } : undefined,
   );
+}
+
+/** Records successful skill reads or command dispatches at a runtime-owned tool boundary. */
+export function recordSuccessfulSkillUsageForToolCall(params: {
+  toolName: string;
+  toolParams: unknown;
+  toolCallId?: string;
+  ctx?: HookContext;
+}): number {
+  const normalizedToolName = normalizeToolName(params.toolName);
+  if (!normalizedToolName) {
+    return 0;
+  }
+  const skillMatches = findSkillUsageMatches({
+    toolName: normalizedToolName,
+    toolParams: params.toolParams,
+    ctx: params.ctx,
+  });
+  for (const skillMatch of skillMatches) {
+    emitSkillUsedDiagnostic({
+      ctx: params.ctx,
+      match: skillMatch,
+      toolName: normalizedToolName,
+      toolCallId: params.toolCallId,
+    });
+  }
+  return skillMatches.length;
 }
 
 function emitToolBlockedSecurityEvent(params: {
@@ -2036,20 +2090,17 @@ export function wrapToolWithBeforeToolCallHook(
           toolCallId,
           toolCallOrdinal,
         });
-        const skillMatches = findSkillUsageMatches({
+        // Skill usage is durable accounting, not optional tool-execution telemetry.
+        // Plugin runtimes such as Codex disable the outer tool diagnostics to avoid
+        // duplicate lifecycle events, but successful skill reads still need to be
+        // recorded exactly once.
+        recordSuccessfulSkillUsageForToolCall({
           toolName: normalizedToolName,
           toolParams: executeParams,
+          toolCallId,
           ctx,
         });
         if (hookOptions.emitDiagnostics) {
-          for (const skillMatch of skillMatches) {
-            emitSkillUsedDiagnostic({
-              ctx,
-              match: skillMatch,
-              toolName: normalizedToolName,
-              toolCallId,
-            });
-          }
           const terminalEvent = resolveToolResultTerminalDiagnostic(result, durationMs);
           emitTrustedDiagnosticEventWithPrivateData(
             {

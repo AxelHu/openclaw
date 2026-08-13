@@ -19,10 +19,12 @@ import {
   getBeforeToolCallPolicyDiagnosticState,
   isActiveHarnessContextEngine,
   loadCodexBundleMcpThreadConfig,
+  mapSandboxSkillUsagePaths,
   resolveAgentHarnessBeforePromptBuildResult,
   resolveAgentRunAbortLifecycleFields,
   resolveContextEngineOwnerPluginId,
   resolveSandboxContext,
+  resolveSandboxSkillRuntimeInputs,
   resolveSessionAgentIds,
   resolveUserPath,
   awaitAgentEndSideEffects,
@@ -568,6 +570,20 @@ export async function runCodexAppServerAttempt(
     );
   }
   const effectiveCwd = sandbox?.enabled ? effectiveWorkspace : (requestedCwd ?? effectiveWorkspace);
+  const {
+    skillsPromptWorkspaceDir: nativeSkillsPromptWorkspaceDir,
+    skillsSnapshot: nativeSkillsSnapshot,
+    skillsWorkspaceDir: nativeSkillsWorkspaceDir,
+  } = resolveSandboxSkillRuntimeInputs({
+    sandbox,
+    effectiveWorkspace,
+    skillsSnapshot: params.skillsSnapshot,
+  });
+  const nativeSkillUsagePaths = mapSandboxSkillUsagePaths({
+    paths: sandbox?.skillUsagePaths,
+    skillsWorkspaceDir: nativeSkillsWorkspaceDir,
+    skillsPromptWorkspaceDir: nativeSkillsPromptWorkspaceDir,
+  });
   await ensureCodexWorkspaceDirOnce(effectiveWorkspace);
   preDynamicStartupStages.mark("effective-workspace");
   let policyAppServer = resolveCodexAppServerForOpenClawToolPolicy({
@@ -3086,6 +3102,16 @@ export async function runCodexAppServerAttempt(
     thread.threadId,
     activeTurnId,
     {
+      nativeSkillUsageContext: {
+        runId: dynamicToolParams.runId,
+        agentId: dynamicToolParams.agentId,
+        sessionKey: dynamicToolParams.sessionKey,
+        sessionId: dynamicToolParams.sessionId,
+        workspaceDir: effectiveWorkspace,
+        cwd: effectiveCwd,
+        ...(nativeSkillsSnapshot ? { skillsSnapshot: nativeSkillsSnapshot } : {}),
+        ...(nativeSkillUsagePaths ? { skillUsagePaths: nativeSkillUsagePaths } : {}),
+      },
       nativePostToolUseRelayEnabled:
         nativeHookRelay?.allowedEvents.includes("post_tool_use") === true &&
         nativeHookRelay.shouldRelayEvent("post_tool_use"),

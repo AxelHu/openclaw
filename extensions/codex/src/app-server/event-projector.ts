@@ -8,6 +8,7 @@ import {
   formatToolProgressOutput,
   inferToolMetaFromArgs,
   normalizeUsage,
+  recordSuccessfulSkillUsageForToolCall,
   runAgentHarnessAfterCompactionHook,
   runAgentHarnessAfterToolCallHook,
   runAgentHarnessBeforeCompactionHook,
@@ -70,6 +71,7 @@ export type CodexAppServerToolTelemetry = {
 };
 
 export type CodexAppServerEventProjectorOptions = {
+  nativeSkillUsageContext?: Parameters<typeof recordSuccessfulSkillUsageForToolCall>[0]["ctx"];
   nativePostToolUseRelayEnabled?: boolean;
   onNativeToolResultRecorded?: () => void | Promise<void>;
   readRecentRateLimits?: () => JsonValue | undefined;
@@ -539,6 +541,7 @@ export class CodexAppServerEventProjector {
   private readonly nativeGeneratedMediaUrlsByItemId = new Map<string, string>();
   private readonly nativeToolLifecycleProjector: CodexNativeToolLifecycleProjector;
   private readonly afterToolCallObservedItemIds = new Set<string>();
+  private readonly nativeSkillUsageObservedItemIds = new Set<string>();
   private assistantStarted = false;
   private reasoningStarted = false;
   private reasoningEnded = false;
@@ -1722,6 +1725,7 @@ export class CodexAppServerEventProjector {
     const meta = itemMeta(item, this.toolProgressDetailMode());
     this.recordToolTrajectoryEvent({ phase: params.phase, item, name, args, status });
     if (params.phase === "result") {
+      this.recordNativeSkillUsage(item);
       this.recordNativeToolError({ item, name, meta, status });
     }
     if (!shouldEmitTranscriptToolProgress(name, args)) {
@@ -1877,6 +1881,36 @@ export class CodexAppServerEventProjector {
     };
     setImmediate(() => {
       void runAgentHarnessAfterToolCallHook(hookParams);
+    });
+  }
+
+  private recordNativeSkillUsage(item: CodexThreadItem): void {
+    if (
+      item.type !== "commandExecution" ||
+      this.nativeSkillUsageObservedItemIds.has(item.id) ||
+      readItemString(item, "status") !== "completed" ||
+      item.exitCode !== 0 ||
+      typeof item.command !== "string"
+    ) {
+      return;
+    }
+    this.nativeSkillUsageObservedItemIds.add(item.id);
+    recordSuccessfulSkillUsageForToolCall({
+      toolName: "bash",
+      toolCallId: item.id,
+      toolParams: {
+        command: item.command,
+        ...(typeof item.cwd === "string" ? { cwd: item.cwd } : {}),
+      },
+      ctx: this.options.nativeSkillUsageContext ?? {
+        runId: this.params.runId,
+        agentId: this.params.agentId,
+        sessionKey: this.params.sessionKey,
+        sessionId: this.params.sessionId,
+        workspaceDir: this.params.workspaceDir,
+        cwd: this.params.cwd,
+        skillsSnapshot: this.params.skillsSnapshot,
+      },
     });
   }
 
@@ -2537,7 +2571,6 @@ function readNonNegativeInteger(record: JsonObject, key: string): number | undef
   const value = readNumber(record, key);
   return value !== undefined && Number.isInteger(value) && value >= 0 ? value : undefined;
 }
-
 
 function readCodexErrorNotificationMessage(record: JsonObject): string | undefined {
   const error = record.error;
