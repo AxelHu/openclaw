@@ -11,13 +11,17 @@ import { SessionManager } from "openclaw/plugin-sdk/agent-sessions";
 import {
   onInternalDiagnosticEvent,
   resetDiagnosticEventsForTest,
+  type DiagnosticEventPrivateData,
   type DiagnosticEventPayload,
 } from "openclaw/plugin-sdk/diagnostic-runtime";
 import {
   initializeGlobalHookRunner,
   resetGlobalHookRunner,
 } from "openclaw/plugin-sdk/hook-runtime";
-import { createMockPluginRegistry } from "openclaw/plugin-sdk/plugin-test-runtime";
+import {
+  createMockPluginRegistry,
+  onTrustedInternalDiagnosticEvent,
+} from "openclaw/plugin-sdk/plugin-test-runtime";
 import { withTempDir } from "openclaw/plugin-sdk/test-env";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -273,6 +277,294 @@ function turnWithStatus(status: string, items: unknown[] = []): ProjectorNotific
 }
 
 describe("CodexAppServerEventProjector", () => {
+  it("records successful native shell skill reads exactly once", async () => {
+    const params = await createParams();
+    params.agentId = "main";
+    const skillFile = path.join(params.workspaceDir, "skills", "demo", "SKILL.md");
+    params.skillsSnapshot = {
+      prompt: "",
+      skills: [{ name: "demo" }],
+      resolvedSkills: [
+        {
+          name: "demo",
+          description: "Demo",
+          filePath: skillFile,
+          baseDir: path.dirname(skillFile),
+          sourceInfo: {
+            path: skillFile,
+            source: "openclaw-workspace",
+            scope: "project",
+            origin: "top-level",
+          },
+          disableModelInvocation: false,
+          source: "openclaw-workspace",
+        },
+      ],
+    };
+    const projector = await createProjector(params, {
+      nativeSkillUsageContext: {
+        runId: params.runId,
+        agentId: params.agentId,
+        sessionId: params.sessionId,
+        workspaceDir: params.workspaceDir,
+        skillsSnapshot: params.skillsSnapshot,
+      },
+    });
+    const diagnosticEvents: DiagnosticEventPayload[] = [];
+    const privateData: DiagnosticEventPrivateData[] = [];
+    const unsubscribe = onInternalDiagnosticEvent((event) => diagnosticEvents.push(event));
+    const unsubscribeTrusted = onTrustedInternalDiagnosticEvent((event, _metadata, data) => {
+      if (event.type === "skill.used") {
+        privateData.push(data);
+      }
+    });
+    const item = {
+      type: "commandExecution",
+      id: "cmd-skill-read",
+      command: `/bin/bash -lc "sed -n '1,12p' ${skillFile}"`,
+      cwd: params.workspaceDir,
+      processId: null,
+      source: "agent",
+      status: "completed",
+      commandActions: [],
+      aggregatedOutput: "# demo",
+      exitCode: 0,
+      durationMs: 12,
+    };
+
+    try {
+      await projector.handleNotification(forCurrentTurn("item/completed", { item }));
+      await projector.handleNotification(turnCompleted([item]));
+      await flushDiagnosticEvents();
+    } finally {
+      unsubscribeTrusted();
+      unsubscribe();
+    }
+
+    expect(diagnosticEvents.filter((event) => event.type === "skill.used")).toMatchObject([
+      {
+        type: "skill.used",
+        agentId: params.agentId,
+        runId: params.runId,
+        sessionId: params.sessionId,
+        skillName: "demo",
+        skillSource: "workspace",
+        activation: "read",
+        toolName: "exec",
+        toolCallId: item.id,
+      },
+    ]);
+    expect(privateData.map((entry) => entry.skillUsage?.skillFile)).toEqual([skillFile]);
+  });
+
+  it.each([
+    { label: "cat", command: (skillFile: string) => `cat ${skillFile}` },
+    { label: "head", command: (skillFile: string) => `head -n 12 ${skillFile}` },
+  ])("records exact native $label skill reads", async ({ command }) => {
+    const params = await createParams();
+    const skillFile = path.join(params.workspaceDir, "skills", "demo", "SKILL.md");
+    params.skillsSnapshot = {
+      prompt: "",
+      skills: [{ name: "demo" }],
+      resolvedSkills: [
+        {
+          name: "demo",
+          description: "Demo",
+          filePath: skillFile,
+          baseDir: path.dirname(skillFile),
+          sourceInfo: {
+            path: skillFile,
+            source: "openclaw-workspace",
+            scope: "project",
+            origin: "top-level",
+          },
+          disableModelInvocation: false,
+          source: "openclaw-workspace",
+        },
+      ],
+    };
+    const projector = await createProjector(params, {
+      nativeSkillUsageContext: {
+        runId: params.runId,
+        sessionId: params.sessionId,
+        workspaceDir: params.workspaceDir,
+        skillsSnapshot: params.skillsSnapshot,
+      },
+    });
+    const diagnosticEvents: DiagnosticEventPayload[] = [];
+    const unsubscribe = onInternalDiagnosticEvent((event) => diagnosticEvents.push(event));
+
+    try {
+      await projector.handleNotification(
+        forCurrentTurn("item/completed", {
+          item: {
+            type: "commandExecution",
+            id: `cmd-skill-read-${command.name}`,
+            command: command(skillFile),
+            cwd: params.workspaceDir,
+            processId: null,
+            source: "agent",
+            status: "completed",
+            commandActions: [],
+            aggregatedOutput: "# demo",
+            exitCode: 0,
+            durationMs: 12,
+          },
+        }),
+      );
+      await flushDiagnosticEvents();
+    } finally {
+      unsubscribe();
+    }
+
+    expect(diagnosticEvents.filter((event) => event.type === "skill.used")).toHaveLength(1);
+  });
+
+  it("records sandbox native reads against the canonical skill file", async () => {
+    const params = await createParams();
+    const readPath = "/workspace/skills/demo/SKILL.md";
+    const skillFile = "/agent/skills/demo/SKILL.md";
+    const projector = await createProjector(params, {
+      nativeSkillUsageContext: {
+        runId: params.runId,
+        sessionId: params.sessionId,
+        workspaceDir: "/workspace",
+        cwd: "/workspace",
+        skillUsagePaths: [
+          {
+            readPath,
+            skillFile,
+            skillName: "demo",
+            skillSource: "workspace",
+          },
+        ],
+      },
+    });
+    const diagnosticEvents: DiagnosticEventPayload[] = [];
+    const privateData: DiagnosticEventPrivateData[] = [];
+    const unsubscribe = onInternalDiagnosticEvent((event) => diagnosticEvents.push(event));
+    const unsubscribeTrusted = onTrustedInternalDiagnosticEvent((event, _metadata, data) => {
+      if (event.type === "skill.used") {
+        privateData.push(data);
+      }
+    });
+
+    try {
+      await projector.handleNotification(
+        forCurrentTurn("item/completed", {
+          item: {
+            type: "commandExecution",
+            id: "cmd-sandbox-skill-read",
+            command: `sed -n '1,12p' ${readPath}`,
+            cwd: "/workspace",
+            processId: null,
+            source: "agent",
+            status: "completed",
+            commandActions: [],
+            aggregatedOutput: "# demo",
+            exitCode: 0,
+            durationMs: 12,
+          },
+        }),
+      );
+      await flushDiagnosticEvents();
+    } finally {
+      unsubscribeTrusted();
+      unsubscribe();
+    }
+
+    expect(diagnosticEvents.filter((event) => event.type === "skill.used")).toMatchObject([
+      { skillName: "demo", skillSource: "workspace", activation: "read" },
+    ]);
+    expect(privateData.map((entry) => entry.skillUsage?.skillFile)).toEqual([skillFile]);
+  });
+
+  it.each([
+    {
+      label: "failed commands",
+      command: (skillFile: string) => `cat ${skillFile}`,
+      status: "failed",
+      exitCode: 1,
+    },
+    {
+      label: "commands without an explicit completed status",
+      command: (skillFile: string) => `cat ${skillFile}`,
+      status: null,
+      exitCode: 0,
+    },
+    {
+      label: "successful commands that only echo the path",
+      command: (skillFile: string) => `echo ${skillFile}`,
+      status: "completed",
+      exitCode: 0,
+    },
+    {
+      label: "successful commands that mention only a partial path",
+      command: (skillFile: string) => `cat ${skillFile}.bak`,
+      status: "completed",
+      exitCode: 0,
+    },
+  ])("does not record native skill reads for $label", async ({ command, status, exitCode }) => {
+    const params = await createParams();
+    const skillFile = path.join(params.workspaceDir, "skills", "demo", "SKILL.md");
+    params.skillsSnapshot = {
+      prompt: "",
+      skills: [{ name: "demo" }],
+      resolvedSkills: [
+        {
+          name: "demo",
+          description: "Demo",
+          filePath: skillFile,
+          baseDir: path.dirname(skillFile),
+          sourceInfo: {
+            path: skillFile,
+            source: "openclaw-workspace",
+            scope: "project",
+            origin: "top-level",
+          },
+          disableModelInvocation: false,
+          source: "openclaw-workspace",
+        },
+      ],
+    };
+    const projector = await createProjector(params, {
+      nativeSkillUsageContext: {
+        runId: params.runId,
+        agentId: params.agentId,
+        sessionId: params.sessionId,
+        workspaceDir: params.workspaceDir,
+        skillsSnapshot: params.skillsSnapshot,
+      },
+    });
+    const diagnosticEvents: DiagnosticEventPayload[] = [];
+    const unsubscribe = onInternalDiagnosticEvent((event) => diagnosticEvents.push(event));
+
+    try {
+      await projector.handleNotification(
+        forCurrentTurn("item/completed", {
+          item: {
+            type: "commandExecution",
+            id: `cmd-no-skill-read-${status}-${exitCode}`,
+            command: command(skillFile),
+            cwd: params.workspaceDir,
+            processId: null,
+            source: "agent",
+            status,
+            commandActions: [],
+            aggregatedOutput: "",
+            exitCode,
+            durationMs: 12,
+          },
+        }),
+      );
+      await flushDiagnosticEvents();
+    } finally {
+      unsubscribe();
+    }
+
+    expect(diagnosticEvents.filter((event) => event.type === "skill.used")).toEqual([]);
+  });
+
   it("projects assistant deltas and usage into embedded attempt results", async () => {
     const { onAssistantMessageStart, onPartialReply, projector } =
       await createProjectorWithAssistantHooks();

@@ -927,6 +927,89 @@ describe("Codex app-server dynamic tool build", () => {
     ]);
   });
 
+  it("passes skill usage identity into Codex dynamic tool construction", async () => {
+    const sessionFile = path.join(tempDir, "session.jsonl");
+    const workspaceDir = path.join(tempDir, "workspace");
+    const skillFile = path.join(workspaceDir, "skills", "demo", "SKILL.md");
+    const params = createParams(sessionFile, workspaceDir);
+    params.disableTools = false;
+    params.runtimePlan = createCodexRuntimePlanFixture();
+    params.skillsSnapshot = {
+      prompt: "",
+      skills: [{ name: "demo" }],
+      resolvedSkills: [
+        {
+          name: "demo",
+          description: "Demo",
+          filePath: skillFile,
+          baseDir: path.dirname(skillFile),
+          sourceInfo: {
+            path: skillFile,
+            source: "workspace",
+            scope: "project",
+            origin: "top-level",
+          },
+          disableModelInvocation: false,
+          source: "workspace",
+        },
+      ],
+    };
+    const factoryOptions: unknown[] = [];
+    setOpenClawCodingToolsFactoryForTests((options) => {
+      factoryOptions.push(options);
+      return [];
+    });
+
+    await buildDynamicToolsForTest(params, workspaceDir, { sandbox: null as never });
+
+    expect(factoryOptions[0]).toMatchObject({ skillsSnapshot: params.skillsSnapshot });
+  });
+
+  it("passes sandbox skill usage paths into Codex dynamic tool construction", async () => {
+    const sessionFile = path.join(tempDir, "session.jsonl");
+    const workspaceDir = path.join(tempDir, "workspace");
+    const skillsWorkspaceDir = path.join(tempDir, "sandbox-skills");
+    const params = createParams(sessionFile, workspaceDir);
+    params.disableTools = false;
+    params.runtimePlan = createCodexRuntimePlanFixture();
+    const factoryOptions: unknown[] = [];
+    setOpenClawCodingToolsFactoryForTests((options) => {
+      factoryOptions.push(options);
+      return [];
+    });
+
+    await buildDynamicToolsForTest(params, workspaceDir, {
+      sandbox: {
+        enabled: true,
+        backendId: "docker",
+        workspaceAccess: "none",
+        workspaceDir,
+        skillsWorkspaceDir,
+        containerWorkdir: "/workspace",
+        skillUsagePaths: [
+          {
+            readPath: path.join(skillsWorkspaceDir, "skills", "demo", "SKILL.md"),
+            skillFile: "/agent/skills/demo/SKILL.md",
+            skillName: "demo",
+            skillSource: "workspace",
+          },
+        ],
+      } as never,
+    });
+
+    expect(factoryOptions[0]).toMatchObject({
+      skillUsagePaths: [
+        {
+          readPath: "/workspace/skills/demo/SKILL.md",
+          skillFile: "/agent/skills/demo/SKILL.md",
+          skillName: "demo",
+          skillSource: "workspace",
+        },
+      ],
+    });
+    expect(factoryOptions[0]).not.toHaveProperty("skillsSnapshot");
+  });
+
   it("passes auth profiles into Codex dynamic tool construction", async () => {
     const sessionFile = path.join(tempDir, "session.jsonl");
     const workspaceDir = path.join(tempDir, "workspace");

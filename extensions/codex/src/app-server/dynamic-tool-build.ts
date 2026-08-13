@@ -10,8 +10,10 @@ import {
   filterProviderNormalizableTools,
   isSubagentSessionKey,
   normalizeAgentRuntimeTools,
+  mapSandboxSkillUsagePaths,
   resolveAttemptSpawnWorkspaceDir,
   resolveModelAuthMode,
+  resolveSandboxSkillRuntimeInputs,
   resolveSandboxContext,
   supportsModelTools,
   type EmbeddedRunAttemptParams,
@@ -229,6 +231,20 @@ export async function buildDynamicTools(input: DynamicToolBuildParams) {
   toolBuildStages.mark("load-agent-harness-tools");
   const sessionKeys = resolveOpenClawCodingToolsSessionKeys(params, input.sandboxSessionKey);
   const nativeExecutionPolicy = resolveCodexNativeExecutionPolicyForDynamicTools(input);
+  const {
+    skillsPromptWorkspaceDir,
+    skillsSnapshot: skillsSnapshotForTools,
+    skillsWorkspaceDir,
+  } = resolveSandboxSkillRuntimeInputs({
+    sandbox: input.sandbox,
+    effectiveWorkspace: input.effectiveWorkspace,
+    skillsSnapshot: params.skillsSnapshot,
+  });
+  const skillUsagePaths = mapSandboxSkillUsagePaths({
+    paths: input.sandbox?.skillUsagePaths,
+    skillsWorkspaceDir,
+    skillsPromptWorkspaceDir,
+  });
   const allTools = createOpenClawCodingTools({
     agentId: input.sessionAgentId,
     ...(params.crestodianTool ? { crestodianTool: params.crestodianTool } : {}),
@@ -263,6 +279,8 @@ export async function buildDynamicTools(input: DynamicToolBuildParams) {
     agentDir,
     cwd: input.effectiveCwd ?? input.effectiveWorkspace,
     workspaceDir: input.effectiveWorkspace,
+    ...(skillsSnapshotForTools ? { skillsSnapshot: skillsSnapshotForTools } : {}),
+    ...(skillUsagePaths ? { skillUsagePaths } : {}),
     spawnWorkspaceDir:
       input.effectiveCwd && input.effectiveCwd !== input.effectiveWorkspace
         ? input.resolvedWorkspace
