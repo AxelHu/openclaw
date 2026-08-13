@@ -866,6 +866,23 @@ export interface SkillUsage {
   use_count: number;
 }
 
+export interface SkillUsageEvents {
+  activation: string;
+  agent_id: string | null;
+  event_key: string;
+  occurred_at_ms: number;
+  skill_file: string;
+  skill_key: string;
+  skill_name: string;
+  skill_source: string;
+  tool_name: string | null;
+}
+
+export interface SkillUsageTrackingState {
+  id: Generated<number>;
+  started_at_ms: number;
+}
+
 export interface StateLeases {
   created_at: number;
   expires_at: number | null;
@@ -1114,6 +1131,8 @@ export interface DB {
   skill_lifecycle: SkillLifecycle;
   skill_uploads: SkillUploads;
   skill_usage: SkillUsage;
+  skill_usage_events: SkillUsageEvents;
+  skill_usage_tracking_state: SkillUsageTrackingState;
   state_leases: StateLeases;
   subagent_runs: SubagentRuns;
   task_delivery_state: TaskDeliveryState;

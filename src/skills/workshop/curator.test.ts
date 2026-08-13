@@ -8,7 +8,10 @@ import {
   setDiagnosticsEnabledForProcess,
   waitForDiagnosticEventsDrained,
 } from "../../infra/diagnostic-events.js";
-import { closeOpenClawStateDatabaseForTest } from "../../state/openclaw-state-db.js";
+import {
+  closeOpenClawStateDatabaseForTest,
+  openOpenClawStateDatabase,
+} from "../../state/openclaw-state-db.js";
 import { loadSkills } from "../loading/session.js";
 import {
   buildWorkspaceSkillSnapshot,
@@ -35,6 +38,7 @@ vi.mock("./store.js", () => ({
 import {
   ARCHIVE_AFTER_MS,
   DOCTOR_WEDGED_AFTER_MS,
+  SKILL_USAGE_EVENT_RETENTION_MS,
   STALE_AFTER_MS,
   getSkillCuratorDoctorWarning,
   getSkillCuratorStatus,
@@ -182,6 +186,85 @@ describe("skill curator usage", () => {
       skillKey: "daily-brief",
       useCount: 2,
     });
+    const database = openOpenClawStateDatabase({ env: process.env });
+    expect(
+      database.db
+        .prepare(
+          "SELECT activation, agent_id FROM skill_usage_events ORDER BY occurred_at_ms, activation",
+        )
+        .all(),
+    ).toEqual([
+      { activation: "command", agent_id: "writer" },
+      { activation: "read", agent_id: "main" },
+    ]);
+  });
+
+  it("deduplicates repeated delivery of the same native usage event", () => {
+    const skillFile = path.join(rootDir, "agent", "skills", "dedupe", "SKILL.md");
+    addAppliedSkill({ name: "Dedupe", appliedAtMs: 100 });
+    const event = {
+      activation: "read" as const,
+      agentId: "main",
+      runId: "run-1",
+      sessionId: "session-1",
+      sessionKey: "agent:main:test",
+      skillFile,
+      skillName: "Dedupe",
+      skillSource: "workspace" as const,
+      toolCallId: "call-1",
+      toolName: "read",
+      ts: 200,
+    };
+    recordSkillUsage(event, { env: process.env });
+    recordSkillUsage(event, { env: process.env });
+
+    const database = openOpenClawStateDatabase({ env: process.env });
+    expect(database.db.prepare("SELECT COUNT(*) AS count FROM skill_usage_events").get()).toEqual({
+      count: 1,
+    });
+    expect(database.db.prepare("SELECT use_count FROM skill_usage").get()).toEqual({
+      use_count: 1,
+    });
+  });
+
+  it("prunes detailed usage events after the retention window", async () => {
+    const nowMs = SKILL_USAGE_EVENT_RETENTION_MS + 1_000;
+    const skillFile = path.join(rootDir, "agent", "skills", "retention", "SKILL.md");
+    addAppliedSkill({ name: "Retention", appliedAtMs: 100 });
+    recordSkillUsage(
+      {
+        activation: "read",
+        agentId: "main",
+        runId: "run-old",
+        skillFile,
+        skillName: "Retention",
+        skillSource: "workspace",
+        toolCallId: "call-old",
+        toolName: "read",
+        ts: 999,
+      },
+      { env: process.env },
+    );
+    recordSkillUsage(
+      {
+        activation: "command",
+        agentId: "main",
+        runId: "run-current",
+        skillFile,
+        skillName: "Retention",
+        skillSource: "workspace",
+        toolCallId: "call-current",
+        ts: 1_000,
+      },
+      { env: process.env },
+    );
+
+    await runSkillCuratorSweep({ env: process.env, nowMs });
+
+    const database = openOpenClawStateDatabase({ env: process.env });
+    expect(
+      database.db.prepare("SELECT activation FROM skill_usage_events ORDER BY activation").all(),
+    ).toEqual([{ activation: "command" }]);
   });
 
   it("skips usage events without a canonical skill file", async () => {
@@ -209,6 +292,7 @@ describe("skill curator usage", () => {
     addAppliedSkill({ name: "Ordered", appliedAtMs: 0 });
     recordSkillUsage(
       {
+        activation: "read",
         skillFile,
         skillName: "Ordered",
         skillSource: "workspace",
@@ -219,6 +303,7 @@ describe("skill curator usage", () => {
     );
     recordSkillUsage(
       {
+        activation: "read",
         skillFile,
         skillName: "Ordered",
         skillSource: "workspace",
@@ -290,6 +375,7 @@ describe("skill curator lifecycle", () => {
 
     recordSkillUsage(
       {
+        activation: "read",
         skillFile: path.join(rootDir, "agent", "skills", "dormant", "SKILL.md"),
         skillName: "Dormant",
         skillSource: "workspace",
@@ -300,6 +386,7 @@ describe("skill curator lifecycle", () => {
     );
     recordSkillUsage(
       {
+        activation: "read",
         skillFile: path.join(rootDir, "agent", "skills", "deep-archive", "SKILL.md"),
         skillName: "Deep Archive",
         skillSource: "workspace",
@@ -354,6 +441,7 @@ describe("skill curator lifecycle", () => {
     });
     recordSkillUsage(
       {
+        activation: "read",
         skillFile: firstSkillFile,
         skillName: "Shared Name",
         skillSource: "workspace",

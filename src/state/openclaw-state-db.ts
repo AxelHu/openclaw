@@ -943,6 +943,9 @@ function ensureSchema(db: DatabaseSync, pathname: string): void {
   ensureAdditiveStateColumns(db);
   assertCanonicalStateSchemaShape(db, pathname);
   db.exec(OPENCLAW_STATE_SCHEMA_SQL);
+  db.prepare(
+    `INSERT OR IGNORE INTO skill_usage_tracking_state (id, started_at_ms) VALUES (1, ?)`,
+  ).run(Date.now());
   ensureAdditiveStateColumns(db);
   db.exec(`PRAGMA user_version = ${OPENCLAW_STATE_SCHEMA_VERSION};`);
   const now = Date.now();

@@ -71,6 +71,7 @@ import {
 import type { SkillSnapshot, SkillTelemetrySource, SkillUsagePath } from "../skills/types.js";
 import { resolveSkillWorkshopToolApproval } from "../skills/workshop/policy.js";
 import { isPlainObject, truncateUtf16Safe } from "../utils.js";
+import { splitShellArgs } from "../utils/shell-argv.js";
 import {
   adjustedParamsByToolCallId,
   buildAdjustedParamsKey,
@@ -694,11 +695,128 @@ function materializedSkillInstructionPaths(paths: SkillUsagePath[] | undefined) 
   return matches;
 }
 
-function findSkillUsageMatch(params: {
+function shellCommandText(params: unknown): string | undefined {
+  if (!isPlainObject(params)) {
+    return undefined;
+  }
+  for (const key of ["command", "cmd"] as const) {
+    const value = params[key];
+    if (typeof value === "string" && value.trim()) {
+      return value;
+    }
+  }
+  return undefined;
+}
+
+function splitTopLevelShellCommands(raw: string): string[] {
+  const commands: string[] = [];
+  let buffer = "";
+  let quote: "'" | '"' | undefined;
+  let escaped = false;
+  const push = () => {
+    const command = buffer.trim();
+    if (command) {
+      commands.push(command);
+    }
+    buffer = "";
+  };
+
+  for (let index = 0; index < raw.length; index += 1) {
+    const char = raw[index];
+    if (escaped) {
+      buffer += char;
+      escaped = false;
+      continue;
+    }
+    if (quote) {
+      buffer += char;
+      if (quote === '"' && char === "\\") {
+        const next = raw[index + 1];
+        if (next !== undefined) {
+          buffer += next;
+          index += 1;
+        }
+      } else if (char === quote) {
+        quote = undefined;
+      }
+      continue;
+    }
+    if (char === "\\") {
+      buffer += char;
+      escaped = true;
+      continue;
+    }
+    if (char === "'" || char === '"') {
+      buffer += char;
+      quote = char;
+      continue;
+    }
+    if (char === ";" || char === "\n" || char === "\r" || char === "|" || char === "&") {
+      push();
+      if ((char === "|" || char === "&") && raw[index + 1] === char) {
+        index += 1;
+      }
+      continue;
+    }
+    buffer += char;
+  }
+  push();
+  return commands;
+}
+
+function shellInstructionReadMatches(params: {
+  toolParams: unknown;
+  ctx?: HookContext;
+}): SkillUsageMatch[] {
+  const command = shellCommandText(params.toolParams);
+  if (!command) {
+    return [];
+  }
+  const skillPaths = params.ctx?.skillsSnapshot?.resolvedSkills?.length
+    ? skillInstructionPaths(params.ctx.skillsSnapshot)
+    : materializedSkillInstructionPaths(params.ctx?.skillUsagePaths);
+  const homeDir = os.homedir();
+  const matches = new Map<string, SkillUsageMatch>();
+  const fileArguments = new Set<string>();
+  const fileReaders = new Set(["cat", "head", "tail", "less", "more", "bat", "sed"]);
+  for (const shellCommand of splitTopLevelShellCommands(command)) {
+    const argv = splitShellArgs(shellCommand);
+    const executable = argv?.[0] ? path.basename(argv[0]).toLowerCase() : "";
+    if (!argv || !fileReaders.has(executable)) {
+      continue;
+    }
+    for (const argument of argv.slice(1)) {
+      fileArguments.add(argument);
+    }
+  }
+  if (fileArguments.size === 0) {
+    return [];
+  }
+  for (const [instructionPath, match] of skillPaths) {
+    const aliases = [instructionPath];
+    const relativeToHome = path.relative(homeDir, instructionPath);
+    if (relativeToHome && !relativeToHome.startsWith("..") && !path.isAbsolute(relativeToHome)) {
+      aliases.push(`~/${relativeToHome}`);
+    }
+    const base = params.ctx?.workspaceDir ?? params.ctx?.cwd;
+    if (base) {
+      const relativeToBase = path.relative(base, instructionPath);
+      if (relativeToBase && !relativeToBase.startsWith("..") && !path.isAbsolute(relativeToBase)) {
+        aliases.push(relativeToBase, `./${relativeToBase}`);
+      }
+    }
+    if (aliases.some((candidate) => fileArguments.has(candidate))) {
+      matches.set(match.skillFile ?? instructionPath, match);
+    }
+  }
+  return [...matches.values()];
+}
+
+function findSkillUsageMatches(params: {
   toolName: string;
   toolParams: unknown;
   ctx?: HookContext;
-}): SkillUsageMatch | undefined {
+}): SkillUsageMatch[] {
   const command = params.ctx?.skillCommand;
   if (command) {
     const commandToolName = normalizeToolName(command.toolName ?? params.toolName);
@@ -711,17 +829,22 @@ function findSkillUsageMatch(params: {
         snapshot: params.ctx?.skillsSnapshot,
       });
       const skillFile = canonicalSkillFile(command.skillFile) ?? snapshotMatch?.skillFile;
-      return {
-        skillName: command.skillName,
-        skillSource,
-        activation: "command",
-        ...(skillFile ? { skillFile } : {}),
-      };
+      return [
+        {
+          skillName: command.skillName,
+          skillSource,
+          activation: "command",
+          ...(skillFile ? { skillFile } : {}),
+        },
+      ];
     }
   }
 
+  if (params.toolName === "bash" || params.toolName === "exec") {
+    return shellInstructionReadMatches(params);
+  }
   if (params.toolName !== "read") {
-    return undefined;
+    return [];
   }
   const skillPaths = params.ctx?.skillsSnapshot?.resolvedSkills?.length
     ? skillInstructionPaths(params.ctx.skillsSnapshot)
@@ -729,10 +852,10 @@ function findSkillUsageMatch(params: {
   for (const candidate of readToolPathCandidates(params.toolParams, params.ctx)) {
     const match = skillPaths.get(candidate);
     if (match) {
-      return match;
+      return [match];
     }
   }
-  return undefined;
+  return [];
 }
 
 function emitSkillUsedDiagnostic(params: {
@@ -1913,13 +2036,13 @@ export function wrapToolWithBeforeToolCallHook(
           toolCallId,
           toolCallOrdinal,
         });
-        const skillMatch = findSkillUsageMatch({
+        const skillMatches = findSkillUsageMatches({
           toolName: normalizedToolName,
           toolParams: executeParams,
           ctx,
         });
         if (hookOptions.emitDiagnostics) {
-          if (skillMatch) {
+          for (const skillMatch of skillMatches) {
             emitSkillUsedDiagnostic({
               ctx,
               match: skillMatch,
