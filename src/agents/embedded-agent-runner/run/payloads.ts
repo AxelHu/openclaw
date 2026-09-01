@@ -201,8 +201,30 @@ export function buildEmbeddedRunPayloads(params: {
     .map((text) => sanitizeAssistantVisibleStreamText(text))
     .filter((text) => text.trim().length > 0);
   const currentAssistant = params.currentAssistant ?? undefined;
+  const matchingCanonicalMediaAssistant = (() => {
+    if (currentAssistant || nonEmptyAssistantTexts.length !== 1 || !params.lastAssistant) {
+      return undefined;
+    }
+    const rawAnswerText = resolveRawAssistantAnswerText(params.lastAssistant);
+    if (!rawAnswerText) {
+      return undefined;
+    }
+    const parsedAnswer = parseReplyDirectives(rawAnswerText);
+    const hasMediaDirective =
+      (parsedAnswer.mediaUrls?.length ?? 0) > 0 || parsedAnswer.audioAsVoice === true;
+    if (!hasMediaDirective) {
+      return undefined;
+    }
+    const streamedText = normalizeTextForComparison(nonEmptyAssistantTexts[0] ?? "");
+    const canonicalText = normalizeTextForComparison(parsedAnswer.text ?? "");
+    return streamedText.length > 0 && streamedText === canonicalText
+      ? params.lastAssistant
+      : undefined;
+  })();
   const assistantForPayload =
-    currentAssistant ?? (nonEmptyAssistantTexts.length === 1 ? undefined : params.lastAssistant);
+    currentAssistant ??
+    matchingCanonicalMediaAssistant ??
+    (nonEmptyAssistantTexts.length === 1 ? undefined : params.lastAssistant);
   // Pre-upgrade recovered messages have no stored facts, and recovery intentionally does not
   // reparse text; one in-flight reply can lose delivery or speech intent across this boundary.
   const storedDelivery = assistantForPayload?.openclawDelivery;
