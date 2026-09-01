@@ -768,6 +768,12 @@ describe("runMemoryFlushIfNeeded", () => {
       });
 
       const result = await runDefaultMemoryFlush(sessionEntry, {
+        followupRun: createTestFollowupRun({
+          thinkingCatalog: [
+            { provider: "anthropic", id: "claude", input: ["text"] },
+            { provider: "anthropic", id: "fallback", input: ["text"] },
+          ],
+        }),
         sessionStore,
         sessionKey,
         storePath,
@@ -921,10 +927,15 @@ describe("runMemoryFlushIfNeeded", () => {
         };
       },
     );
-    const followupRun = createTestFollowupRun();
-    followupRun.run.provider = "openai";
-    followupRun.run.model = "gpt-5.6-sol";
-    followupRun.run.thinkLevel = "ultra";
+    const followupRun = createTestFollowupRun({
+      provider: "openai",
+      model: "gpt-5.6-sol",
+      thinkLevel: "ultra",
+      thinkingCatalog: [
+        { provider: "openai", id: "gpt-5.6-sol", input: ["text"] },
+        { provider: "demo", id: "basic", input: ["text"] },
+      ],
+    });
 
     await runMemoryFlushIfNeeded({
       cfg: {
@@ -975,7 +986,9 @@ describe("runMemoryFlushIfNeeded", () => {
       model: "qwen3.5:4b",
     });
     followupRun.run.thinkLevel = "high";
-    followupRun.run.thinkingCatalog = [{ provider: "ollama", id: "qwen3.5:4b", reasoning: true }];
+    followupRun.run.thinkingCatalog = [
+      { provider: "ollama", id: "qwen3.5:4b", reasoning: true, input: ["text"] },
+    ];
 
     await runMemoryFlushIfNeeded({
       cfg: { agents: { defaults: { compaction: { memoryFlush: {} } } } },
@@ -1428,7 +1441,14 @@ describe("runMemoryFlushIfNeeded", () => {
           },
         },
       },
-      followupRun: createTestFollowupRun({ provider: "anthropic", model: "claude" }),
+      followupRun: createTestFollowupRun({
+        provider: "anthropic",
+        model: "claude",
+        thinkingCatalog: [
+          { provider: "anthropic", id: "claude", input: ["text"] },
+          { provider: "ollama", id: "qwen3:8b", input: ["text"] },
+        ],
+      }),
       sessionCtx: createTestTemplateContext({ Provider: "whatsapp" }),
       defaultModel: "anthropic/claude",
       modelContextTokens: 100_000,
