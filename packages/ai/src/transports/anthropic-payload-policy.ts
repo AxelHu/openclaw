@@ -201,6 +201,24 @@ function stripAnthropicSystemPromptBoundary(system: unknown): void {
   }
 }
 
+function isCacheablePreRuntimeContextBlock(
+  blockRecord: Record<string, unknown>,
+  role: unknown,
+): boolean {
+  if (role === "assistant") {
+    return blockRecord.type === "text" || blockRecord.type === "tool_use";
+  }
+  if (role === "user") {
+    return (
+      blockRecord.type === "text" ||
+      blockRecord.type === "image" ||
+      blockRecord.type === "video" ||
+      blockRecord.type === "tool_result"
+    );
+  }
+  return false;
+}
+
 /** Apply one shared deepest-stable-message cache breakpoint policy. */
 export function applyAnthropicCacheControlToMessages(
   messages: unknown,
@@ -213,6 +231,7 @@ export function applyAnthropicCacheControlToMessages(
   }
 
   let fallbackToolResult: Record<string, unknown> | undefined;
+  let crossedRuntimeContextCarrier = false;
 
   for (let i = messages.length - 1; i >= 0; i--) {
     const message = messages[i];
@@ -221,12 +240,19 @@ export function applyAnthropicCacheControlToMessages(
     }
 
     const record = message as Record<string, unknown>;
-    if (record.role !== "user" || cacheBreakpointOptOutMessageIndexes.has(i)) {
+    if (cacheBreakpointOptOutMessageIndexes.has(i)) {
+      crossedRuntimeContextCarrier = true;
+      continue;
+    }
+    if (record.role !== "user" && record.role !== "assistant") {
       continue;
     }
 
     const content = record.content;
     if (typeof content === "string") {
+      if (record.role !== "user") {
+        continue;
+      }
       if (fallbackToolResult && markerLimit === 1) {
         fallbackToolResult.cache_control = cacheControl;
         return;
@@ -255,7 +281,13 @@ export function applyAnthropicCacheControlToMessages(
       }
 
       const blockRecord = block as Record<string, unknown>;
-      if (blockRecord.type === "text" || blockRecord.type === "image") {
+      const isPrimaryCandidate = crossedRuntimeContextCarrier
+        ? isCacheablePreRuntimeContextBlock(blockRecord, record.role)
+        : record.role === "user" &&
+          (blockRecord.type === "text" ||
+            blockRecord.type === "image" ||
+            blockRecord.type === "video");
+      if (isPrimaryCandidate) {
         if (fallbackToolResult && markerLimit === 1) {
           fallbackToolResult.cache_control = cacheControl;
           return;
@@ -266,7 +298,11 @@ export function applyAnthropicCacheControlToMessages(
         }
         return;
       }
-      if (blockRecord.type === "tool_result" && fallbackToolResult === undefined) {
+      if (
+        record.role === "user" &&
+        blockRecord.type === "tool_result" &&
+        fallbackToolResult === undefined
+      ) {
         fallbackToolResult = blockRecord;
       }
     }
