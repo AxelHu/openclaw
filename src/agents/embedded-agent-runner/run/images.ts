@@ -23,6 +23,7 @@ import {
 import { resolveMediaReferenceLocalPath } from "../../../media/media-reference.js";
 import type { PromptImageOrderEntry } from "../../../media/prompt-image-order.js";
 import { finalizeRuntimePromptImages } from "../../../media/runtime-prompt-image-provenance.js";
+import { readToolResultMediaFacts } from "../../../media/tool-result-media-facts.js";
 import { loadWebMedia, type WebMediaResult } from "../../../media/web-media.js";
 import type { UserTurnTranscriptRecorder } from "../../../sessions/user-turn-transcript.types.js";
 import { resolveUserPath } from "../../../utils.js";
@@ -496,6 +497,7 @@ type PromptMediaOptions = {
   provider?: boolean;
   signal?: AbortSignal;
   onCurrentTurnImageFailure?: (count: number) => void;
+  videoBudget?: { remaining: number };
 };
 
 export function buildPromptImageFailureNotice(count: number): string {
@@ -590,7 +592,7 @@ async function materializePromptMediaMessages(
   options: PromptMediaOptions,
 ): Promise<AgentMessage[]> {
   let hydrated: AgentMessage[] | undefined;
-  const videoBudget = { remaining: MAX_VIDEO_BYTES };
+  const videoBudget = options.videoBudget ?? { remaining: MAX_VIDEO_BYTES };
   const activeUserIndex = messages.findLastIndex((message) => message.role === "user");
   for (const [index, message] of messages.entries()) {
     if (message.role !== "user") {
@@ -677,6 +679,41 @@ async function materializePromptMediaMessages(
   return hydrated ?? messages;
 }
 
+async function materializeToolResultMediaMessages(
+  messages: AgentMessage[],
+  options: PromptMediaOptions,
+): Promise<AgentMessage[]> {
+  if (!options.provider) {
+    return messages;
+  }
+  const budget = options.videoBudget ?? { remaining: MAX_VIDEO_BYTES };
+  const projected: AgentMessage[] = [];
+  let changed = false;
+  for (const message of messages) {
+    projected.push(message);
+    if (message.role !== "toolResult") {
+      continue;
+    }
+    const media = readToolResultMediaFacts(message)?.filter(isVideoMediaFact) ?? [];
+    if (media.length === 0) {
+      continue;
+    }
+    const content: ModelInputContent[] = [
+      { type: "text", text: "Video attachment returned by the readVideo tool." },
+    ];
+    for (const fact of media) {
+      content.push(await materializeVideoFact(fact, budget, options));
+    }
+    changed = true;
+    projected.push({
+      role: "user",
+      content,
+      timestamp: message.timestamp,
+    } as ProviderContext["messages"][number] as AgentMessage);
+  }
+  return changed ? projected : messages;
+}
+
 /** Hydrates non-enumerable facts carried by queued user turns before canonical replay. */
 export async function hydratePromptMediaMessages(
   messages: AgentMessage[],
@@ -695,7 +732,22 @@ export async function materializeProviderContext(params: {
   sandbox?: { root: string; bridge: SandboxFsBridge };
   onCurrentTurnImageFailure?: (count: number) => void;
 }): Promise<ProviderContext> {
-  const messages = await materializePromptMediaMessages(params.context.messages as AgentMessage[], {
+  const videoBudget = { remaining: MAX_VIDEO_BYTES };
+  const promptMessages = await materializePromptMediaMessages(
+    params.context.messages as AgentMessage[],
+    {
+      workspaceDir: params.workspaceDir,
+      model: { input: ["text", "image"] },
+      workspaceOnly: params.workspaceOnly,
+      localRoots: params.localRoots,
+      sandbox: params.sandbox,
+      provider: true,
+      signal: params.signal,
+      onCurrentTurnImageFailure: params.onCurrentTurnImageFailure,
+      videoBudget,
+    },
+  );
+  const messages = await materializeToolResultMediaMessages(promptMessages, {
     workspaceDir: params.workspaceDir,
     model: { input: ["text", "image"] },
     workspaceOnly: params.workspaceOnly,
@@ -703,7 +755,7 @@ export async function materializeProviderContext(params: {
     sandbox: params.sandbox,
     provider: true,
     signal: params.signal,
-    onCurrentTurnImageFailure: params.onCurrentTurnImageFailure,
+    videoBudget,
   });
   params.signal?.throwIfAborted();
   return messages === params.context.messages

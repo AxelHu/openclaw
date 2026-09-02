@@ -4,6 +4,10 @@ import type { AgentMessage } from "openclaw/plugin-sdk/agent-core";
 import { SessionManager } from "openclaw/plugin-sdk/agent-sessions";
 import type { ToolResultMessage, UserMessage } from "openclaw/plugin-sdk/llm";
 import { describe, expect, it, vi } from "vitest";
+import {
+  readToolResultMediaFacts,
+  withToolResultMediaDetails,
+} from "../../media/tool-result-media-facts.js";
 import { makeAgentAssistantMessage } from "../test-helpers/agent-message-fixtures.js";
 import { sanitizeSessionHistory } from "./replay-history.js";
 
@@ -89,5 +93,53 @@ describe("sanitizeSessionHistory toolResult details stripping", () => {
       throw new Error("Expected sanitized first message to be an assistant message");
     }
     expect(assistant?.content).toEqual([{ type: "text", text: "plain reply" }]);
+  });
+
+  it("preserves validated readVideo media as runtime-only facts while stripping details", async () => {
+    const sm = SessionManager.inMemory();
+    const details = withToolResultMediaDetails({ ok: true }, [
+      { path: "/workspace/clip.mp4", contentType: "video/mp4", sizeBytes: 24 },
+    ]);
+    const messages: AgentMessage[] = [
+      makeAgentAssistantMessage({
+        content: [{ type: "toolCall", id: "call_1", name: "readVideo", arguments: {} }],
+        model: "gpt-5.4",
+        stopReason: "toolUse",
+        timestamp: 1,
+      }),
+      {
+        role: "toolResult",
+        toolCallId: "call_1",
+        toolName: "readVideo",
+        isError: false,
+        content: [{ type: "text", text: "video ready" }],
+        details,
+        timestamp: 2,
+      } satisfies ToolResultMessage<typeof details>,
+      { role: "user", content: "continue", timestamp: 3 } satisfies UserMessage,
+    ];
+
+    const sanitized = await sanitizeSessionHistory({
+      messages,
+      modelApi: "anthropic-messages",
+      provider: "anthropic",
+      modelId: "claude-opus-4-6",
+      sessionManager: sm,
+      sessionId: "test",
+    });
+
+    const toolResult = sanitized.find((message) => message.role === "toolResult");
+    expect(toolResult).toBeDefined();
+    expect(toolResult).not.toHaveProperty("details");
+    expect(toolResult && readToolResultMediaFacts(toolResult)).toMatchObject([
+      {
+        path: "/workspace/clip.mp4",
+        contentType: "video/mp4",
+        kind: "video",
+        sizeBytes: 24,
+      },
+    ]);
+    expect(JSON.stringify(sanitized)).not.toContain("openclawProviderMedia");
+    expect(JSON.stringify(sanitized)).not.toContain("/workspace/clip.mp4");
   });
 });
