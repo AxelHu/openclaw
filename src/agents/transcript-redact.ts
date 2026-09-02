@@ -27,8 +27,10 @@ import {
 import {
   sanitizeTranscriptImageDataUrlField,
   sanitizeTranscriptImageRecord,
+  sanitizeTranscriptVideoRecord,
   shouldPreserveNestedTranscriptImageDataUrlFields,
   shouldPreserveTranscriptImagePayload,
+  shouldPreserveTranscriptVideoPayload,
 } from "./transcript-redact-images.js";
 import { sanitizeCompactionReplayState } from "./transcript-redact-replay.js";
 
@@ -542,7 +544,8 @@ function redactTranscriptStructuredValue(
 
   seen.add(value);
   const sanitizedImageRecord = sanitizeTranscriptImageRecord(value);
-  const source = sanitizedImageRecord ?? value;
+  const sanitizedVideoRecord = sanitizeTranscriptVideoRecord(value);
+  const source = sanitizedImageRecord ?? sanitizedVideoRecord ?? value;
   const currentAssistantRoute =
     location === "root" && source.role === "assistant"
       ? resolveTranscriptAssistantRoute(source, cfg)
@@ -676,7 +679,10 @@ function redactTranscriptStructuredValue(
         continue;
       }
     }
-    if (shouldPreserveTranscriptImagePayload(source, key, item, preserveImageDataUrlFields)) {
+    if (
+      shouldPreserveTranscriptImagePayload(source, key, item, preserveImageDataUrlFields) ||
+      shouldPreserveTranscriptVideoPayload(source, key, item)
+    ) {
       continue;
     }
     const redacted =

@@ -52,6 +52,20 @@ const BMP_BASE64_WITH_SECRET_TOKEN_SUBSTRING = Buffer.from(
   "BMsk-abcdef1234567890xyz",
   "ascii",
 ).toString("base64");
+const MP4_BASE64 = Buffer.concat([
+  Buffer.from([
+    0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70, 0x6d, 0x70, 0x34, 0x32, 0x00, 0x00, 0x00, 0x00,
+    0x6d, 0x70, 0x34, 0x32, 0x69, 0x73, 0x6f, 0x6d,
+  ]),
+  Buffer.from("AKIDABCDEFGHIJKLMNOP", "base64"),
+]).toString("base64");
+const WEBM_BASE64 = Buffer.concat([
+  Buffer.from([0x1a, 0x45, 0xdf, 0xa3]),
+  Buffer.from([0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]),
+  Buffer.from([0x42, 0x82, 0x04]),
+  Buffer.from("webm", "ascii"),
+  Buffer.alloc(64, 0xcd),
+]).toString("base64");
 const CIPHERTEXT_WITH_TOKEN_SHAPED_BYTES =
   "gAAAAABpQnQrXzzZqcAfo3unbAY-ku84xgsvB0fpLkbDvSh3WS5qzfSCmcgwr8_abcdefghijvK2RyV2GQ4ohzcfYwhRwTvY76TvR7Tvr_";
 const GOOGLE_THOUGHT_SIGNATURE = Buffer.from(`thought-${"x".repeat(32)}`).toString("base64");
@@ -1866,6 +1880,68 @@ describe("redactTranscriptMessage", () => {
     const result = redactTranscriptMessage(msg, cfg("tools"));
     const content = msgContent(result) as Array<{ data: string }>;
     expect(expectDefined(content[0], "content[0] test invariant").data).toBe("sk-abc…0xyz");
+  });
+
+  it("preserves valid MP4 video base64 while redacting adjacent text", () => {
+    const msg = castAgentMessage({
+      role: "user",
+      content: [
+        { type: "text", text: "my key is sk-abcdef1234567890xyz" },
+        { type: "video", data: MP4_BASE64, mimeType: "video/mp4" },
+      ],
+    });
+
+    const result = redactTranscriptMessage(msg, cfg("tools"));
+    const content = msgContent(result) as Array<{ type: string; text?: string; data?: string }>;
+    expect(expectDefined(content[0], "content[0] test invariant").text).not.toContain(
+      "sk-abcdef1234567890xyz",
+    );
+    expect(expectDefined(content[1], "content[1] test invariant").data).toBe(MP4_BASE64);
+  });
+
+  it("preserves valid WebM video base64", () => {
+    const msg = castAgentMessage({
+      role: "assistant",
+      content: [{ type: "video", data: WEBM_BASE64, mimeType: "video/webm" }],
+    });
+
+    const result = redactTranscriptMessage(msg, cfg("tools"));
+    const block = expectDefined(
+      (msgContent(result) as Array<{ data: string; mimeType: string }>)[0],
+      "video block",
+    );
+    expect(block.data).toBe(WEBM_BASE64);
+    expect(block.mimeType).toBe("video/webm");
+  });
+
+  it("redacts video payloads that fail signature validation", () => {
+    const payload = "sk-abcdef1234567890xyz";
+    const msg = castAgentMessage({
+      role: "user",
+      content: [{ type: "video", data: payload, mimeType: "video/mp4" }],
+    });
+
+    const result = redactTranscriptMessage(msg, cfg("tools"));
+    const block = expectDefined(
+      (msgContent(result) as Array<{ data: string }>)[0],
+      "invalid video block",
+    );
+    expect(block.data).not.toBe(payload);
+    expect(block.data).not.toContain("sk-abcdef1234567890xyz");
+  });
+
+  it("redacts video payloads with a non-video MIME type", () => {
+    const msg = castAgentMessage({
+      role: "user",
+      content: [{ type: "video", data: MP4_BASE64, mimeType: "image/png" }],
+    });
+
+    const result = redactTranscriptMessage(msg, cfg("tools"));
+    const block = expectDefined(
+      (msgContent(result) as Array<{ data: string }>)[0],
+      "mislabeled video block",
+    );
+    expect(block.data).not.toContain("AKIDABCDEFGHIJKLMNOP");
   });
 
   it("preserves valid BMP image base64 while redacting adjacent text", () => {

@@ -50,6 +50,21 @@ const HEIC_BRANDS = new Set(["heic", "heix", "hevc", "hevx", "heis", "heim", "he
 const HEIF_BRANDS = new Set(["mif1", "msf1"]);
 const IMAGE_SIGNATURE_PREFIX_BASE64_CHARS = 128;
 const INLINE_IMAGE_DATA_URL_MIMES = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
+const MP4_VIDEO_BRANDS = new Set([
+  "mp41",
+  "mp42",
+  "isom",
+  "iso2",
+  "avc1",
+  "mp71",
+  "qt  ",
+  "M4V ",
+  "f4v ",
+  "F4V ",
+  "dash",
+  "msnv",
+]);
+const VIDEO_SIGNATURE_PREFIX_BASE64_CHARS = 128;
 
 function startsWithDataUrl(value: string): boolean {
   return (
@@ -83,11 +98,53 @@ export function sniffInlineImageMime(buffer: Buffer): string | undefined {
   );
 }
 
+function sniffInlineVideoMime(buffer: Buffer): string | undefined {
+  if (
+    buffer.length >= 12 &&
+    buffer.subarray(4, 8).toString("ascii") === "ftyp" &&
+    MP4_VIDEO_BRANDS.has(buffer.subarray(8, 12).toString("ascii"))
+  ) {
+    return "video/mp4";
+  }
+  if (
+    buffer.length >= 8 &&
+    buffer[0] === 0x1a &&
+    buffer[1] === 0x45 &&
+    buffer[2] === 0xdf &&
+    buffer[3] === 0xa3
+  ) {
+    const ebmlHeader = buffer.subarray(4, Math.min(96, buffer.length)).toString("ascii");
+    if (ebmlHeader.includes("webm")) {
+      return "video/webm";
+    }
+    if (ebmlHeader.includes("matroska")) {
+      return "video/x-matroska";
+    }
+  }
+  if (
+    buffer.length >= 12 &&
+    buffer.subarray(0, 4).toString("ascii") === "RIFF" &&
+    buffer.subarray(8, 12).toString("ascii") === "AVI "
+  ) {
+    return "video/x-msvideo";
+  }
+  return undefined;
+}
+
 function isImageMimeType(value: string): boolean {
   return value.trim().toLowerCase().startsWith("image/");
 }
 
+function isVideoMimeType(value: string): boolean {
+  return value.trim().toLowerCase().startsWith("video/");
+}
+
 export type SanitizedInlineImageBase64 = {
+  mimeType: string;
+  base64: string;
+};
+
+export type SanitizedInlineVideoBase64 = {
   mimeType: string;
   base64: string;
 };
@@ -106,6 +163,30 @@ export function sanitizeInlineImageBase64(params: {
   }
   const sniffedMimeType = sniffInlineImageMime(
     Buffer.from(canonicalPayload.slice(0, IMAGE_SIGNATURE_PREFIX_BASE64_CHARS), "base64"),
+  );
+  if (!sniffedMimeType) {
+    return undefined;
+  }
+  return {
+    mimeType: sniffedMimeType,
+    base64: canonicalPayload,
+  };
+}
+
+/** Canonicalizes trusted inline video base64 and rejects malformed or impersonated payloads. */
+export function sanitizeInlineVideoBase64(params: {
+  mimeType: string;
+  base64: string;
+}): SanitizedInlineVideoBase64 | undefined {
+  if (!isVideoMimeType(params.mimeType)) {
+    return undefined;
+  }
+  const canonicalPayload = canonicalizeBase64(params.base64);
+  if (!canonicalPayload) {
+    return undefined;
+  }
+  const sniffedMimeType = sniffInlineVideoMime(
+    Buffer.from(canonicalPayload.slice(0, VIDEO_SIGNATURE_PREFIX_BASE64_CHARS), "base64"),
   );
   if (!sniffedMimeType) {
     return undefined;
