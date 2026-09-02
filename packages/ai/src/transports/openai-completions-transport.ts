@@ -6,6 +6,7 @@ import {
   reasoningTagTextPolicy,
   type OpenAICompletionsOptions,
 } from "../provider-options.js";
+import { resolveProviderContext } from "../provider-types.js";
 import { finalizeOpenAICompletionsToolCalls } from "../providers/openai-completions-tool-calls.js";
 import { tagUnresolvedTextAsCommentary } from "../utils/assistant-text-phase.js";
 import {
@@ -199,6 +200,9 @@ export function createOpenAICompletionsTransportStreamFn(): StreamFn {
       };
       let firstEventAbort: ReturnType<typeof createFirstStreamEventAbortController> | undefined;
       try {
+        const providerContext = await resolveProviderContext(context, options);
+        // SAFETY: Legacy OpenAI transport helpers serialize provider-only video blocks.
+        const requestContext = providerContext as Context;
         const apiKey = options?.apiKey || getEnvApiKey(model.provider) || "";
         // The OpenAI SDK consumes the SSE terminal without yielding it. Observe
         // the raw body so native tool calls can distinguish clean DONE from EOF.
@@ -229,12 +233,18 @@ export function createOpenAICompletionsTransportStreamFn(): StreamFn {
             statusText: response.statusText,
           });
         };
-        const client = createOpenAICompletionsClient(model, context, apiKey, options?.headers, {
-          fetch: doneDetectingFetch,
-        });
+        const client = createOpenAICompletionsClient(
+          model,
+          requestContext,
+          apiKey,
+          options?.headers,
+          {
+            fetch: doneDetectingFetch,
+          },
+        );
         let params = buildOpenAICompletionsParams(
           model as OpenAIModeModel,
-          context,
+          requestContext,
           options as OpenAICompletionsOptions | undefined,
         );
         const nextParams = await options?.onPayload?.(params, model);
@@ -245,7 +255,7 @@ export function createOpenAICompletionsTransportStreamFn(): StreamFn {
           (options as { openclawCodeModeToolSurface?: unknown } | undefined)
             ?.openclawCodeModeToolSurface === true
         ) {
-          const visibleToolNames = resolveCodeModeResponsesVisibleToolNames(context);
+          const visibleToolNames = resolveCodeModeResponsesVisibleToolNames(requestContext);
           enforceCodeModeResponsesToolSurface(
             params,
             visibleToolNames,

@@ -124,6 +124,7 @@ export function prepareModelRunCapabilities(
   const configuredEntry = findModelInCatalog(configuredCatalog, provider, modelId);
   return {
     modelHasVision: modelSupportsInput(entry, "image"),
+    modelHasVideo: modelSupportsInput(entry, "video"),
     modelThinkingCapability: prepareModelThinkingCapability({
       entry: entry ?? configuredEntry,
       route: agentRuntime === "openclaw" ? (configuredEntry ?? entry) : undefined,

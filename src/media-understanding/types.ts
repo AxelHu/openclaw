@@ -142,6 +142,26 @@ export type VideoDescriptionResult = {
   model?: string;
 };
 
+type VideoUploadRequest = {
+  buffer: Buffer;
+  fileName?: string;
+  mimeType: string;
+  purpose: "video_understanding";
+  provider: string;
+  cfg: OpenClawConfig;
+  agentDir?: string;
+  authStore?: AuthProfileStore;
+  timeoutMs: number;
+  signal?: AbortSignal;
+};
+
+type VideoUploadResult = {
+  url: string;
+  fileId?: string;
+  bytes?: number;
+  fileName?: string;
+};
+
 export type ImageDescriptionRequest = {
   buffer: Buffer;
   fileName: string;
@@ -275,6 +295,7 @@ export type MediaUnderstandingProvider = {
   ) => MediaUnderstandingProviderSyntheticAuthResult | null | undefined;
   transcribeAudio?: (req: AudioTranscriptionRequest) => Promise<AudioTranscriptionResult>;
   describeVideo?: (req: VideoDescriptionRequest) => Promise<VideoDescriptionResult>;
+  uploadVideo?: (req: VideoUploadRequest) => Promise<VideoUploadResult>;
   describeImage?: (req: ImageDescriptionRequest) => Promise<ImageDescriptionResult>;
   describeImages?: (req: ImagesDescriptionRequest) => Promise<ImagesDescriptionResult>;
   extractStructured?: (req: StructuredExtractionRequest) => Promise<StructuredExtractionResult>;

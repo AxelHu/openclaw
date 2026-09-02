@@ -51,6 +51,7 @@ import {
   applyLocalNoAuthHeaderOverride,
   resolveModelAuthMode,
 } from "../model-auth.js";
+import { modelSupportsInput } from "../model-catalog-lookup.js";
 import { supportsModelTools } from "../model-tool-support.js";
 import { resolveAgentPromptSurfaceForSessionKey } from "../prompt-surface.js";
 import { collectRuntimeChannelCapabilities } from "../runtime-capabilities.js";
@@ -370,6 +371,7 @@ export async function buildPreparedCompactionRuntime(prepared: DirectCompactionP
           modelProvider: effectiveModel.provider,
           modelId,
           modelHasVision: effectiveModel.input?.includes("image") ?? false,
+          modelHasVideo: modelSupportsInput(effectiveModel, "video"),
           modelCompat: extractModelCompat(effectiveModel),
           modelApi: effectiveModel.api,
           modelContextWindowTokens: contextTokenBudget,

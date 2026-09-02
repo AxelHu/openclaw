@@ -264,6 +264,8 @@ export type RunEmbeddedAgentParams = {
   modelRoutingProvenance?: ModelFallbackAttemptProvenance;
   /** Vision capability resolved by the run owner from its prepared model catalog. */
   modelHasVision?: boolean;
+  /** Native video capability resolved by the run owner from its prepared model catalog. */
+  modelHasVideo?: boolean;
   /** Session-selected context-window option id carried by the run owner. */
   contextWindow?: string;
   /** Route-bound thinking capability resolved from the selected prepared catalog row. */

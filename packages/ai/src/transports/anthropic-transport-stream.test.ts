@@ -11,6 +11,11 @@ import {
   getAiTransportHost,
   type AiInlineContentBlock,
 } from "../host.js";
+import {
+  PROVIDER_CONTEXT_HANDOFF,
+  type ProviderContext,
+  type ProviderStreamOptions,
+} from "../provider-types.js";
 import { createCompactionCapture } from "./anthropic-compaction-replay.js";
 import { resolveCompactionReplayPressure } from "./provider-compaction-replay.js";
 import { withProviderAcceptanceObserver } from "./transport-stream-shared.js";
@@ -3438,6 +3443,86 @@ describe("anthropic transport stream", () => {
       type: "image",
       source: { type: "base64", media_type: "image/jpeg", data: imageData },
     });
+  });
+
+  it("serializes inline and hosted video blocks for Anthropic-compatible video models", async () => {
+    await runTransportStream(
+      makeAnthropicTransportModel({ input: ["text", "image", "video"] as never }),
+      {
+        messages: [
+          {
+            role: "user",
+            content: [
+              { type: "text", text: "inspect" },
+              { type: "video", data: "dm...=", mimeType: "video/mp4" },
+              {
+                type: "video",
+                data: "provider-file://414244194570579",
+                mimeType: "video/mp4",
+                source: "url",
+              },
+            ],
+          },
+        ],
+      } as AnthropicStreamContext,
+      { apiKey: "test-api-key" } as AnthropicStreamOptions,
+    );
+
+    const userMessage = latestAnthropicUserMessage();
+    expect(userMessage.content).toEqual([
+      { type: "text", text: "inspect" },
+      {
+        type: "video",
+        source: { type: "base64", media_type: "video/mp4", data: "dm...=" },
+      },
+      {
+        type: "video",
+        source: { type: "url", url: "provider-file://414244194570579" },
+        cache_control: { type: "ephemeral" },
+      },
+    ]);
+  });
+
+  it("consumes provider video context from the transport handoff", async () => {
+    const providerContext = {
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "inspect handoff" },
+            {
+              type: "video",
+              data: "provider-file://handoff-video",
+              mimeType: "video/mp4",
+              source: "url",
+            },
+          ],
+          timestamp: 1,
+        },
+      ],
+    } satisfies ProviderContext;
+    const handoff = vi.fn(async () => providerContext);
+
+    const result = await runTransportStream(
+      makeAnthropicTransportModel({ input: ["text", "image", "video"] as never }),
+      { messages: [{ role: "user", content: "canonical only" }] } as AnthropicStreamContext,
+      {
+        apiKey: "test-api-key",
+        [PROVIDER_CONTEXT_HANDOFF]: handoff,
+      } as AnthropicStreamOptions & ProviderStreamOptions,
+    );
+
+    expect(result.stopReason).toBe("stop");
+    expect(handoff).toHaveBeenCalledOnce();
+    expect(latestAnthropicUserMessage().content).toEqual([
+      { type: "text", text: "inspect handoff" },
+      {
+        type: "video",
+        source: { type: "url", url: "provider-file://handoff-video" },
+        cache_control: { type: "ephemeral" },
+      },
+    ]);
+    expect(JSON.stringify(latestAnthropicRequest().payload)).not.toContain("canonical only");
   });
 
   it("preserves an omission placeholder for non-vision image-only turns", async () => {

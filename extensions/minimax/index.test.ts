@@ -9,6 +9,10 @@ import {
 } from "openclaw/plugin-sdk/plugin-test-runtime";
 import { MINIMAX_OAUTH_MARKER } from "openclaw/plugin-sdk/provider-auth";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  minimaxMediaUnderstandingProvider,
+  minimaxPortalMediaUnderstandingProvider,
+} from "./media-understanding-provider.js";
 import { buildMinimaxModelDiscovery } from "./provider-catalog.js";
 import { registerMinimaxProviders } from "./provider-registration.js";
 import { createMiniMaxWebSearchProvider } from "./src/minimax-web-search-provider.js";
@@ -165,6 +169,21 @@ describe("minimax provider hooks", () => {
       "minimax-cn": "minimax",
       "minimax-portal-cn": "minimax-portal",
     });
+  });
+
+  it("keeps media-understanding capability metadata scoped to preprocessors", () => {
+    const pluginJson = JSON.parse(
+      readFileSync(resolve(import.meta.dirname, "openclaw.plugin.json"), "utf-8"),
+    );
+
+    expect(pluginJson.mediaUnderstandingProviderMetadata.minimax.capabilities).toEqual(["image"]);
+    expect(pluginJson.mediaUnderstandingProviderMetadata["minimax-portal"].capabilities).toEqual([
+      "image",
+    ]);
+    expect(minimaxMediaUnderstandingProvider.capabilities).toEqual(["image"]);
+    expect(minimaxMediaUnderstandingProvider.uploadVideo).toBeTypeOf("function");
+    expect(minimaxPortalMediaUnderstandingProvider.capabilities).toEqual(["image"]);
+    expect(minimaxPortalMediaUnderstandingProvider.uploadVideo).toBeTypeOf("function");
   });
 
   it("keeps native reasoning mode for MiniMax transports", async () => {
@@ -348,7 +367,7 @@ describe("minimax provider hooks", () => {
     expect(provider?.baseUrl).toBe("https://api.minimax.io/anthropic");
     const model = provider?.models.find((entry: { id?: string }) => entry.id === "MiniMax-M3");
     expect(model?.id).toBe("MiniMax-M3");
-    expect(model?.input).toEqual(["text", "image"]);
+    expect(model?.input).toEqual(["text", "image", "video"]);
     expect(model?.name).toBe("MiniMax M3");
     expect(model?.reasoning).toBe(true);
   });
@@ -372,7 +391,7 @@ describe("minimax provider hooks", () => {
       id: "MiniMax-M3",
       api: "anthropic-messages",
       baseUrl: "https://api.minimax.io/anthropic",
-      input: ["text", "image"],
+      input: ["text", "image", "video"],
       contextWindow: 1_000_000,
     });
   });

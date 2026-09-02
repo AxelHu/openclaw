@@ -14,6 +14,7 @@ import { replaceSessionEntry } from "../config/sessions/session-accessor.js";
 import type { SessionEntry } from "../config/sessions/types.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import * as windowsEncoding from "../infra/windows-encoding.js";
+import type { MediaUnderstandingProvider } from "../media-understanding/types.js";
 import { readMemoryArtifactProvenance } from "../memory/memory-artifact-provenance.js";
 import {
   findUnsupportedSchemaKeywords,
@@ -64,6 +65,7 @@ const tinyPngBuffer = Buffer.from(
   "base64",
 );
 const avifHeaderBuffer = Buffer.from("00000018667479706176696600000000617669666d696631", "hex");
+const mp4HeaderBuffer = Buffer.from("00000018667479706d7034320000000069736f6d6d703432", "hex");
 const tempDirs = useAutoCleanupTempDirTracker(afterEach);
 const XAI_UNSUPPORTED_SCHEMA_KEYWORDS = new Set(["minContains", "maxContains"]);
 function collectActionValues(schema: unknown, values: Set<string>): void {
@@ -885,6 +887,81 @@ describe("createOpenClawCodingTools", () => {
     });
 
     expect(toolNameList(tools)).toContain("message");
+  });
+
+  it("forwards the active auth store to hosted readVideo uploads", async () => {
+    const workspaceDir = tempDirs.make("openclaw-read-video-hosted-");
+    await fs.writeFile(path.join(workspaceDir, "clip.mp4"), mp4HeaderBuffer);
+    const authProfileStore: AuthProfileStore = { version: 1, profiles: {} };
+    const uploadVideo = vi.fn(
+      async (request: Parameters<NonNullable<MediaUnderstandingProvider["uploadVideo"]>>[0]) => {
+        expect(request.authStore).toBe(authProfileStore);
+        expect(request.provider).toBe("minimax-cn");
+        expect(request.timeoutMs).toBe(7000);
+        return { url: "provider-file://hosted-clip", fileId: "hosted-clip" };
+      },
+    );
+    const tools = createOpenClawCodingTools({
+      workspaceDir,
+      modelProvider: "minimax-cn",
+      modelHasVideo: true,
+      authProfileStore,
+      config: {
+        models: {
+          providers: {
+            "minimax-cn": {
+              baseUrl: "https://api.minimaxi.com/anthropic",
+              api: "anthropic-messages",
+              models: [],
+              media: {
+                video: { mode: "hosted", inlineMaxBytes: 1, hostedMaxBytes: 1024 },
+              },
+            },
+          },
+        },
+        tools: {
+          allow: ["readVideo"],
+          media: { video: { timeoutSeconds: 7 } },
+        },
+      },
+      preparedModelRuntime: {
+        mediaCapabilityProviders: {
+          mediaUnderstandingProviders: [{ id: "minimax", capabilities: ["video"], uploadVideo }],
+        },
+      } as never,
+    });
+
+    const result = await requireToolExecute(requireTool(tools, "readVideo"))("call_1", {
+      path: "clip.mp4",
+    });
+
+    expect(uploadVideo).toHaveBeenCalledTimes(1);
+    expect(result.details).toMatchObject({
+      ok: true,
+      delivery: "hosted",
+      providerFileId: "hosted-clip",
+    });
+  });
+
+  it("omits readVideo when no prepared video capability was supplied", () => {
+    const tools = createOpenClawCodingTools({
+      workspaceDir: tempDirs.make("openclaw-read-video-unproven-"),
+      modelProvider: "minimax",
+      config: { tools: { allow: ["readVideo"] } },
+    });
+
+    expect(toolNameList(tools)).not.toContain("readVideo");
+  });
+
+  it("omits readVideo when the active model does not accept video input", () => {
+    const tools = createOpenClawCodingTools({
+      workspaceDir: tempDirs.make("openclaw-read-video-text-only-"),
+      modelProvider: "minimax",
+      modelHasVideo: false,
+      config: { tools: { allow: ["readVideo"] } },
+    });
+
+    expect(toolNameList(tools)).not.toContain("readVideo");
   });
 
   it("preserves message-tool-only replies through local model lean filtering without runtime allowlist", () => {

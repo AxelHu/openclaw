@@ -133,6 +133,21 @@ export type ModelMediaInputConfig = {
   image?: ModelImageInputConfig;
 };
 
+export type ModelProviderVideoMode = "auto" | "inline" | "hosted";
+
+export type ModelProviderVideoConfig = {
+  /** Delivery strategy for provider-native video input. Default: auto. */
+  mode?: ModelProviderVideoMode;
+  /** Maximum raw bytes materialized as inline base64. */
+  inlineMaxBytes?: number;
+  /** Maximum raw bytes accepted by the provider-hosted file path. */
+  hostedMaxBytes?: number;
+};
+
+export type ModelProviderMediaConfig = {
+  video?: ModelProviderVideoConfig;
+};
+
 /** Authentication mode expected by a configured model provider. */
 export type ModelProviderAuthMode = "api-key" | "aws-sdk" | "oauth" | "token";
 
@@ -224,6 +239,8 @@ export type ModelProviderConfig = {
   request?: ConfiguredModelProviderRequest;
   /** Model catalog entries exposed by this provider. */
   models: ModelDefinitionConfig[];
+  /** Provider-native media delivery policy. */
+  media?: ModelProviderMediaConfig;
 };
 
 /** Fully materialized provider declaration emitted by provider catalog plugins. */

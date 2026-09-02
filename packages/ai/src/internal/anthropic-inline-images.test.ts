@@ -70,4 +70,21 @@ describe("Anthropic inline image request budget", () => {
 
     expect(batchSizes).toEqual([1, 1]);
   });
+
+  it("preserves provider-only video blocks without applying image normalization", async () => {
+    const budget = createAnthropicInlineImageBudget();
+    const content = [
+      { type: "text" as const, text: "inspect" },
+      {
+        type: "video" as const,
+        data: "provider-file://42",
+        mimeType: "video/mp4",
+        source: "url" as const,
+      },
+    ];
+
+    await expect(normalizeAnthropicInlineContent(content, budget)).resolves.toEqual(content);
+    expect(budget.totalBytes).toBe(0);
+    expect(estimateBase64DecodedBytesMock).not.toHaveBeenCalled();
+  });
 });

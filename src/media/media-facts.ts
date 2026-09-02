@@ -27,6 +27,8 @@ export type MediaFact = {
   transcribed?: boolean;
   messageId?: string;
   workspaceDir?: string;
+  /** Exact provider execution id that owns an opaque hosted reference. */
+  providerReference?: string;
   /** Internal proof that this exact fact was covered by a legacy staged projection. */
   staged?: boolean;
   // Declared field, not a symbol: suppression must survive every fact copy or
@@ -240,6 +242,7 @@ export function canonicalizePersistedUserMessageMedia<T extends object>(
       ...(fact.transcribed ? { transcribed: true } : {}),
       ...(fact.messageId ? { messageId: fact.messageId } : {}),
       ...(fact.workspaceDir ? { workspaceDir: fact.workspaceDir } : {}),
+      ...(fact.providerReference ? { providerReference: fact.providerReference } : {}),
       ...(fact.staged || stagedMedia?.[index]?.staged ? { staged: true } : {}),
       ...(fact.hydrationSuppressed ? { hydrationSuppressed: true } : {}),
     });
@@ -381,6 +384,7 @@ function normalizeMediaFact<TInput extends MediaFactInput>(
   // slots must remain empty facts instead of crashing transcript hydration.
   const input = asNonArrayRecord(media) as TInput;
   const workspaceDir = normalizeOptionalString(input.workspaceDir) ?? defaults.workspaceDir;
+  const providerReference = normalizeOptionalString(input.providerReference);
   const contentType = normalizeOptionalString(input.contentType);
   const durationMs = normalizePositiveInteger(input.durationMs);
   const width = normalizePositiveInteger(input.width);
@@ -401,6 +405,7 @@ function normalizeMediaFact<TInput extends MediaFactInput>(
     transcribed: input.transcribed === true || defaults.transcribed?.(input, index) === true,
     messageId: normalizeOptionalString(input.messageId) ?? defaults.messageId,
     ...(workspaceDir ? { workspaceDir } : {}),
+    ...(providerReference ? { providerReference } : {}),
     ...(input.staged === true ? { staged: true } : {}),
     ...(input.hydrationSuppressed === true ? { hydrationSuppressed: true } : {}),
   };
@@ -492,6 +497,7 @@ function resolveMediaFactsWithPrecedence(
         workspaceDir:
           normalizeOptionalString(fact?.workspaceDir) ??
           normalizeOptionalString(source.MediaWorkspaceDir),
+        providerReference: fact?.providerReference,
         staged:
           fact?.staged === true ||
           (legacyProjectionWins &&

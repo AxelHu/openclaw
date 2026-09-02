@@ -3,6 +3,7 @@
  * Assembles core, shell, channel, OpenClaw, plugin, and Tool Search tools, then
  * applies sandbox, profile, provider, sender, group, and sub-agent policy.
  */
+import { normalizeMediaProviderId } from "../../packages/media-understanding-common/src/provider-id.js";
 import type {
   SourceReplyDeliveryMode,
   TaskSuggestionDeliveryMode,
@@ -19,6 +20,8 @@ import { resolveEventSessionRoutingPolicy } from "../infra/event-session-routing
 import { applyExecPolicyLayer } from "../infra/exec-policy.js";
 import { mergeGatewayAgentCliPath } from "../infra/openclaw-cli-shim.js";
 import { logWarn } from "../logger.js";
+import { DEFAULT_TIMEOUT_SECONDS } from "../media-understanding/defaults.constants.js";
+import { resolveTimeoutMs } from "../media-understanding/resolve.js";
 import type {
   PluginHookChannelContext,
   PluginHookToolRequesterContext,
@@ -93,6 +96,7 @@ import {
   resolveSessionPermissionExecPolicy,
 } from "./session-permission-exec-mode.js";
 import { resolveSessionPlacementComputer } from "./session-placement-computer.js";
+import { resolveVideoDeliveryPolicy } from "./sessions/tools/video-inline-policy.js";
 import type { TrustedSubagentCompletionHandoff } from "./subagents/announce/subagent-announce-handoff.js";
 import { resolveToolFsConfig } from "./tool-fs-policy.js";
 import type { PreparedSessionPermissionPolicy } from "./tool-fs-policy.js";
@@ -323,8 +327,10 @@ type OpenClawCodingToolsOptions = {
   cronCreatorToolAllowlistCaptureRef?: CronToolsAllowCaptureRef;
   /** Visible fail-closed reason for queued Codex configured-MCP cron mutations. */
   cronCreatorAuthorityUnavailableReason?: CronToolOptions["creatorAuthorityUnavailableReason"];
-  /** If true, the model has native vision capability */
+  /** If true, the model has native vision capability. */
   modelHasVision?: boolean;
+  /** If true, the model accepts provider-native video input. */
+  modelHasVideo?: boolean;
   /** Mutable model-context generation used to expire screenshot coordinate frames. */
   computerContextEpoch?: { value: number };
   /** Attempt-local full skill reads that remain visible in the model context. */
@@ -590,6 +596,43 @@ function createOpenClawCodingToolsInternal(options?: OpenClawCodingToolsOptions)
     });
 
   const imageSanitization = resolveImageSanitizationLimits(options?.config);
+  const normalizedModelProvider = normalizeMediaProviderId(options?.modelProvider ?? "");
+  const mediaUnderstandingProvider =
+    options?.modelHasVideo === true &&
+    normalizedModelProvider &&
+    options?.preparedModelRuntime?.mediaCapabilityProviders
+      ? options.preparedModelRuntime.mediaCapabilityProviders.mediaUnderstandingProviders?.find(
+          (provider) => normalizeMediaProviderId(provider.id) === normalizedModelProvider,
+        )
+      : undefined;
+  const uploadVideo = mediaUnderstandingProvider?.uploadVideo;
+  const videoUploadTimeoutMs = resolveTimeoutMs(
+    options?.config?.tools?.media?.video?.timeoutSeconds,
+    DEFAULT_TIMEOUT_SECONDS.video,
+  );
+  const readVideoOptions = {
+    deliveryPolicy: resolveVideoDeliveryPolicy(options?.config, options?.modelProvider),
+    ...(uploadVideo && options?.config && options.modelProvider
+      ? {
+          hostedProviderId: options.modelProvider,
+          uploadVideo: async (request: {
+            buffer: Buffer;
+            mimeType: string;
+            fileName?: string;
+            purpose: "video_understanding";
+            signal?: AbortSignal;
+          }) =>
+            await uploadVideo({
+              ...request,
+              provider: options.modelProvider!,
+              cfg: options.config!,
+              ...(options.agentDir ? { agentDir: options.agentDir } : {}),
+              ...(options.authProfileStore ? { authStore: options.authProfileStore } : {}),
+              timeoutMs: videoUploadTimeoutMs,
+            }),
+        }
+      : {}),
+  };
   options?.recordToolPrepStage?.("workspace-policy");
   const { cleanupMs: cleanupMsOverride, ...execDefaults } = options?.exec ?? {};
   const effectiveExecPolicy = sessionPermissionPolicy
@@ -616,6 +659,8 @@ function createOpenClawCodingToolsInternal(options?: OpenClawCodingToolsOptions)
     modelContextWindowTokens: options?.modelContextWindowTokens,
     imageSanitization,
     modelHasVision: options?.modelHasVision,
+    modelHasVideo: options?.modelHasVideo,
+    readVideoOptions,
     memoryWriteProvenance,
     applyPatchEnabled,
     applyPatchWorkspaceOnly,

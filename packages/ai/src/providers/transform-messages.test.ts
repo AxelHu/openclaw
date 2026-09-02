@@ -102,6 +102,13 @@ describe("transformMessages", () => {
       text: "(video omitted: provider does not support video input)",
     });
     expect(JSON.stringify(responses)).not.toContain(sentinel);
+
+    const anthropicModel = {
+      ...advertisedVideoModel,
+      api: "anthropic-messages" as const,
+    } as ProviderModel<"anthropic-messages">;
+    const anthropic = transformProviderMessages(messages, anthropicModel);
+    expect(anthropic[0]?.content).toEqual(advertised[0]?.content);
   });
 
   it("preserves structured tool blocks while projecting only real images", () => {

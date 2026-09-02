@@ -2,11 +2,9 @@ import type {
   AssistantMessage,
   AssistantMessageEvent,
   Context,
-  ImageContent,
   Model,
   SimpleStreamOptions,
   StreamFn,
-  TextContent,
   ToolCall,
 } from "@openclaw/llm-core";
 import { toErrorObject } from "@openclaw/normalization-core/error-coercion";
@@ -26,6 +24,7 @@ import {
 } from "../internal/anthropic-inline-images.js";
 import { calculateCost } from "../model-utils.js";
 import type { AnthropicOptions, AnthropicThinkingDisplay } from "../provider-options.js";
+import { resolveProviderContext, type ModelInputContent } from "../provider-types.js";
 import {
   isAnthropicOAuthApiKey,
   omitFoundryBearerCredentialHeaders,
@@ -379,7 +378,7 @@ async function convertAnthropicMessages(
       }
       const normalizedContent = model.input.includes("image")
         ? await normalizeAnthropicInlineContent(
-            msg.content as readonly (TextContent | ImageContent)[],
+            msg.content as readonly ModelInputContent[],
             imageBudget,
           )
         : msg.content.map((item) =>
@@ -393,20 +392,34 @@ async function convertAnthropicMessages(
             type: "image";
             source: { type: "base64"; media_type: string; data: string };
           }
+        | {
+            type: "video";
+            source:
+              | { type: "base64"; media_type: string; data: string }
+              | { type: "url"; url: string };
+          }
       > = normalizedContent.map((item) =>
         item.type === "text"
           ? {
               type: "text",
               text: sanitizeTransportPayloadText(item.text),
             }
-          : {
-              type: "image",
-              source: {
-                type: "base64",
-                media_type: resolveAnthropicImageMediaType(item.mimeType),
-                data: item.data,
+          : item.type === "video"
+            ? {
+                type: "video",
+                source:
+                  item.source === "url"
+                    ? { type: "url", url: item.data }
+                    : { type: "base64", media_type: item.mimeType, data: item.data },
+              }
+            : {
+                type: "image",
+                source: {
+                  type: "base64",
+                  media_type: resolveAnthropicImageMediaType(item.mimeType),
+                  data: item.data,
+                },
               },
-            },
       );
       let filteredBlocks = model.input.includes("image")
         ? blocks
@@ -1166,12 +1179,15 @@ export function createAnthropicMessagesTransportStreamFn(): StreamFn {
       let messageStartPromptUsage: AnthropicPromptUsageSnapshot | undefined;
       let usedCompactionReplay = false;
       try {
+        const providerContext = await resolveProviderContext(context, options);
+        const preparedContext = prepareClaudeNoPrefillRequestContext(model, providerContext);
+        // SAFETY: Legacy Anthropic transport helpers serialize provider-only video blocks.
+        const requestContext = preparedContext as Context;
         const apiKey = options?.apiKey ?? getEnvApiKey(model.provider) ?? "";
         if (!apiKey) {
           throw new Error(`No API key for provider: ${model.provider}`);
         }
         const transportOptions = resolveAnthropicTransportOptions(model, options, apiKey);
-        const requestContext = prepareClaudeNoPrefillRequestContext(model, context);
         const { client, isOAuthToken } = createAnthropicTransportClient({
           model,
           context: requestContext,

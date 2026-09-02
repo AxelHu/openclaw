@@ -1266,6 +1266,40 @@ describe("config schema", () => {
     }
   });
 
+  it("validates model-provider video delivery policy", () => {
+    const parsed = OpenClawSchema.parse({
+      models: {
+        providers: {
+          minimax: {
+            models: [],
+            media: {
+              video: {
+                mode: "hosted",
+                inlineMaxBytes: 16 * 1024 * 1024,
+                hostedMaxBytes: 512 * 1024 * 1024,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    expect(parsed.models?.providers?.minimax?.media?.video).toEqual({
+      mode: "hosted",
+      inlineMaxBytes: 16 * 1024 * 1024,
+      hostedMaxBytes: 512 * 1024 * 1024,
+    });
+    expect(
+      OpenClawSchema.safeParse({
+        models: {
+          providers: {
+            minimax: { models: [], media: { video: { inlineMaxBytes: 0 } } },
+          },
+        },
+      }).success,
+    ).toBe(false);
+  });
+
   it("looks up a config schema path with immediate child summaries", () => {
     const lookup = lookupConfigSchema(baseSchema, "gateway.auth");
     expect(lookup?.path).toBe("gateway.auth");

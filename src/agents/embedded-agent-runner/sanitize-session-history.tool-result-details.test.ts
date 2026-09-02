@@ -2,7 +2,7 @@
 // before provider validation sees transcript messages.
 import type { AgentMessage } from "openclaw/plugin-sdk/agent-core";
 import { SessionManager } from "openclaw/plugin-sdk/agent-sessions";
-import type { ToolResultMessage, UserMessage } from "openclaw/plugin-sdk/llm";
+import type { Message, ToolResultMessage, UserMessage } from "openclaw/plugin-sdk/llm";
 import { describe, expect, it, vi } from "vitest";
 import {
   readToolResultMediaFacts,
@@ -10,6 +10,7 @@ import {
 } from "../../media/tool-result-media-facts.js";
 import { makeAgentAssistantMessage } from "../test-helpers/agent-message-fixtures.js";
 import { sanitizeSessionHistory } from "./replay-history.js";
+import { materializeProviderContext } from "./run/images.js";
 
 vi.mock("../../plugins/provider-runtime.js", () => ({
   // Provider plugins are not part of this boundary test; the local sanitizer
@@ -22,6 +23,10 @@ vi.mock("../../plugins/provider-runtime.js", () => ({
 vi.mock("../../plugins/provider-hook-runtime.js", () => ({
   resolveProviderRuntimePlugin: () => undefined,
 }));
+
+function isProviderMessage(message: AgentMessage): message is Message {
+  return message.role === "user" || message.role === "assistant" || message.role === "toolResult";
+}
 
 describe("sanitizeSessionHistory toolResult details stripping", () => {
   it("strips toolResult.details so untrusted payloads are not fed back to the model", async () => {
@@ -141,5 +146,66 @@ describe("sanitizeSessionHistory toolResult details stripping", () => {
     ]);
     expect(JSON.stringify(sanitized)).not.toContain("openclawProviderMedia");
     expect(JSON.stringify(sanitized)).not.toContain("/workspace/clip.mp4");
+  });
+
+  it("restores a compact hosted reference after replay sanitization without serializing it", async () => {
+    const sm = SessionManager.inMemory();
+    const details = withToolResultMediaDetails({ ok: true }, [
+      {
+        url: "provider-file://414244194570579",
+        contentType: "video/mp4",
+        providerReference: "minimax",
+        kind: "video",
+        sizeBytes: 200 * 1024 * 1024,
+      },
+    ]);
+    const sanitized = await sanitizeSessionHistory({
+      messages: [
+        makeAgentAssistantMessage({
+          content: [{ type: "toolCall", id: "call_1", name: "readVideo", arguments: {} }],
+          model: "MiniMax-M3",
+          stopReason: "toolUse",
+          timestamp: 1,
+        }),
+        {
+          role: "toolResult",
+          toolCallId: "call_1",
+          toolName: "readVideo",
+          isError: false,
+          content: [{ type: "text", text: "hosted video ready" }],
+          details,
+          timestamp: 2,
+        } satisfies ToolResultMessage<typeof details>,
+        { role: "user", content: "continue", timestamp: 3 } satisfies UserMessage,
+      ],
+      modelApi: "openai-completions",
+      provider: "minimax",
+      modelId: "MiniMax-M3",
+      sessionManager: sm,
+      sessionId: "test",
+    });
+
+    expect(JSON.stringify(sanitized)).not.toContain("provider-file://414244194570579");
+    const providerMessages = sanitized.filter(isProviderMessage);
+    expect(providerMessages).toHaveLength(sanitized.length);
+    const projected = await materializeProviderContext({
+      context: { systemPrompt: "system", messages: providerMessages, tools: [] },
+      workspaceDir: "/workspace",
+      workspaceOnly: true,
+      providerId: "minimax",
+    });
+    expect(projected.messages).toContainEqual({
+      role: "user",
+      content: [
+        { type: "text", text: "Video attachment returned by the readVideo tool." },
+        {
+          type: "video",
+          data: "provider-file://414244194570579",
+          mimeType: "video/mp4",
+          source: "url",
+        },
+      ],
+      timestamp: 2,
+    });
   });
 });

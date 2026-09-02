@@ -26,7 +26,9 @@ import {
 
 describe("provider call types", () => {
   it("keeps video at the provider boundary without widening canonical contracts", () => {
-    expectTypeOf<VideoContent>().toEqualTypeOf<Omit<ImageContent, "type"> & { type: "video" }>();
+    expectTypeOf<VideoContent>().toEqualTypeOf<
+      Omit<ImageContent, "type"> & { type: "video"; source?: "base64" | "url" }
+    >();
     expectTypeOf<MediaContent>().toEqualTypeOf<ImageContent | VideoContent>();
     expectTypeOf<ModelInputContent>().toEqualTypeOf<TextContent | MediaContent>();
     expectTypeOf<ProviderUserMessage["content"]>().toEqualTypeOf<string | ModelInputContent[]>();

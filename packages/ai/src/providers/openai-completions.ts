@@ -12,6 +12,7 @@ import { getAiTransportHost } from "../host.js";
 import { clampThinkingLevel } from "../model-utils.js";
 import { convertMessages, hasToolCallHistory } from "../openai-completions-messages.js";
 import { reasoningTagTextPolicy, type OpenAICompletionsOptions } from "../provider-options.js";
+import { resolveProviderContext } from "../provider-types.js";
 import {
   resolveOpenAICompletionsCompat,
   type ResolvedOpenAICompletionsCompat,
@@ -113,6 +114,9 @@ export const streamOpenAICompletions: StreamFunction<
     const provisionalCommentaryTags: PendingCommentaryTags = new Map();
     let firstEventAbort: ReturnType<typeof createFirstStreamEventAbortController> | undefined;
     try {
+      const providerContext = await resolveProviderContext(context, options);
+      // SAFETY: Legacy OpenAI helpers accept Context but serialize provider-only video blocks.
+      const requestContext = providerContext as Context;
       const apiKey = options?.apiKey || getEnvApiKey(model.provider) || "";
       const compat = resolveOpenAICompletionsCompat(model);
       const shouldEmitReasoning = Boolean(
@@ -122,8 +126,15 @@ export const streamOpenAICompletions: StreamFunction<
       );
       const cacheRetention = resolveCacheRetention(options?.cacheRetention);
       const cacheSessionId = cacheRetention === "none" ? undefined : options?.sessionId;
-      const client = createClient(model, context, apiKey, options?.headers, cacheSessionId, compat);
-      let params = buildParams(model, context, options, compat, cacheRetention);
+      const client = createClient(
+        model,
+        requestContext,
+        apiKey,
+        options?.headers,
+        cacheSessionId,
+        compat,
+      );
+      let params = buildParams(model, requestContext, options, compat, cacheRetention);
       const nextParams = await options?.onPayload?.(params, model);
       if (nextParams !== undefined) {
         params = nextParams as typeof params;

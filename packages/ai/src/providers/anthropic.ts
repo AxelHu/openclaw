@@ -21,6 +21,7 @@ import {
 import { calculateCost } from "../model-utils.js";
 import type { AnthropicOptions, AnthropicThinkingDisplay } from "../provider-options.js";
 import { transformProviderMessages as transformMessages } from "../provider-transcript-transform.js";
+import { resolveProviderContext } from "../provider-types.js";
 import {
   buildAnthropicReplayPlan,
   createCompactionCapture,
@@ -330,7 +331,6 @@ export const streamAnthropic: StreamFunction<"anthropic-messages", AnthropicComp
   options?: AnthropicCompactionOptions,
 ) => {
   const stream = new AssistantMessageEventStream();
-  const requestContext = prepareClaudeNoPrefillRequestContext(model, context);
   const requestOptions = normalizeAnthropicThinkingOptions(model, options);
 
   void (async () => {
@@ -366,6 +366,10 @@ export const streamAnthropic: StreamFunction<"anthropic-messages", AnthropicComp
     let usedCompactionReplay = false;
 
     try {
+      const providerContext = await resolveProviderContext(context, requestOptions);
+      const preparedContext = prepareClaudeNoPrefillRequestContext(model, providerContext);
+      // SAFETY: Legacy Anthropic helpers accept Context but serialize provider-only video blocks.
+      const requestContext = preparedContext as Context;
       let client: Anthropic;
       let isOAuth: boolean;
       // The beta-gated fallbacks param may only ship on clients we built,
@@ -1201,6 +1205,18 @@ async function convertMessages(
               type: "text",
               text: sanitizeSurrogates(item.text),
             };
+          }
+          if (item.type === "video") {
+            const source =
+              item.source === "url"
+                ? { type: "url" as const, url: item.data }
+                : {
+                    type: "base64" as const,
+                    media_type: item.mimeType,
+                    data: item.data,
+                  };
+            // SAFETY: MiniMax accepts this video extension; the Anthropic SDK type lacks it.
+            return { type: "video", source } as unknown as ContentBlockParam;
           }
           return {
             type: "image",

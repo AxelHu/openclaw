@@ -357,6 +357,31 @@ describe("embedded model resolution consistency", () => {
     ).toEqual(capability.compat);
   });
 
+  it.each([
+    { input: ["text"] as ModelCatalogEntry["input"], modelHasVision: false, modelHasVideo: false },
+    {
+      input: ["text", "image", "video"] as ModelCatalogEntry["input"],
+      modelHasVision: true,
+      modelHasVideo: true,
+    },
+  ])(
+    "resolves prepared media capabilities for input=$input",
+    ({ input, modelHasVision, modelHasVideo }) => {
+      const preparedCatalog: ModelCatalogEntry[] = [
+        {
+          provider: PROVIDER,
+          id: STATIC_MODEL_ID,
+          name: STATIC_MODEL_ID,
+          input,
+        },
+      ];
+
+      expect(
+        prepareModelRunCapabilities([preparedCatalog, []], [PROVIDER, STATIC_MODEL_ID, "openclaw"]),
+      ).toMatchObject({ modelHasVision, modelHasVideo });
+    },
+  );
+
   it("keeps configured provider routes off harness-scoped thinking capability", () => {
     const compat = { supportedReasoningEfforts: ["max", "ultra"] };
     const preparedCatalog: ModelCatalogEntry[] = [

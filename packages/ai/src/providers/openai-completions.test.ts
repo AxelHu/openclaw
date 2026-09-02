@@ -2,6 +2,11 @@
 import type { ChatCompletionChunk } from "openai/resources/chat/completions.js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { configureAiTransportHost } from "../host.js";
+import {
+  PROVIDER_CONTEXT_HANDOFF,
+  type ProviderContext,
+  type ProviderStreamOptions,
+} from "../provider-types.js";
 import type { Context, Model, SimpleStreamOptions, TextContent } from "../types.js";
 import { onLlmRequestActivity } from "../utils/llm-request-activity.js";
 import { SYSTEM_PROMPT_CACHE_BOUNDARY } from "../utils/system-prompt-cache-boundary.js";
@@ -213,6 +218,53 @@ function createNeverYieldingStream(): AsyncIterable<OpenAICompatibleChatCompleti
 }
 
 describe("OpenAI-compatible completions params", () => {
+  it("consumes provider video context through the simple-stream handoff", async () => {
+    const providerContext = {
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "inspect handoff" },
+            {
+              type: "video",
+              mimeType: "video/mp4",
+              data: "provider-file://handoff-video",
+              source: "url",
+            },
+          ],
+          timestamp: 1,
+        },
+      ],
+    } satisfies ProviderContext;
+    const handoff = vi.fn(async () => providerContext);
+    let payload: Record<string, unknown> | undefined;
+
+    const result = await streamSimpleOpenAICompletions(
+      { ...model, input: ["text", "image", "video"] } as never,
+      { messages: [{ role: "user", content: "canonical only", timestamp: 0 }] },
+      {
+        apiKey: "test-api-key",
+        [PROVIDER_CONTEXT_HANDOFF]: handoff,
+        onPayload(value) {
+          payload = value as Record<string, unknown>;
+          throw new Error("stop before network");
+        },
+      } as SimpleStreamOptions & ProviderStreamOptions,
+    ).result();
+
+    expect(result.stopReason).toBe("error");
+    expect(handoff).toHaveBeenCalledOnce();
+    expect(payload?.messages).toEqual([
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "inspect handoff" },
+          { type: "video_url", video_url: { url: "provider-file://handoff-video" } },
+        ],
+      },
+    ]);
+    expect(JSON.stringify(payload)).not.toContain("canonical only");
+  });
   it.each([
     { thinkingFormat: "zai", expected: { thinking: { type: "disabled" } } },
     { thinkingFormat: "qwen", expected: { enable_thinking: false } },

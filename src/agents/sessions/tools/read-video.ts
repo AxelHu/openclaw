@@ -1,6 +1,5 @@
 import { readFile as fsReadFile } from "node:fs/promises";
 import { basename } from "node:path";
-import { MAX_VIDEO_BYTES } from "@openclaw/media-core/constants";
 import { normalizeMimeType } from "@openclaw/media-core/mime";
 import { hasHttpUrlPrefix } from "@openclaw/net-policy/url-protocol";
 import { Type } from "typebox";
@@ -17,6 +16,13 @@ import type { AgentTool } from "../../runtime/index.js";
 import type { ToolDefinition } from "../extensions/types.js";
 import { resolveToCwd } from "./path-utils.js";
 import { wrapToolDefinition } from "./tool-definition-wrapper.js";
+import {
+  DEFAULT_VIDEO_HOSTED_MAX_BYTES,
+  DEFAULT_VIDEO_INLINE_MAX_BYTES,
+  decideVideoDelivery,
+  resolveVideoReadMaxBytes,
+  type VideoDeliveryPolicy,
+} from "./video-inline-policy.js";
 
 const readVideoSchema = Type.Object({
   path: Type.String({
@@ -25,15 +31,15 @@ const readVideoSchema = Type.Object({
   maxBytes: Type.Optional(
     Type.Integer({
       minimum: 1,
-      maximum: MAX_VIDEO_BYTES,
-      description: `Maximum video bytes to load. Defaults to ${MAX_VIDEO_BYTES}; larger videos require a hosted provider file.`,
+      maximum: DEFAULT_VIDEO_HOSTED_MAX_BYTES,
+      description: `Maximum video bytes to load. Inline delivery is capped separately; configured providers may host larger files up to ${DEFAULT_VIDEO_HOSTED_MAX_BYTES} bytes.`,
     }),
   ),
 });
 
-export const DEFAULT_READ_VIDEO_MAX_BYTES = MAX_VIDEO_BYTES;
+export const DEFAULT_READ_VIDEO_MAX_BYTES = DEFAULT_VIDEO_INLINE_MAX_BYTES;
 
-export type ReadVideoLoadedMedia = WebMediaResult & {
+type ReadVideoLoadedMedia = WebMediaResult & {
   /** Stable source identity used by the provider-only media projection. */
   fact: MediaFactInput;
 };
@@ -48,6 +54,16 @@ export interface ReadVideoOperations {
 export interface ReadVideoToolOptions {
   defaultMaxBytes?: number;
   operations?: ReadVideoOperations;
+  deliveryPolicy?: VideoDeliveryPolicy;
+  uploadVideo?: (request: {
+    buffer: Buffer;
+    mimeType: string;
+    fileName?: string;
+    purpose: "video_understanding";
+    signal?: AbortSignal;
+  }) => Promise<{ url: string; fileId?: string; bytes?: number; fileName?: string }>;
+  /** Exact provider execution id paired with uploadVideo. */
+  hostedProviderId?: string;
   /** Host-local roots allowed for local reads. Omit to preserve unrestricted read-tool behavior. */
   localRoots?: readonly string[];
   /** Optional authorized reader, used by sandbox-backed tool surfaces. */
@@ -64,6 +80,8 @@ export type ReadVideoDetails =
       contentType: string;
       sizeBytes: number;
       fileName?: string;
+      delivery: "inline" | "hosted";
+      providerFileId?: string;
     }
   | {
       ok: false;
@@ -136,6 +154,16 @@ export function createReadVideoToolDefinition(
 ): ToolDefinition<typeof readVideoSchema, ReadVideoDetails> {
   const defaultMaxBytes = options?.defaultMaxBytes ?? DEFAULT_READ_VIDEO_MAX_BYTES;
   const operations = options?.operations ?? createDefaultReadVideoOperations(cwd, options);
+  const deliveryPolicy =
+    options?.deliveryPolicy ??
+    ({
+      mode: "auto",
+      inlineMaxBytes: defaultMaxBytes,
+      hostedMaxBytes: DEFAULT_VIDEO_HOSTED_MAX_BYTES,
+    } satisfies VideoDeliveryPolicy);
+  const uploadVideo = options?.uploadVideo;
+  const hostedProviderId = options?.hostedProviderId?.trim();
+  const canHost = uploadVideo !== undefined && Boolean(hostedProviderId);
 
   return {
     name: "readVideo",
@@ -150,7 +178,23 @@ export function createReadVideoToolDefinition(
     parameters: readVideoSchema,
     async execute(_toolCallId, params, signal) {
       signal?.throwIfAborted();
-      const maxBytes = params.maxBytes ?? defaultMaxBytes;
+      if (deliveryPolicy.mode === "hosted" && !canHost) {
+        const reason = "configured provider does not support hosted video uploads";
+        return {
+          content: [
+            {
+              type: "text",
+              text: `readVideo: ${reason}: ${params.path}`,
+            } satisfies TextContent,
+          ],
+          details: { ok: false, source: params.path, reason },
+        };
+      }
+      const maxBytes = resolveVideoReadMaxBytes({
+        policy: deliveryPolicy,
+        canHost,
+        requestedMaxBytes: params.maxBytes,
+      });
       const loaded = await operations.load(params.path, { maxBytes, signal });
       signal?.throwIfAborted();
       const contentType = normalizeMimeType(loaded.contentType);
@@ -173,6 +217,50 @@ export function createReadVideoToolDefinition(
         };
       }
 
+      const delivery = decideVideoDelivery({
+        sizeBytes: loaded.buffer.length,
+        policy: deliveryPolicy,
+        canHost,
+      });
+      if (delivery === "unsupported") {
+        const reason =
+          loaded.buffer.length > deliveryPolicy.inlineMaxBytes && !canHost
+            ? `video exceeds inline limit (${deliveryPolicy.inlineMaxBytes} bytes) and no hosted upload is available`
+            : loaded.buffer.length > deliveryPolicy.hostedMaxBytes
+              ? `video exceeds hosted upload limit (${deliveryPolicy.hostedMaxBytes} bytes)`
+              : `video exceeds inline limit (${deliveryPolicy.inlineMaxBytes} bytes)`;
+        return {
+          content: [
+            {
+              type: "text",
+              text: `readVideo: ${reason}: ${params.path}`,
+            } satisfies TextContent,
+          ],
+          details: {
+            ok: false,
+            source: params.path,
+            reason,
+            contentType,
+            sizeBytes: loaded.buffer.length,
+          },
+        };
+      }
+
+      const hosted =
+        delivery === "hosted" && uploadVideo && hostedProviderId
+          ? await uploadVideo({
+              buffer: loaded.buffer,
+              mimeType: contentType,
+              ...(loaded.fileName ? { fileName: loaded.fileName } : {}),
+              purpose: "video_understanding",
+              ...(signal ? { signal } : {}),
+            })
+          : undefined;
+      signal?.throwIfAborted();
+      if (hosted && !hosted.url.trim()) {
+        throw new Error("Hosted video upload returned an empty URL");
+      }
+
       const details = withToolResultMediaDetails(
         {
           ok: true as const,
@@ -180,14 +268,27 @@ export function createReadVideoToolDefinition(
           contentType,
           sizeBytes: loaded.buffer.length,
           ...(loaded.fileName ? { fileName: loaded.fileName } : {}),
+          delivery,
+          ...(hosted?.fileId ? { providerFileId: hosted.fileId } : {}),
         },
-        [{ ...loaded.fact, contentType, kind: "video", sizeBytes: loaded.buffer.length }],
+        [
+          hosted
+            ? {
+                url: hosted.url,
+                contentType,
+                kind: "video",
+                providerReference: hostedProviderId,
+                fileName: hosted.fileName ?? loaded.fileName,
+                sizeBytes: hosted.bytes ?? loaded.buffer.length,
+              }
+            : { ...loaded.fact, contentType, kind: "video", sizeBytes: loaded.buffer.length },
+        ],
       );
       return {
         content: [
           {
             type: "text",
-            text: `Read video [${contentType}] (${loaded.buffer.length} bytes) from ${params.path}.`,
+            text: `Read video [${contentType}] (${loaded.buffer.length} bytes, ${delivery}) from ${params.path}.`,
           } satisfies TextContent,
         ],
         details,

@@ -61,6 +61,39 @@ describe("convertMessages assistant text replay", () => {
     ]);
   });
 
+  it("passes provider-hosted video references through unchanged", () => {
+    const videoModel = {
+      ...model,
+      input: ["text", "image", "video"],
+    } as ProviderModel<"openai-completions">;
+    const context: ProviderContext = {
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "video",
+              mimeType: "video/mp4",
+              data: "provider-file://414244194570579",
+              source: "url",
+            },
+          ],
+          timestamp: 1,
+        },
+      ],
+    };
+
+    const converted = convertMessages(
+      videoModel as Model<"openai-completions">,
+      context as Context,
+      resolveOpenAICompletionsCompat(videoModel as Model<"openai-completions">),
+    );
+
+    expect(converted[0]?.content).toEqual([
+      { type: "video_url", video_url: { url: "provider-file://414244194570579" } },
+    ]);
+  });
+
   it("keeps separate assistant text blocks apart", () => {
     const assistant: AssistantMessage = {
       role: "assistant",

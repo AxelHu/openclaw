@@ -2,6 +2,11 @@ import { createServer } from "node:http";
 import type { ChatCompletionChunk } from "openai/resources/chat/completions.js";
 import { describe, expect, it, vi } from "vitest";
 import { configureAiTransportHost, getAiTransportHost } from "../host.js";
+import {
+  PROVIDER_CONTEXT_HANDOFF,
+  type ProviderContext,
+  type ProviderStreamOptions,
+} from "../provider-types.js";
 import type { Model } from "../types.js";
 import { processCompletionsStream } from "./openai-completions-stream.js";
 import { createOpenAICompletionsTransportStreamFn } from "./openai-completions-transport.js";
@@ -50,6 +55,63 @@ async function captureTransportRequest(model: Model<"openai-completions">) {
 }
 
 describe("openai completions transport", () => {
+  it("consumes provider video context from the transport handoff", async () => {
+    const providerContext = {
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "inspect handoff" },
+            {
+              type: "video",
+              mimeType: "video/mp4",
+              data: "provider-file://handoff-video",
+              source: "url",
+            },
+          ],
+          timestamp: 1,
+        },
+      ],
+    } satisfies ProviderContext;
+    const handoff = vi.fn(async () => providerContext);
+    let payload: Record<string, unknown> | undefined;
+    const stream = createOpenAICompletionsTransportStreamFn()(
+      {
+        ...makeCompletionsModel(),
+        provider: "minimax",
+        input: ["text", "image", "video"],
+      } as never,
+      { messages: [{ role: "user", content: "canonical only", timestamp: 0 }] } as never,
+      {
+        apiKey: "test-api-key",
+        [PROVIDER_CONTEXT_HANDOFF]: handoff,
+        onPayload(value) {
+          payload = value as Record<string, unknown>;
+          throw new Error("stop before network");
+        },
+      } as ProviderStreamOptions,
+    );
+
+    if (stream instanceof Promise) {
+      throw new Error("OpenAI Chat transport must return its event stream synchronously");
+    }
+    for await (const event of stream) {
+      void event;
+    }
+
+    expect(handoff).toHaveBeenCalledOnce();
+    expect(payload?.messages).toEqual([
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "inspect handoff" },
+          { type: "video_url", video_url: { url: "provider-file://handoff-video" } },
+        ],
+      },
+    ]);
+    expect(JSON.stringify(payload)).not.toContain("canonical only");
+  });
+
   it("passes provider request timeouts to OpenAI SDK per-request options", () => {
     const signal = new AbortController().signal;
     const model = {

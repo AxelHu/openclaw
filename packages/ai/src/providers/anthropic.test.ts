@@ -24,6 +24,7 @@ vi.mock("@anthropic-ai/sdk", () => ({
   },
 }));
 
+import { PROVIDER_CONTEXT_HANDOFF, type ProviderContext } from "../provider-types.js";
 import { streamAnthropic, streamSimpleAnthropic } from "./anthropic.js";
 
 function createSseResponse(events: Record<string, unknown>[] = []): Response {
@@ -1130,6 +1131,90 @@ describe("Anthropic provider", () => {
       { type: "text", text: "look" },
       { type: "text", text: "(image omitted: model does not support images)" },
     ]);
+  });
+
+  it("serializes inline and provider-hosted video blocks using Anthropic-compatible sources", async () => {
+    const { payload: capturedPayload, result } = await captureSimpleAnthropicPayload(
+      { input: ["text", "image", "video"] } as never,
+      { mode: "raw", apiKey: "test-api-key", stopBeforeNetwork: true },
+      {
+        messages: [
+          {
+            role: "user",
+            content: [
+              { type: "text", text: "inspect" },
+              { type: "video", mimeType: "video/mp4", data: "dm...=" },
+              {
+                type: "video",
+                mimeType: "video/mp4",
+                data: "provider-file://414244194570579",
+                source: "url",
+              },
+            ],
+            timestamp: 0,
+          },
+        ],
+      } as never,
+    );
+
+    expect(result.stopReason).toBe("error");
+    const [userMessage] = (capturedPayload as { messages: [Record<string, unknown>] }).messages;
+    expect(userMessage.content).toEqual([
+      { type: "text", text: "inspect" },
+      {
+        type: "video",
+        source: { type: "base64", media_type: "video/mp4", data: "dm...=" },
+      },
+      {
+        type: "video",
+        source: { type: "url", url: "provider-file://414244194570579" },
+        cache_control: { type: "ephemeral" },
+      },
+    ]);
+  });
+
+  it("consumes provider video context through the simple-stream handoff", async () => {
+    const providerContext = {
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "inspect handoff" },
+            {
+              type: "video",
+              mimeType: "video/mp4",
+              data: "provider-file://handoff-video",
+              source: "url",
+            },
+          ],
+          timestamp: 1,
+        },
+      ],
+    } satisfies ProviderContext;
+    const handoff = vi.fn(async () => providerContext);
+
+    const { payload, result } = await captureSimpleAnthropicPayload(
+      { input: ["text", "image", "video"] } as never,
+      {
+        apiKey: "test-api-key",
+        stopBeforeNetwork: true,
+        [PROVIDER_CONTEXT_HANDOFF]: handoff,
+      } as SimpleAnthropicTestOptions,
+      { messages: [{ role: "user", content: "canonical only", timestamp: 0 }] },
+    );
+
+    expect(result.stopReason).toBe("error");
+    expect(handoff).toHaveBeenCalledOnce();
+    const [userMessage] = (payload as { messages: [Record<string, unknown>] }).messages;
+    expect(userMessage.content).toEqual([
+      { type: "text", text: "inspect handoff" },
+      {
+        type: "video",
+        source: { type: "url", url: "provider-file://handoff-video" },
+        cache_control: { type: "ephemeral" },
+      },
+    ]);
+    expect(JSON.stringify(payload)).not.toContain("canonical only");
   });
 
   it("normalizes unsupported tool result image blocks before Anthropic payloads", async () => {

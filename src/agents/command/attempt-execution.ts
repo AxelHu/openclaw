@@ -546,6 +546,7 @@ export function runAgentAttempt(params: {
   providerOverride: string;
   modelOverride: string;
   modelHasVision?: boolean;
+  modelHasVideo?: boolean;
   modelThinkingCapability?: RunEmbeddedAgentInternalParams["modelThinkingCapability"];
   configuredAuthProfileId?: string;
   originalProvider: string;
@@ -1271,6 +1272,7 @@ export function runAgentAttempt(params: {
     model: params.modelOverride,
     modelRoutingProvenance: params.modelRoutingProvenance,
     modelHasVision: params.modelHasVision,
+    modelHasVideo: params.modelHasVideo,
     modelThinkingCapability: params.modelThinkingCapability,
     modelFallbacksOverride: params.modelFallbacksOverride,
     authProfileId,

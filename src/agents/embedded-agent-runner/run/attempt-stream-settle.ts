@@ -509,6 +509,7 @@ export async function prepareEmbeddedAttemptTransport(input: {
             ...provider,
             context,
             workspaceDir: input.workspaceDir,
+            providerId: attempt.model.provider,
             workspaceOnly: input.workspaceOnly,
             localRoots: input.workspaceOnly
               ? undefined

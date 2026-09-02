@@ -1,5 +1,4 @@
 import fs from "node:fs/promises";
-import os from "node:os";
 import path from "node:path";
 import { createAssistantMessageEventStream } from "@openclaw/llm-core";
 import { MAX_VIDEO_BYTES } from "@openclaw/media-core/constants";
@@ -10,6 +9,7 @@ import {
   type ProviderContext,
   type ProviderStreamOptions,
 } from "../../../../packages/ai/src/provider-types.js";
+import { useAutoCleanupTempDirTracker } from "../../../../test/helpers/temp-dir.js";
 import { attachRuntimePromptMediaFacts } from "../../../media/media-facts.js";
 import { withToolResultMediaDetails } from "../../../media/tool-result-media-facts.js";
 import { captureEnv, setTestEnvValue } from "../../../test-utils/env.js";
@@ -25,17 +25,11 @@ const PNG = {
 };
 const MP4 = Buffer.from("0000001c6674797069736f6d0000000069736f6d0000000000000000", "hex");
 
-describe("direct provider context handoff", () => {
-  const tempDirs: string[] = [];
-  afterEach(async () => {
-    await Promise.all(
-      tempDirs.splice(0).map((dir) => fs.rm(dir, { recursive: true, force: true })),
-    );
-  });
+const tempDirs = useAutoCleanupTempDirTracker(afterEach);
 
+describe("direct provider context handoff", () => {
   it("keeps canonical omissions while materializing persisted and current facts in order", async () => {
-    const stateDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-provider-video-"));
-    tempDirs.push(stateDir);
+    const stateDir = tempDirs.make("openclaw-provider-video-");
     const env = captureEnv(["OPENCLAW_STATE_DIR"]);
     setTestEnvValue("OPENCLAW_STATE_DIR", stateDir);
     const inbound = path.join(stateDir, "media", "inbound");
@@ -207,8 +201,7 @@ describe("direct provider context handoff", () => {
   });
 
   it("projects readVideo tool media into a transient provider user turn", async () => {
-    const stateDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-provider-tool-video-"));
-    tempDirs.push(stateDir);
+    const stateDir = tempDirs.make("openclaw-provider-tool-video-");
     const videoPath = path.join(stateDir, "clip.mp4");
     await fs.writeFile(videoPath, MP4);
     const details = withToolResultMediaDetails({ ok: true }, [
@@ -265,6 +258,135 @@ describe("direct provider context handoff", () => {
       timestamp: 2,
     });
     expect(JSON.stringify(context)).toBe(originalJson);
+  });
+
+  it("projects hosted readVideo media without reloading or charging the inline byte budget", async () => {
+    const details = withToolResultMediaDetails({ ok: true }, [
+      {
+        url: "provider-file://414244194570579",
+        contentType: "video/mp4",
+        providerReference: "minimax",
+        kind: "video",
+        sizeBytes: 200 * 1024 * 1024,
+      },
+    ]);
+    const context = {
+      systemPrompt: "system",
+      messages: [
+        {
+          role: "toolResult",
+          toolCallId: "call_1",
+          toolName: "readVideo",
+          content: [{ type: "text", text: "hosted video ready" }],
+          details,
+          isError: false,
+          timestamp: 2,
+        },
+      ],
+      tools: [],
+    } as Parameters<StreamFn>[1];
+
+    const resolved = await materializeProviderContext({
+      context,
+      workspaceDir: "/workspace",
+      workspaceOnly: true,
+      providerId: "minimax",
+    });
+
+    expect(resolved.messages[1]).toEqual({
+      role: "user",
+      content: [
+        { type: "text", text: "Video attachment returned by the readVideo tool." },
+        {
+          type: "video",
+          data: "provider-file://414244194570579",
+          mimeType: "video/mp4",
+          source: "url",
+        },
+      ],
+      timestamp: 2,
+    });
+  });
+
+  it("does not forward a hosted reference to a different provider", async () => {
+    const details = withToolResultMediaDetails({ ok: true }, [
+      {
+        url: "provider-file://414244194570579",
+        contentType: "video/mp4",
+        providerReference: "minimax",
+        kind: "video",
+      },
+    ]);
+    const resolved = await materializeProviderContext({
+      context: {
+        systemPrompt: "system",
+        messages: [
+          {
+            role: "toolResult",
+            toolCallId: "call_1",
+            toolName: "readVideo",
+            content: [{ type: "text", text: "hosted video ready" }],
+            details,
+            isError: false,
+            timestamp: 2,
+          },
+        ],
+        tools: [],
+      } as Parameters<StreamFn>[1],
+      workspaceDir: "/workspace",
+      providerId: "openai",
+    });
+
+    expect(JSON.stringify(resolved.messages[1])).not.toContain("provider-file://414244194570579");
+    expect(resolved.messages[1]).toEqual({
+      role: "user",
+      content: [
+        { type: "text", text: "Video attachment returned by the readVideo tool." },
+        { type: "text", text: "(video omitted: provider does not support native video)" },
+      ],
+      timestamp: 2,
+    });
+  });
+
+  it("does not forward an ordinary URL through the opaque provider-reference path", async () => {
+    const details = withToolResultMediaDetails({ ok: true }, [
+      {
+        url: "https://media.example.test/clip.mp4",
+        contentType: "video/mp4",
+        providerReference: "minimax",
+        kind: "video",
+      },
+    ]);
+    const resolved = await materializeProviderContext({
+      context: {
+        systemPrompt: "system",
+        messages: [
+          {
+            role: "toolResult",
+            toolCallId: "call_1",
+            toolName: "readVideo",
+            content: [{ type: "text", text: "hosted video ready" }],
+            details,
+            isError: false,
+            timestamp: 2,
+          },
+        ],
+        tools: [],
+      } as Parameters<StreamFn>[1],
+      workspaceDir: "/workspace",
+      providerId: "minimax",
+    });
+
+    expect(JSON.stringify(resolved.messages[1])).not.toContain(
+      "https://media.example.test/clip.mp4",
+    );
+    expect(resolved.messages[1]).toMatchObject({
+      role: "user",
+      content: [
+        { type: "text", text: "Video attachment returned by the readVideo tool." },
+        { type: "text", text: "(video omitted: provider does not support native video)" },
+      ],
+    });
   });
 
   it("rejects abort after a bounded sandbox read before later dispatch", async () => {

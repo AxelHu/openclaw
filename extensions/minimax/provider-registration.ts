@@ -127,7 +127,8 @@ function resolveMinimaxDynamicModel(params: {
     baseUrl:
       normalizeOptionalString(params.ctx.providerConfig?.baseUrl) ?? resolveMinimaxCatalogBaseUrl(),
     reasoning: catalogModel.model.reasoning,
-    input: [...catalogModel.model.input],
+    // SAFETY: Provider runtime supports video; the legacy SDK input type is text/image only.
+    input: [...catalogModel.model.input] as ProviderRuntimeModel["input"],
     cost: resolveMinimaxApiCost(catalogModel.id),
     contextWindow: catalogModel.model.contextWindow,
     maxTokens: DEFAULT_MINIMAX_MAX_TOKENS,

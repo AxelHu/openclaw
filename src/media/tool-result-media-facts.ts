@@ -19,7 +19,7 @@ function readPersistedToolResultMediaFacts(message: AgentMessage): MediaFact[] |
   if (carrier.v !== 1 || !Array.isArray(carrier.media)) {
     return undefined;
   }
-  const media = normalizeMediaFacts(carrier.media as MediaFactInput[]);
+  const media = normalizeMediaFacts(carrier.media);
   return media.length > 0 ? media : undefined;
 }
 
@@ -38,7 +38,7 @@ export function withToolResultMediaDetails<T extends Record<string, unknown>>(
 }
 
 /** Attaches trusted runtime facts without exposing them as model-visible message bytes. */
-export function attachRuntimeToolResultMediaFacts<T extends object>(
+function attachRuntimeToolResultMediaFacts<T extends object>(
   message: T,
   media: readonly MediaFact[],
 ): T {
@@ -51,9 +51,9 @@ export function attachRuntimeToolResultMediaFacts<T extends object>(
 
 /** Reads current-turn facts or the persisted readVideo carrier before replay stripping. */
 export function readToolResultMediaFacts(message: AgentMessage): MediaFact[] | undefined {
-  const runtime = (message as Record<PropertyKey, unknown>)[RUNTIME_TOOL_RESULT_MEDIA_FACTS];
+  const runtime = Object.getOwnPropertyDescriptor(message, RUNTIME_TOOL_RESULT_MEDIA_FACTS)?.value;
   if (Array.isArray(runtime)) {
-    return runtime as MediaFact[];
+    return normalizeMediaFacts(runtime);
   }
   return readPersistedToolResultMediaFacts(message);
 }

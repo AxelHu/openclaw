@@ -536,6 +536,20 @@ const ModelProviderLocalServiceSchema = z
   .strict()
   .optional();
 
+const ModelProviderMediaSchema = z
+  .object({
+    video: z
+      .object({
+        mode: z.enum(["auto", "inline", "hosted"]).optional(),
+        inlineMaxBytes: z.number().int().positive().optional(),
+        hostedMaxBytes: z.number().int().positive().optional(),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict()
+  .optional();
+
 const ModelProviderSchema = z
   .object({
     // Bundled provider overlays are materialized with an empty-string sentinel.
@@ -557,6 +571,7 @@ const ModelProviderSchema = z
     authHeader: z.boolean().optional(),
     request: ConfiguredModelProviderRequestSchema,
     models: z.array(ModelDefinitionSchema).optional(),
+    media: ModelProviderMediaSchema,
   })
   .strict();
 

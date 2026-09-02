@@ -26,3 +26,12 @@ export {
   applyMinimaxApiProviderConfig,
   applyMinimaxApiProviderConfigCn,
 } from "./onboard.js";
+export {
+  DEFAULT_MINIMAX_FILE_MAX_BYTES,
+  parseMinimaxUploadResponse,
+  resolveMinimaxFilesBaseUrl,
+  uploadMinimaxFile,
+  type MinimaxFilePurpose,
+  type MinimaxUploadFileParams,
+  type MinimaxUploadFileResult,
+} from "./files-api.js";

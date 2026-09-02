@@ -1,6 +1,6 @@
-import type { ImageContent, TextContent } from "@openclaw/llm-core";
 import { estimateBase64DecodedBytes } from "@openclaw/media-core/base64";
 import { getAiTransportHost } from "../host.js";
+import type { ModelInputContent } from "../provider-types.js";
 
 const ANTHROPIC_IMAGE_MEDIA_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp"] as const;
 export type AnthropicImageMediaType = (typeof ANTHROPIC_IMAGE_MEDIA_TYPES)[number];
@@ -23,11 +23,11 @@ export function resolveAnthropicImageMediaType(value: string): AnthropicImageMed
 }
 
 export async function normalizeAnthropicInlineContent(
-  content: readonly (TextContent | ImageContent)[],
+  content: readonly ModelInputContent[],
   budget: AnthropicInlineImageBudget,
-): Promise<Array<TextContent | ImageContent>> {
+): Promise<ModelInputContent[]> {
   if (!content.some((block) => block.type === "image")) {
-    return content.filter((block): block is TextContent => block.type === "text");
+    return content.filter((block) => block.type === "text" || block.type === "video");
   }
   const inputBytes = content.reduce(
     (total, block) =>
@@ -37,7 +37,7 @@ export async function normalizeAnthropicInlineContent(
   if (budget.totalBytes + inputBytes > ANTHROPIC_INLINE_IMAGES_DECODE_SAFETY_BYTES) {
     throw new Error("Anthropic inline images exceed the 64 MB aggregate decoded safety limit.");
   }
-  const normalized: Array<TextContent | ImageContent> = [];
+  const normalized: ModelInputContent[] = [];
   for (const block of content) {
     if (block.type !== "image") {
       normalized.push(block);

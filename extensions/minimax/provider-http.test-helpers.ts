@@ -30,6 +30,7 @@ type AnyMock = Mock<(...args: any[]) => any>;
 interface MinimaxProviderHttpMocks {
   resolveApiKeyForProviderMock: Mock<() => Promise<{ apiKey: string }>>;
   postJsonRequestMock: AnyMock;
+  postMultipartRequestMock: AnyMock;
   executeProviderOperationWithRetryMock: AnyMock;
   fetchWithTimeoutMock: AnyMock;
   fetchWithTimeoutGuardedMock: AnyMock;
@@ -44,6 +45,7 @@ interface MinimaxProviderHttpMocks {
 const minimaxProviderHttpMocks = vi.hoisted(() => ({
   resolveApiKeyForProviderMock: vi.fn(async () => ({ apiKey: "provider-key" })),
   postJsonRequestMock: vi.fn(),
+  postMultipartRequestMock: vi.fn(),
   executeProviderOperationWithRetryMock: vi.fn(),
   fetchWithTimeoutMock: vi.fn(),
   fetchWithTimeoutGuardedMock: vi.fn(),
@@ -201,6 +203,7 @@ vi.mock("openclaw/plugin-sdk/provider-http", async (importActual) => {
     fetchWithTimeoutGuarded: minimaxProviderHttpMocks.fetchWithTimeoutGuardedMock,
     fetchWithTimeout: minimaxProviderHttpMocks.fetchWithTimeoutMock,
     postJsonRequest: minimaxProviderHttpMocks.postJsonRequestMock,
+    postMultipartRequest: minimaxProviderHttpMocks.postMultipartRequestMock,
     readProviderJsonResponse: actual.readProviderJsonResponse,
     resolveProviderOperationTimeoutMs: ({ defaultTimeoutMs }: { defaultTimeoutMs: number }) =>
       defaultTimeoutMs,
@@ -218,6 +221,7 @@ export function installMinimaxProviderHttpMockCleanup(): void {
   afterEach(() => {
     minimaxProviderHttpMocks.resolveApiKeyForProviderMock.mockClear();
     minimaxProviderHttpMocks.postJsonRequestMock.mockReset();
+    minimaxProviderHttpMocks.postMultipartRequestMock.mockReset();
     minimaxProviderHttpMocks.executeProviderOperationWithRetryMock.mockClear();
     minimaxProviderHttpMocks.fetchWithTimeoutMock.mockReset();
     minimaxProviderHttpMocks.fetchWithTimeoutGuardedMock.mockClear();

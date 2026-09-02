@@ -3,7 +3,11 @@ export type * from "./types.js";
 
 export const PROVIDER_CONTEXT_HANDOFF: unique symbol = Symbol("providerContextHandoff");
 
-export type VideoContent = Omit<Llm.ImageContent, "type"> & { type: "video" };
+export type VideoContent = Omit<Llm.ImageContent, "type"> & {
+  type: "video";
+  /** How `data` should be serialized at the provider boundary. Defaults to base64. */
+  source?: "base64" | "url";
+};
 export type MediaContent = Llm.ImageContent | VideoContent;
 export type ModelInputContent = Llm.TextContent | MediaContent;
 export type ProviderUserMessage = Omit<Llm.UserMessage, "content"> & {
@@ -32,7 +36,7 @@ export async function resolveProviderContext(
   context: Llm.Context | ProviderContext,
   options?: ProviderStreamOptions,
 ): Promise<ProviderContext> {
-  return options?.[PROVIDER_CONTEXT_HANDOFF]?.() ?? (context as ProviderContext);
+  return options?.[PROVIDER_CONTEXT_HANDOFF]?.() ?? context;
 }
 export type {
   ProviderContext as Context,

@@ -1,20 +1,15 @@
 import path from "node:path";
 import { MAX_VIDEO_BYTES } from "@openclaw/media-core/constants";
-import { normalizeMimeType } from "@openclaw/media-core/mime";
 import { hasHttpUrlPrefix } from "@openclaw/net-policy/url-protocol";
 import { normalizeLowercaseStringOrEmpty } from "@openclaw/normalization-core/string-coerce";
-import type {
-  ModelInputContent,
-  ProviderContext,
-} from "../../../../packages/ai/src/provider-types.js";
+import type { ProviderContext } from "../../../../packages/ai/src/provider-types.js";
 import { formatErrorMessage } from "../../../infra/errors.js";
 import { assertNoWindowsNetworkPath, safeFileURLToPath } from "../../../infra/local-file-access.js";
-import type { Context, ImageContent, TextContent } from "../../../llm/types.js";
+import type { Context, ImageContent } from "../../../llm/types.js";
 import { redactSensitiveText } from "../../../logging/redact.js";
 import {
   attachRuntimePromptMediaFacts,
   isImageMediaFact,
-  isVideoMediaFact,
   normalizeMediaFacts,
   readRuntimePromptImageOrder,
   readRuntimePromptMediaFacts,
@@ -24,7 +19,6 @@ import {
 import { resolveMediaReferenceLocalPath } from "../../../media/media-reference.js";
 import type { PromptImageOrderEntry } from "../../../media/prompt-image-order.js";
 import { finalizeRuntimePromptImages } from "../../../media/runtime-prompt-image-provenance.js";
-import { readToolResultMediaFacts } from "../../../media/tool-result-media-facts.js";
 import { loadWebMedia, type WebMediaResult } from "../../../media/web-media.js";
 import type { UserTurnTranscriptRecorder } from "../../../sessions/user-turn-transcript.types.js";
 import { resolveUserPath } from "../../../utils.js";
@@ -50,6 +44,11 @@ import {
   readPersistedImageBlockFactIndexes,
   readPersistedMediaImageLayout,
 } from "./prompt-image-metadata.js";
+import {
+  materializeToolResultVideoMessages,
+  projectOrderedProviderMedia,
+  type ProviderVideoProjectionOptions,
+} from "./provider-video-projection.js";
 
 export { hasHydratableMediaImages } from "./images.media-refs.js";
 
@@ -496,6 +495,7 @@ type PromptMediaOptions = {
   localRoots?: readonly string[];
   sandbox?: { root: string; bridge: SandboxFsBridge };
   provider?: boolean;
+  providerId?: string;
   signal?: AbortSignal;
   onCurrentTurnImageFailure?: (count: number) => void;
   videoBudget?: { remaining: number };
@@ -505,91 +505,33 @@ export function buildPromptImageFailureNotice(count: number): string {
   return `System note: ${count} image attachment${count === 1 ? "" : "s"} could not be loaded; their image contents are unavailable. Tell the user and ask them to resend ${count === 1 ? "the image" : "the images"}; do not claim inspection.`;
 }
 
-const VIDEO_OMISSION = {
-  unsupported: "(video omitted: provider does not support native video)",
-  unavailable: "(video omitted: source unavailable)",
-  invalid: "(video omitted: invalid video MIME type)",
-  limit: "(video omitted: native video byte limit exceeded)",
-} as const;
-
-async function materializeVideoFact(
-  fact: MediaFact,
-  budget: { remaining: number },
+function createProviderVideoProjectionOptions(
   options: PromptMediaOptions,
-): Promise<ModelInputContent> {
-  if ((fact.sizeBytes ?? 0) > budget.remaining) {
-    return { type: "text", text: VIDEO_OMISSION.limit };
-  }
-  const ref = resolveMediaFactLocalRef(fact);
-  const loaded = ref
-    ? await loadMediaFromRef(ref, fact.workspaceDir ?? options.workspaceDir, {
-        label: "Native video",
-        maxBytes: budget.remaining,
-        signal: options.signal,
-        workspaceOnly: options.workspaceOnly,
-        localRoots:
-          options.localRoots ?? (options.workspaceOnly ? [options.workspaceDir] : undefined),
-        sandbox: options.sandbox,
-      })
-    : fact.url && hasHttpUrlPrefix(fact.url)
-      ? await loadWebMedia(fact.url, {
-          maxBytes: budget.remaining,
-          requestInit: options.signal ? { signal: options.signal } : undefined,
-        })
-      : null;
-  if (!loaded) {
-    return { type: "text", text: VIDEO_OMISSION.unavailable };
-  }
-  const mimeType = normalizeMimeType(loaded.contentType);
-  if (loaded.kind !== "video" || !mimeType?.startsWith("video/")) {
-    return { type: "text", text: VIDEO_OMISSION.invalid };
-  }
-  if (loaded.buffer.length > budget.remaining) {
-    return { type: "text", text: VIDEO_OMISSION.limit };
-  }
-  budget.remaining -= loaded.buffer.length;
-  return { type: "video", data: loaded.buffer.toString("base64"), mimeType };
-}
-
-async function projectOrderedPromptMedia(params: {
-  content: Array<TextContent | ImageContent>;
-  media: MediaFact[];
-  images: ImageContent[];
-  imageFactIndexes: ImageFactIndex[];
-  options: PromptMediaOptions;
-  budget: { remaining: number };
-}): Promise<ModelInputContent[]> {
-  const generatedMarkers = new Set<string>(Object.values(VIDEO_OMISSION));
-  const projected: ModelInputContent[] = params.content.filter(
-    (block): block is TextContent => block.type === "text" && !generatedMarkers.has(block.text),
-  );
-  // Hydration already resolved image order, including inline blocks with no managed fact.
-  if (!params.media.some(isVideoMediaFact)) {
-    return [...projected, ...params.images];
-  }
-  const imagesByFact = new Map<number, ImageContent[]>();
-  const factlessImages: ImageContent[] = [];
-  params.images.forEach((image, index) => {
-    const factIndex = params.imageFactIndexes[index];
-    if (factIndex == null) {
-      factlessImages.push(image);
-    } else {
-      imagesByFact.set(factIndex, [...(imagesByFact.get(factIndex) ?? []), image]);
-    }
-  });
-  for (const [factIndex, fact] of params.media.entries()) {
-    if (isImageMediaFact(fact)) {
-      projected.push(...(imagesByFact.get(factIndex) ?? []));
-    } else if (isVideoMediaFact(fact)) {
-      projected.push(
-        params.options.provider
-          ? await materializeVideoFact(fact, params.budget, params.options)
-          : { type: "text", text: VIDEO_OMISSION.unsupported },
-      );
-    }
-  }
-  projected.push(...factlessImages);
-  return projected;
+): ProviderVideoProjectionOptions {
+  return {
+    provider: options.provider,
+    providerId: options.providerId,
+    signal: options.signal,
+    async loadVideo(fact, maxBytes) {
+      const ref = resolveMediaFactLocalRef(fact);
+      return ref
+        ? await loadMediaFromRef(ref, fact.workspaceDir ?? options.workspaceDir, {
+            label: "Native video",
+            maxBytes,
+            signal: options.signal,
+            workspaceOnly: options.workspaceOnly,
+            localRoots:
+              options.localRoots ?? (options.workspaceOnly ? [options.workspaceDir] : undefined),
+            sandbox: options.sandbox,
+          })
+        : fact.url && hasHttpUrlPrefix(fact.url)
+          ? await loadWebMedia(fact.url, {
+              maxBytes,
+              requestInit: options.signal ? { signal: options.signal } : undefined,
+            })
+          : null;
+    },
+  };
 }
 
 /** Hydrates exact-message media facts for canonical replay or one provider call. */
@@ -630,12 +572,12 @@ async function materializePromptMediaMessages(
       localRoots: options.localRoots,
       sandbox: options.sandbox,
     });
-    const projectedContent = await projectOrderedPromptMedia({
+    const projectedContent = await projectOrderedProviderMedia({
       content,
       media: resolvedMedia,
       images: result.images,
       imageFactIndexes: result.imageFactIndexes,
-      options,
+      options: createProviderVideoProjectionOptions(options),
       budget: videoBudget,
     });
     if (
@@ -656,7 +598,7 @@ async function materializePromptMediaMessages(
         content: projectedContent,
         timestamp: message.timestamp,
         ...(message.runtimeContextCarrier ? { runtimeContextCarrier: true } : {}),
-      } as ProviderContext["messages"][number] as AgentMessage;
+      } as ProviderContext["messages"][number] as AgentMessage; // SAFETY: transient provider content is never persisted as a canonical AgentMessage.
       continue;
     }
     const nextMeta =
@@ -685,41 +627,6 @@ async function materializePromptMediaMessages(
   return hydrated ?? messages;
 }
 
-async function materializeToolResultMediaMessages(
-  messages: AgentMessage[],
-  options: PromptMediaOptions,
-): Promise<AgentMessage[]> {
-  if (!options.provider) {
-    return messages;
-  }
-  const budget = options.videoBudget ?? { remaining: MAX_VIDEO_BYTES };
-  const projected: AgentMessage[] = [];
-  let changed = false;
-  for (const message of messages) {
-    projected.push(message);
-    if (message.role !== "toolResult") {
-      continue;
-    }
-    const media = readToolResultMediaFacts(message)?.filter(isVideoMediaFact) ?? [];
-    if (media.length === 0) {
-      continue;
-    }
-    const content: ModelInputContent[] = [
-      { type: "text", text: "Video attachment returned by the readVideo tool." },
-    ];
-    for (const fact of media) {
-      content.push(await materializeVideoFact(fact, budget, options));
-    }
-    changed = true;
-    projected.push({
-      role: "user",
-      content,
-      timestamp: message.timestamp,
-    } as ProviderContext["messages"][number] as AgentMessage);
-  }
-  return changed ? projected : messages;
-}
-
 /** Hydrates non-enumerable facts carried by queued user turns before canonical replay. */
 export async function hydratePromptMediaMessages(
   messages: AgentMessage[],
@@ -735,11 +642,13 @@ export async function materializeProviderContext(params: {
   workspaceDir: string;
   workspaceOnly?: boolean;
   localRoots?: readonly string[];
+  providerId?: string;
   sandbox?: { root: string; bridge: SandboxFsBridge };
   onCurrentTurnImageFailure?: (count: number) => void;
 }): Promise<ProviderContext> {
   const videoBudget = { remaining: MAX_VIDEO_BYTES };
   const promptMessages = await materializePromptMediaMessages(
+    // SAFETY: provider materialization starts from the canonical message list before adding video carriers.
     params.context.messages as AgentMessage[],
     {
       workspaceDir: params.workspaceDir,
@@ -748,19 +657,23 @@ export async function materializeProviderContext(params: {
       localRoots: params.localRoots,
       sandbox: params.sandbox,
       provider: true,
+      providerId: params.providerId,
       signal: params.signal,
       onCurrentTurnImageFailure: params.onCurrentTurnImageFailure,
       videoBudget,
     },
   );
-  const messages = await materializeToolResultMediaMessages(promptMessages, {
-    workspaceDir: params.workspaceDir,
-    model: { input: ["text", "image"] },
-    workspaceOnly: params.workspaceOnly,
-    localRoots: params.localRoots,
-    sandbox: params.sandbox,
-    provider: true,
-    signal: params.signal,
+  const messages = await materializeToolResultVideoMessages(promptMessages, {
+    ...createProviderVideoProjectionOptions({
+      workspaceDir: params.workspaceDir,
+      model: { input: ["text", "image"] },
+      workspaceOnly: params.workspaceOnly,
+      localRoots: params.localRoots,
+      sandbox: params.sandbox,
+      provider: true,
+      providerId: params.providerId,
+      signal: params.signal,
+    }),
     videoBudget,
   });
   params.signal?.throwIfAborted();

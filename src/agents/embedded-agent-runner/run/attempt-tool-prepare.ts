@@ -360,6 +360,7 @@ export function prepareEmbeddedAttemptToolBase(params: {
             replyToMode: attempt.replyToMode,
             hasRepliedRef: attempt.hasRepliedRef,
             modelHasVision: attempt.model.input?.includes("image") ?? false,
+            modelHasVideo: attempt.modelHasVideo ?? false,
             computerContextEpoch,
             skillInstructionDeliveryCache,
             registerRunCleanup: (cleanup) => generationCleanups.push(cleanup),

@@ -130,7 +130,10 @@ export function convertMessages(
             if (item.type === "video") {
               return {
                 type: "video_url",
-                video_url: { url: `data:${item.mimeType};base64,${item.data}` },
+                video_url: {
+                  url:
+                    item.source === "url" ? item.data : `data:${item.mimeType};base64,${item.data}`,
+                },
               } satisfies ChatCompletionContentPartVideo;
             }
             return {

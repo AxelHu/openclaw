@@ -20,6 +20,7 @@ import { createOpenClawCodingTools } from "./agent-tools.js";
 import { resolveEffectiveToolPolicy } from "./agent-tools.policy.js";
 import { resolveModelAsync } from "./embedded-agent-runner/model.js";
 import { resolveBundledStaticCatalogModel } from "./embedded-agent-runner/model.static-catalog.js";
+import { modelSupportsInput } from "./model-catalog-lookup.js";
 import { normalizeStaticProviderModelId } from "./model-ref-shared.js";
 import { acquireReadOnlyPreparedModelRuntime } from "./prepared-model-runtime.js";
 import { normalizeToolPolicyName } from "./tool-policy.js";
@@ -359,7 +360,9 @@ export function resolveEffectiveToolInventory(
     groupSpace: params.groupSpace ?? undefined,
     replyToMode: params.replyToMode,
     allowGatewaySubagentBinding: true,
-    modelHasVision: params.modelHasVision,
+    modelHasVision:
+      params.modelHasVision ?? runtimeModelContext.runtimeModel?.input?.includes("image"),
+    modelHasVideo: modelSupportsInput(runtimeModelContext.runtimeModel, "video"),
     requireExplicitMessageTarget: params.requireExplicitMessageTarget,
     disableMessageTool: params.disableMessageTool,
   });

@@ -1,4 +1,5 @@
 import { reasoningTagTextPolicy } from "../provider-options.js";
+import { PROVIDER_CONTEXT_HANDOFF, type ProviderStreamOptions } from "../provider-types.js";
 import { copyProviderAcceptanceObserver } from "../transports/transport-stream-shared.js";
 // Simple provider option helpers normalize lightweight provider configuration.
 import type {
@@ -18,9 +19,11 @@ export function buildBaseOptions(
   model: Model,
   options?: SimpleStreamOptions,
   apiKey?: string,
-): StreamOptions & FirstEventStreamOptions {
+): StreamOptions & FirstEventStreamOptions & ProviderStreamOptions {
   void model;
   const firstEventOptions = options as FirstEventStreamOptions | undefined;
+  const providerOptions: ProviderStreamOptions | undefined = options;
+  const providerContextHandoff = providerOptions?.[PROVIDER_CONTEXT_HANDOFF];
   const baseOptions = {
     temperature: options?.temperature,
     maxTokens: options?.maxTokens,
@@ -40,6 +43,7 @@ export function buildBaseOptions(
     maxRetries: options?.maxRetries,
     maxRetryDelayMs: options?.maxRetryDelayMs,
     metadata: options?.metadata,
+    ...(providerContextHandoff ? { [PROVIDER_CONTEXT_HANDOFF]: providerContextHandoff } : {}),
   };
   reasoningTagTextPolicy.copy(options, baseOptions);
   return copyProviderAcceptanceObserver(options, baseOptions);

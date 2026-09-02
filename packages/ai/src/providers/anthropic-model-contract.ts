@@ -13,6 +13,7 @@ import {
 import { normalizeLowercaseStringOrEmpty } from "@openclaw/normalization-core/string-coerce";
 import { clampThinkingLevel } from "../model-utils.js";
 import type { AnthropicEffort } from "../provider-options.js";
+import type { ProviderContext } from "../provider-types.js";
 import type {
   Context,
   Model,
@@ -172,7 +173,15 @@ export function mapAnthropicStopReason(reason: string | undefined): StopReason {
 }
 
 /** Remove unsupported assistant prefills while preserving completed tool-use turns. */
-export function prepareClaudeNoPrefillRequestContext(model: Model, context: Context): Context {
+export function prepareClaudeNoPrefillRequestContext(
+  model: Model,
+  context: ProviderContext,
+): ProviderContext;
+export function prepareClaudeNoPrefillRequestContext(model: Model, context: Context): Context;
+export function prepareClaudeNoPrefillRequestContext(
+  model: Model,
+  context: Context | ProviderContext,
+): Context | ProviderContext {
   if (!resolveClaudeOpus5ModelIdentity(model) && !resolveClaudeSonnet5ModelIdentity(model)) {
     return context;
   }
