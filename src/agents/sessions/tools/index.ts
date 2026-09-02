@@ -10,6 +10,7 @@ import { createEditToolDefinition, type EditToolOptions } from "./edit.js";
 import { createFindToolDefinition, type FindToolOptions } from "./find.js";
 import { createGrepToolDefinition, type GrepToolOptions } from "./grep.js";
 import { createLsToolDefinition, type LsToolOptions } from "./ls.js";
+import { createReadVideoToolDefinition, type ReadVideoToolOptions } from "./read-video.js";
 import { createReadToolDefinition, type ReadToolOptions } from "./read.js";
 import { wrapToolDefinition, wrapToolDefinitions } from "./tool-definition-wrapper.js";
 import { createWriteToolDefinition, type WriteToolOptions } from "./write.js";
@@ -71,6 +72,13 @@ export {
   type ReadToolOptions,
 } from "./read.js";
 export {
+  createReadVideoTool,
+  createReadVideoToolDefinition,
+  DEFAULT_READ_VIDEO_MAX_BYTES,
+  type ReadVideoOperations,
+  type ReadVideoToolOptions,
+} from "./read-video.js";
+export {
   DEFAULT_MAX_BYTES,
   DEFAULT_MAX_LINES,
   formatSize,
@@ -95,9 +103,10 @@ export {
  */
 type Tool = AgentTool;
 export type ToolDef = ToolDefinition;
-export type ToolName = "read" | "bash" | "edit" | "write" | "grep" | "find" | "ls";
+export type ToolName = "read" | "readVideo" | "bash" | "edit" | "write" | "grep" | "find" | "ls";
 export const allToolNames: Set<ToolName> = new Set([
   "read",
+  "readVideo",
   "bash",
   "edit",
   "write",
@@ -108,6 +117,7 @@ export const allToolNames: Set<ToolName> = new Set([
 
 export interface ToolsOptions {
   read?: ReadToolOptions;
+  readVideo?: ReadVideoToolOptions;
   bash?: BashToolOptions;
   write?: WriteToolOptions;
   edit?: EditToolOptions;
@@ -125,6 +135,8 @@ export function createToolDefinition(
   switch (toolName) {
     case "read":
       return createReadToolDefinition(cwd, options?.read);
+    case "readVideo":
+      return createReadVideoToolDefinition(cwd, options?.readVideo);
     case "bash":
       return createBashToolDefinition(cwd, options?.bash);
     case "edit":
@@ -151,6 +163,7 @@ export function createTool(toolName: ToolName, cwd: string, options?: ToolsOptio
 export function createCodingToolDefinitions(cwd: string, options?: ToolsOptions): ToolDef[] {
   return [
     createReadToolDefinition(cwd, options?.read),
+    createReadVideoToolDefinition(cwd, options?.readVideo),
     createBashToolDefinition(cwd, options?.bash),
     createEditToolDefinition(cwd, options?.edit),
     createWriteToolDefinition(cwd, options?.write),
@@ -161,6 +174,7 @@ export function createCodingToolDefinitions(cwd: string, options?: ToolsOptions)
 export function createReadOnlyToolDefinitions(cwd: string, options?: ToolsOptions): ToolDef[] {
   return [
     createReadToolDefinition(cwd, options?.read),
+    createReadVideoToolDefinition(cwd, options?.readVideo),
     createGrepToolDefinition(cwd, options?.grep),
     createFindToolDefinition(cwd, options?.find),
     createLsToolDefinition(cwd, options?.ls),
@@ -174,6 +188,7 @@ export function createAllToolDefinitions(
 ): Record<ToolName, ToolDef> {
   return {
     read: createReadToolDefinition(cwd, options?.read),
+    readVideo: createReadVideoToolDefinition(cwd, options?.readVideo),
     bash: createBashToolDefinition(cwd, options?.bash),
     edit: createEditToolDefinition(cwd, options?.edit),
     write: createWriteToolDefinition(cwd, options?.write),
@@ -198,6 +213,7 @@ export function createAllTools(cwd: string, options?: ToolsOptions): Record<Tool
   const definitions = createAllToolDefinitions(cwd, options);
   return {
     read: wrapToolDefinition(definitions.read),
+    readVideo: wrapToolDefinition(definitions.readVideo),
     bash: wrapToolDefinition(definitions.bash),
     edit: wrapToolDefinition(definitions.edit),
     write: wrapToolDefinition(definitions.write),

@@ -24,6 +24,7 @@ import type { MemoryWriteProvenanceObserver } from "./memory-write-provenance.js
 import type { SandboxContext } from "./sandbox.js";
 import { buildSandboxFsMounts } from "./sandbox/fs-paths.js";
 import { resolveReadOnlyWorkspaceSkillMounts } from "./sandbox/workspace-mounts.js";
+import { createReadVideoTool } from "./sessions/tools/read-video.js";
 import { createReadTool } from "./sessions/tools/read.js";
 import { resolveToolResultBudget } from "./tool-result-limits.js";
 
@@ -162,6 +163,23 @@ export function createCoreCodingTools(options: CoreCodingToolsOptions): AnyAgent
         instructionDeliveryCache: options.skillInstructionDeliveryCache,
       }),
     );
+    const readVideo = createReadVideoTool(
+      options.codingRoot,
+      sandboxRoot
+        ? {
+            readFile: (filePath, readOptions) =>
+              sandboxFsBridge!.readFile({
+                filePath,
+                cwd: sandboxRoot,
+                maxBytes: readOptions.maxBytes,
+                signal: readOptions.signal,
+              }),
+          }
+        : options.workspaceOnly
+          ? { localRoots: [options.containmentRoot, ...(skillReadRoots ?? [])] }
+          : undefined,
+    );
+    base.push(readVideo);
     if (!options.readOnly && !sandboxRoot) {
       const edit = createHostWorkspaceEditTool(options.codingRoot, {
         containmentRoot: options.containmentRoot,

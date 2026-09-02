@@ -14,7 +14,7 @@ import {
   type ToolsOptions,
 } from "./index.js";
 
-const names: ToolName[] = ["read", "bash", "edit", "write", "grep", "find", "ls"];
+const names: ToolName[] = ["read", "readVideo", "bash", "edit", "write", "grep", "find", "ls"];
 const factories = [
   {
     name: "selected",
@@ -22,8 +22,16 @@ const factories = [
       names.map((name) => createTool(name, cwd, options)),
     names,
   },
-  { name: "coding", create: createCodingTools, names: ["read", "bash", "edit", "write"] },
-  { name: "read-only", create: createReadOnlyTools, names: ["read", "grep", "find", "ls"] },
+  {
+    name: "coding",
+    create: createCodingTools,
+    names: ["read", "readVideo", "bash", "edit", "write"],
+  },
+  {
+    name: "read-only",
+    create: createReadOnlyTools,
+    names: ["read", "readVideo", "grep", "find", "ls"],
+  },
   {
     name: "all",
     create: (cwd: string, options?: ToolsOptions) => Object.values(createAllTools(cwd, options)),
