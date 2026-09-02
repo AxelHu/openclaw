@@ -11,6 +11,7 @@ import {
   type ProviderStreamOptions,
 } from "../../../../packages/ai/src/provider-types.js";
 import { attachRuntimePromptMediaFacts } from "../../../media/media-facts.js";
+import { withToolResultMediaDetails } from "../../../media/tool-result-media-facts.js";
 import { captureEnv, setTestEnvValue } from "../../../test-utils/env.js";
 import type { StreamFn } from "../../runtime/index.js";
 import type { SandboxFsBridge } from "../../sandbox/fs-bridge.js";
@@ -203,6 +204,67 @@ describe("direct provider context handoff", () => {
     } finally {
       env.restore();
     }
+  });
+
+  it("projects readVideo tool media into a transient provider user turn", async () => {
+    const stateDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-provider-tool-video-"));
+    tempDirs.push(stateDir);
+    const videoPath = path.join(stateDir, "clip.mp4");
+    await fs.writeFile(videoPath, MP4);
+    const details = withToolResultMediaDetails({ ok: true }, [
+      { path: videoPath, contentType: "video/mp4", sizeBytes: MP4.length },
+    ]);
+    const context = {
+      systemPrompt: "system",
+      messages: [
+        {
+          role: "assistant",
+          content: [{ type: "toolCall", id: "call_1", name: "readVideo", arguments: {} }],
+          api: "test",
+          provider: "direct",
+          model: "canonical",
+          usage: {
+            input: 0,
+            output: 0,
+            cacheRead: 0,
+            cacheWrite: 0,
+            totalTokens: 0,
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+          },
+          stopReason: "toolUse",
+          timestamp: 1,
+        },
+        {
+          role: "toolResult",
+          toolCallId: "call_1",
+          toolName: "readVideo",
+          content: [{ type: "text", text: "video ready" }],
+          details,
+          isError: false,
+          timestamp: 2,
+        },
+      ],
+      tools: [],
+    } as Parameters<StreamFn>[1];
+    const originalJson = JSON.stringify(context);
+
+    const resolved = await materializeProviderContext({
+      context,
+      workspaceDir: stateDir,
+      workspaceOnly: true,
+    });
+
+    expect(resolved.messages).toHaveLength(3);
+    expect(resolved.messages[1]).toBe(context.messages[1]);
+    expect(resolved.messages[2]).toEqual({
+      role: "user",
+      content: [
+        { type: "text", text: "Video attachment returned by the readVideo tool." },
+        { type: "video", data: MP4.toString("base64"), mimeType: "video/mp4" },
+      ],
+      timestamp: 2,
+    });
+    expect(JSON.stringify(context)).toBe(originalJson);
   });
 
   it("rejects abort after a bounded sandbox read before later dispatch", async () => {

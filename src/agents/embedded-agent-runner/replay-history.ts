@@ -7,6 +7,7 @@ import { asFiniteNumber as toFiniteCostNumber } from "@openclaw/normalization-co
 import { stripInternalMetadataForDisplay } from "../../auto-reply/reply/display-text-sanitize.js";
 import { isSilentReplyPayloadText, SILENT_REPLY_TOKEN } from "../../auto-reply/tokens.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
+import { restoreRuntimeToolResultMediaFacts } from "../../media/tool-result-media-facts.js";
 import type { ProviderRuntimeModel } from "../../plugins/provider-runtime-model.types.js";
 import {
   sanitizeProviderReplayHistoryWithPlugin,
@@ -896,6 +897,7 @@ export async function sanitizeSessionHistory(params: {
         })
       : pairedToolCalls;
   const sanitizedToolResults = stripToolResultDetails(sanitizedToolIds);
+  restoreRuntimeToolResultMediaFacts(sanitizedToolIds, sanitizedToolResults);
   const sanitizedCompactionUsage = ensureAssistantUsageSnapshots(
     stripStaleAssistantUsageBeforeLatestCompaction(sanitizedToolResults),
   );
