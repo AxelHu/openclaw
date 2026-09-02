@@ -1,6 +1,7 @@
 import {
   sanitizeInlineImageBase64,
   sanitizeInlineImageDataUrlForStorage,
+  sanitizeInlineVideoBase64,
 } from "@openclaw/media-core/inline-image-data-url";
 
 const isImageMimeType = (value: unknown): value is string =>
@@ -8,6 +9,12 @@ const isImageMimeType = (value: unknown): value is string =>
 
 const normalizeImageMimeType = (value: unknown): string | undefined =>
   isImageMimeType(value) ? value.trim().toLowerCase() : undefined;
+
+const isVideoMimeType = (value: unknown): value is string =>
+  typeof value === "string" && /^video\//iu.test(value.trim());
+
+const normalizeVideoMimeType = (value: unknown): string | undefined =>
+  isVideoMimeType(value) ? value.trim().toLowerCase() : undefined;
 
 function imageMimeTypeForRecord(value: Record<string, unknown>): string | undefined {
   return (
@@ -19,6 +26,18 @@ function imageMimeTypeForRecord(value: Record<string, unknown>): string | undefi
 
 function imageMimeTypeFieldsForRecord(value: Record<string, unknown>): string[] {
   return ["mimeType", "mediaType", "media_type"].filter((key) => isImageMimeType(value[key]));
+}
+
+function videoMimeTypeForRecord(value: Record<string, unknown>): string | undefined {
+  return (
+    normalizeVideoMimeType(value.mimeType) ??
+    normalizeVideoMimeType(value.mediaType) ??
+    normalizeVideoMimeType(value.media_type)
+  );
+}
+
+function videoMimeTypeFieldsForRecord(value: Record<string, unknown>): string[] {
+  return ["mimeType", "mediaType", "media_type"].filter((key) => isVideoMimeType(value[key]));
 }
 
 function sanitizeOpaqueImageBase64(
@@ -53,6 +72,34 @@ export function sanitizeTranscriptImageRecord(
     return undefined;
   }
   const sanitized = sanitizeOpaqueImageBase64(source.data, imageMimeTypeForRecord(source));
+  if (!sanitized) {
+    return undefined;
+  }
+  const hasCanonicalMimeTypes = mimeTypeFields.every((key) => source[key] === sanitized.mimeType);
+  if (source.data === sanitized.base64 && hasCanonicalMimeTypes) {
+    return source;
+  }
+  const next: Record<string, unknown> = { ...source, data: sanitized.base64 };
+  for (const field of mimeTypeFields) {
+    next[field] = sanitized.mimeType;
+  }
+  return next;
+}
+
+export function sanitizeTranscriptVideoRecord(
+  source: Record<string, unknown>,
+): Record<string, unknown> | undefined {
+  if (source.type !== "video" || typeof source.data !== "string") {
+    return undefined;
+  }
+  const mimeTypeFields = videoMimeTypeFieldsForRecord(source);
+  if (mimeTypeFields.length === 0) {
+    return undefined;
+  }
+  const mimeType = videoMimeTypeForRecord(source);
+  const sanitized = mimeType
+    ? sanitizeInlineVideoBase64({ mimeType, base64: source.data })
+    : undefined;
   if (!sanitized) {
     return undefined;
   }
@@ -116,6 +163,20 @@ export function shouldPreserveTranscriptImagePayload(
     return startsWithDataUrl(item) && sanitizeInlineImageDataUrlForStorage(item) !== undefined;
   }
   return sanitizeImageDataUrlField(source, key, item) !== undefined;
+}
+
+export function shouldPreserveTranscriptVideoPayload(
+  source: Record<string, unknown>,
+  key: string,
+  item: unknown,
+): boolean {
+  if (source.type !== "video" || key !== "data" || typeof item !== "string") {
+    return false;
+  }
+  const mimeType = videoMimeTypeForRecord(source);
+  return (
+    mimeType !== undefined && sanitizeInlineVideoBase64({ mimeType, base64: item }) !== undefined
+  );
 }
 
 export function shouldPreserveNestedTranscriptImageDataUrlFields(
