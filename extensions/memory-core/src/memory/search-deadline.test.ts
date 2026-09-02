@@ -1,7 +1,15 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { isMemorySearchDeadlineError, runMemorySearchWithDeadline } from "./search-deadline.js";
+import {
+  DEFAULT_MEMORY_SEARCH_TIMEOUT_MS,
+  isMemorySearchDeadlineError,
+  runMemorySearchWithDeadline,
+} from "./search-deadline.js";
 
 describe("runMemorySearchWithDeadline", () => {
+  it("keeps the shared memory tool deadline at one minute", () => {
+    expect(DEFAULT_MEMORY_SEARCH_TIMEOUT_MS).toBe(60_000);
+  });
+
   afterEach(() => {
     vi.useRealTimers();
   });

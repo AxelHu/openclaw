@@ -1,4 +1,7 @@
-export const DEFAULT_MEMORY_SEARCH_TIMEOUT_MS = 15_000;
+// Memory search may include on-search index catch-up and supplemental corpora.
+// Preserve this fork's one-minute user-facing deadline while provider operations
+// retain their independently owned query and batch deadlines.
+export const DEFAULT_MEMORY_SEARCH_TIMEOUT_MS = 60_000;
 export function resolveMemorySearchAbortError(signal: AbortSignal): Error {
   const { reason } = signal;
   if (reason instanceof Error) {

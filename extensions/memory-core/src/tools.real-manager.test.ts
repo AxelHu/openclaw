@@ -9,6 +9,7 @@ import {
   createManagerIndexFixture,
   type ManagerIndexFixture,
 } from "./memory/manager-index.test-support.js";
+import { DEFAULT_MEMORY_SEARCH_TIMEOUT_MS } from "./memory/search-deadline.js";
 import { createMemorySearchTool, testing } from "./tools.js";
 
 const { closeAllMemorySearchManagers, getMemorySearchManager } = await import("./memory/index.js");
@@ -312,7 +313,7 @@ describe("memory_search real manager", () => {
     });
     try {
       await searchStarted.promise;
-      await vi.advanceTimersByTimeAsync(15_100);
+      await vi.advanceTimersByTimeAsync(DEFAULT_MEMORY_SEARCH_TIMEOUT_MS + 100);
       expect(executionSettled).toBe(true);
       await expect(execution).resolves.toMatchObject({
         details: { unavailable: true },
