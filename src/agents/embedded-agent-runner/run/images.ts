@@ -1,6 +1,7 @@
 import path from "node:path";
 import { MAX_VIDEO_BYTES } from "@openclaw/media-core/constants";
 import { normalizeMimeType } from "@openclaw/media-core/mime";
+import { hasHttpUrlPrefix } from "@openclaw/net-policy/url-protocol";
 import { normalizeLowercaseStringOrEmpty } from "@openclaw/normalization-core/string-coerce";
 import type {
   ModelInputContent,
@@ -530,7 +531,12 @@ async function materializeVideoFact(
           options.localRoots ?? (options.workspaceOnly ? [options.workspaceDir] : undefined),
         sandbox: options.sandbox,
       })
-    : null;
+    : fact.url && hasHttpUrlPrefix(fact.url)
+      ? await loadWebMedia(fact.url, {
+          maxBytes: budget.remaining,
+          requestInit: options.signal ? { signal: options.signal } : undefined,
+        })
+      : null;
   if (!loaded) {
     return { type: "text", text: VIDEO_OMISSION.unavailable };
   }

@@ -96,6 +96,7 @@ import {
   createCodingTools,
   createEditTool,
   createReadTool,
+  createReadVideoTool,
   createWriteTool,
 } from "./sessions/index.js";
 import type { TrustedSubagentCompletionHandoff } from "./subagents/announce/subagent-announce-handoff.js";
@@ -617,6 +618,7 @@ function createOpenClawCodingToolsInternal(options?: OpenClawCodingToolsOptions)
     baseToolFactories: {
       createEditTool,
       createReadTool,
+      createReadVideoTool,
       createWriteTool,
     },
     applyPatchEnabled,

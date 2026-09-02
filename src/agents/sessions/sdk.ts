@@ -47,6 +47,7 @@ import {
   createCodingTools,
   createEditTool,
   createReadTool,
+  createReadVideoTool,
   createWriteTool,
   type ToolName,
 } from "./tools/index.js";
@@ -128,7 +129,7 @@ export type {
   ToolDefinition,
 } from "./extensions/index.js";
 
-export { createCodingTools, createReadTool, createEditTool, createWriteTool };
+export { createCodingTools, createReadTool, createReadVideoTool, createEditTool, createWriteTool };
 
 // Helper Functions
 

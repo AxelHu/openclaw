@@ -27,8 +27,10 @@ import { resolveReadOnlyWorkspaceSkillMounts } from "./sandbox/workspace-mounts.
 import type {
   createEditTool,
   createReadTool as CreateReadTool,
+  createReadVideoTool as CreateReadVideoTool,
   createWriteTool,
 } from "./sessions/tools/index.js";
+import { createReadVideoTool } from "./sessions/tools/read-video.js";
 import { createReadTool } from "./sessions/tools/read.js";
 import { resolveToolResultBudget } from "./tool-result-limits.js";
 
@@ -84,6 +86,7 @@ type CoreCodingToolsOptions = {
   baseToolFactories?: {
     createEditTool: typeof createEditTool;
     createReadTool: typeof CreateReadTool;
+    createReadVideoTool: typeof CreateReadVideoTool;
     createWriteTool: typeof createWriteTool;
   };
   applyPatchEnabled: boolean;
@@ -123,7 +126,7 @@ export function createCoreCodingTools(options: CoreCodingToolsOptions): AnyAgent
 
   const base: AnyAgentTool[] = [];
   if (options.includeBaseCodingTools) {
-    const baseToolNames = new Set(options.baseToolNames ?? ["read", "edit", "write"]);
+    const baseToolNames = new Set(options.baseToolNames ?? ["read", "readVideo", "edit", "write"]);
     if (baseToolNames.has("read")) {
       const read = sandboxRoot
         ? createSandboxedReadTool({
@@ -175,6 +178,25 @@ export function createCoreCodingTools(options: CoreCodingToolsOptions): AnyAgent
           instructionDeliveryCache: options.skillInstructionDeliveryCache,
         }),
       );
+    }
+    if (baseToolNames.has("readVideo")) {
+      const readVideo = (options.baseToolFactories?.createReadVideoTool ?? createReadVideoTool)(
+        options.codingRoot,
+        sandboxRoot
+          ? {
+              readFile: (filePath, readOptions) =>
+                sandboxFsBridge!.readFile({
+                  filePath,
+                  cwd: sandboxRoot,
+                  maxBytes: readOptions.maxBytes,
+                  signal: readOptions.signal,
+                }),
+            }
+          : options.workspaceOnly
+            ? { localRoots: [options.containmentRoot, ...(skillReadRoots ?? [])] }
+            : undefined,
+      );
+      base.push(readVideo);
     }
     if (!options.readOnly && !sandboxRoot && baseToolNames.has("edit")) {
       const edit = createHostWorkspaceEditTool(options.codingRoot, {

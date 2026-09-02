@@ -8,7 +8,13 @@ export * from "./model-registry.js";
 export * from "./model-resolver.js";
 export * from "./package-manager.js";
 export * from "./resource-loader.js";
-export { createCodingTools, createEditTool, createReadTool, createWriteTool } from "./sdk.js";
+export {
+  createCodingTools,
+  createEditTool,
+  createReadTool,
+  createReadVideoTool,
+  createWriteTool,
+} from "./sdk.js";
 export type {
   CreateAgentSessionOptions,
   ExtensionAPI,
