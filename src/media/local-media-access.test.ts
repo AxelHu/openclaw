@@ -36,34 +36,20 @@ describe("assertLocalMediaAllowed", () => {
     }
   });
 
-  it("does not allow nested inbound paths as managed media", async () => {
+  it("allows nested inbound paths as ordinary host media in the private deployment", async () => {
     const stateDir = resolveStateDir();
     const filePath = path.join(stateDir, "media", "inbound", "nested", "hidden.png");
     await fs.mkdir(path.dirname(filePath), { recursive: true });
     await fs.writeFile(filePath, Buffer.from("png"));
 
     try {
-      let accessError: unknown;
-      try {
-        await assertLocalMediaAllowed(filePath, []);
-      } catch (error) {
-        accessError = error;
-      }
-      expect(accessError).toBeInstanceOf(LocalMediaAccessError);
-      if (!(accessError instanceof LocalMediaAccessError)) {
-        throw new Error("expected LocalMediaAccessError");
-      }
-      expect(accessError.name).toBe("LocalMediaAccessError");
-      expect(accessError.code).toBe("path-not-allowed");
-      expect(accessError.message).toBe(
-        `Local media path is not under an allowed directory: ${filePath}`,
-      );
+      await expect(assertLocalMediaAllowed(filePath, [])).resolves.toBeUndefined();
     } finally {
       await fs.rm(path.dirname(filePath), { recursive: true, force: true });
     }
   });
 
-  it("rejects workspace-* sibling paths when localRoots is undefined (unscoped)", async () => {
+  it("allows workspace-* sibling paths when private deployment roots are unrestricted", async () => {
     const tmpDir = path.join(
       os.tmpdir(),
       `ocl-local-media-${Date.now()}-${Math.random().toString(36).slice(2)}`,
@@ -80,24 +66,14 @@ describe("assertLocalMediaAllowed", () => {
     hoistedRoots.push(workspaceDir);
 
     try {
-      let accessError: unknown;
-      try {
-        await assertLocalMediaAllowed(mediaPath, undefined);
-      } catch (error) {
-        accessError = error;
-      }
-      expect(accessError).toBeInstanceOf(LocalMediaAccessError);
-      if (!(accessError instanceof LocalMediaAccessError)) {
-        throw new Error("expected LocalMediaAccessError");
-      }
-      expect(accessError.code).toBe("path-not-allowed");
+      await expect(assertLocalMediaAllowed(mediaPath, undefined)).resolves.toBeUndefined();
     } finally {
       hoistedRoots.length = 0;
       await fs.rm(tmpDir, { recursive: true, force: true });
     }
   });
 
-  it("allows only the explicitly scoped workspace-* path under a broad root", async () => {
+  it("allows sibling workspace paths even when explicit roots are narrower", async () => {
     const tmpDir = path.join(
       os.tmpdir(),
       `ocl-local-media-${Date.now()}-${Math.random().toString(36).slice(2)}`,
@@ -117,16 +93,14 @@ describe("assertLocalMediaAllowed", () => {
     try {
       const roots = [tmpDir, workspaceDir, workspaceXiaoqianDir];
       await expect(assertLocalMediaAllowed(mediaPath, roots)).resolves.toBeUndefined();
-      await expect(assertLocalMediaAllowed(siblingMediaPath, roots)).rejects.toMatchObject({
-        code: "path-not-allowed",
-      });
+      await expect(assertLocalMediaAllowed(siblingMediaPath, roots)).resolves.toBeUndefined();
     } finally {
       await fs.rm(tmpDir, { recursive: true, force: true });
     }
   });
 
   it.runIf(process.platform !== "win32")(
-    "keeps sibling isolation when the default workspace is symlinked",
+    "keeps safe-open behavior while allowing sibling workspaces when the default workspace is symlinked",
     async () => {
       const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "ocl-local-media-symlink-"));
       const stateDir = path.join(tmpDir, "state");
@@ -147,9 +121,7 @@ describe("assertLocalMediaAllowed", () => {
       try {
         const roots = [tmpDir, workspaceDir, ownWorkspaceDir];
         await expect(assertLocalMediaAllowed(ownMediaPath, roots)).resolves.toBeUndefined();
-        await expect(assertLocalMediaAllowed(siblingMediaPath, roots)).rejects.toMatchObject({
-          code: "path-not-allowed",
-        });
+        await expect(assertLocalMediaAllowed(siblingMediaPath, roots)).resolves.toBeUndefined();
       } finally {
         await fs.rm(tmpDir, { recursive: true, force: true });
       }

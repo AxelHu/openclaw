@@ -151,6 +151,27 @@ describe("preemptive-compaction", () => {
     expect(larger).toBeGreaterThan(smaller);
   });
 
+  it("uses bounded pressure for opaque video blocks instead of scanning base64 size", () => {
+    const makeVideoMessage = (data: string) =>
+      ({
+        role: "user",
+        content: [{ type: "video", data, mimeType: "video/mp4" }],
+        timestamp: timestamp++,
+      }) as unknown as AgentMessage;
+    const small = estimateLlmBoundaryTokenPressure({
+      messages: [makeVideoMessage("A".repeat(1_000))],
+      prompt: "continue",
+    });
+    const huge = estimateLlmBoundaryTokenPressure({
+      messages: [makeVideoMessage("A".repeat(2_000_000))],
+      prompt: "continue",
+    });
+
+    expect(huge).toBe(small);
+    expect(huge).toBeGreaterThan(60_000);
+    expect(huge).toBeLessThan(90_000);
+  });
+
   it("requests preemptive compaction when the reserve-based prompt budget would be exceeded", () => {
     const result = shouldPreemptivelyCompactBeforePrompt({
       messages: [makeAssistantHistory(verboseHistory)],

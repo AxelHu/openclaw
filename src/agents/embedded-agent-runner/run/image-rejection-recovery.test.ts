@@ -2,11 +2,11 @@ import { describe, expect, it } from "vitest";
 import { readPersistedMediaFacts } from "../../../media/media-facts.js";
 import { isSensitiveImageRejectionError } from "../../embedded-agent-helpers/image-rejection-error.js";
 import { SessionManager } from "../../sessions/index.js";
-import {
-  IMAGE_REJECTION_PLACEHOLDER,
-  IMAGE_REJECTION_RECOVERY_CUSTOM_TYPE,
-  recoverRecentSensitiveImageRejection,
-} from "./image-rejection-recovery.js";
+import { recoverRecentSensitiveImageRejection } from "./image-rejection-recovery.js";
+
+const EXPECTED_IMAGE_REJECTION_PLACEHOLDER =
+  "[image data removed after the provider rejected a recent image as sensitive; the original image is no longer included in prompt history]";
+const EXPECTED_IMAGE_REJECTION_RECOVERY_CUSTOM_TYPE = "openclaw:image-rejection-recovery";
 
 const SENSITIVE_ERROR =
   "input new_sensitive, messages[18]'s content[1] image is sensitive, please check your input (1026)";
@@ -84,14 +84,14 @@ describe("sensitive image rejection recovery", () => {
     expect(toolResults).toHaveLength(2);
     expect(imageCount(toolResults[0])).toBe(1);
     expect(imageCount(toolResults[1])).toBe(0);
-    expect(JSON.stringify(toolResults[1])).toContain(IMAGE_REJECTION_PLACEHOLDER);
+    expect(JSON.stringify(toolResults[1])).toContain(EXPECTED_IMAGE_REJECTION_PLACEHOLDER);
     expect(
       manager
         .getBranch()
         .some(
           (entry) =>
             entry.type === "custom_message" &&
-            entry.customType === IMAGE_REJECTION_RECOVERY_CUSTOM_TYPE,
+            entry.customType === EXPECTED_IMAGE_REJECTION_RECOVERY_CUSTOM_TYPE,
         ),
     ).toBe(true);
   });
@@ -139,7 +139,7 @@ describe("sensitive image rejection recovery", () => {
       )?.message;
     expect(user).toBeDefined();
     const userContent = (user as unknown as { content?: unknown } | undefined)?.content;
-    expect(String(userContent)).toContain(IMAGE_REJECTION_PLACEHOLDER);
+    expect(String(userContent)).toContain(EXPECTED_IMAGE_REJECTION_PLACEHOLDER);
     expect(readPersistedMediaFacts(user as object)?.[0]).toMatchObject({
       path: "/tmp/rejected.png",
       hydrationSuppressed: true,

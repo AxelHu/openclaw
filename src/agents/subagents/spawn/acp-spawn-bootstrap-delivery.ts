@@ -19,20 +19,33 @@ type GatewayImageAttachmentInput = {
   };
 };
 
+type GatewayVideoAttachmentInput = {
+  type: "video";
+  source: {
+    type: "base64";
+    media_type: string;
+    data: string;
+  };
+};
+
+type GatewayAttachmentInput = GatewayImageAttachmentInput | GatewayVideoAttachmentInput;
+
 export function toGatewayImageAttachments(
   attachments: AcpTurnAttachment[] | undefined,
-): GatewayImageAttachmentInput[] | undefined {
+): GatewayAttachmentInput[] | undefined {
   if (!attachments || attachments.length === 0) {
     return undefined;
   }
-  return attachments.map((attachment) => ({
-    type: "image",
-    source: {
-      type: "base64",
-      media_type: attachment.mediaType,
-      data: attachment.data,
-    },
-  }));
+  return attachments.map(
+    (attachment): GatewayAttachmentInput => ({
+      type: attachment.mediaType.startsWith("video/") ? "video" : "image",
+      source: {
+        type: "base64",
+        media_type: attachment.mediaType,
+        data: attachment.data,
+      },
+    }),
+  );
 }
 
 export type AcpSpawnBootstrapDeliveryPlan = {

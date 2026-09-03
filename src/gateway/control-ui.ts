@@ -898,7 +898,9 @@ export async function handleControlUiHttpRequest(
           ? (resolveRuntimeServiceBuildId() ?? undefined)
           : undefined,
       devGitBranch: (await resolveDevInstallGitBranch()) ?? undefined,
-      localMediaPreviewRoots: [...getAgentScopedMediaLocalRoots(config ?? {}, assistantAgentId)],
+      // Private deployment: the backend permits arbitrary safe-open host media,
+      // so an empty list tells the Control UI not to apply an additional root gate.
+      localMediaPreviewRoots: [],
       embedSandbox:
         config?.gateway?.controlUi?.embedSandbox === "trusted"
           ? "trusted"

@@ -341,7 +341,12 @@ function expectPersistedAcpTranscript(params: { userContent: string; assistantTe
 
 function firstRunTurnInput(runTurn: { mock: { calls: unknown[][] } }) {
   return runTurn.mock.calls[0]?.[0] as
-    | { mode?: string; sessionKey?: string; text?: string }
+    | {
+        attachments?: Array<{ data: string; mediaType: string }>;
+        mode?: string;
+        sessionKey?: string;
+        text?: string;
+      }
     | undefined;
 }
 
@@ -468,6 +473,33 @@ describe("agentCommand ACP runtime routing", () => {
         userContent: "  ping\n",
         assistantText: "  ACP_OK\n",
       });
+    });
+  });
+
+  it("forwards canonical video media facts into ACP runtime turns", async () => {
+    await withAcpSessionEnvInfo(async ({ home }) => {
+      const videoPath = path.join(home, "clip.mp4");
+      const videoBytes = Buffer.from([
+        0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70, 0x6d, 0x70, 0x34, 0x32, 0x00, 0x00, 0x00,
+        0x00, 0x6d, 0x70, 0x34, 0x32, 0x69, 0x73, 0x6f, 0x6d,
+      ]);
+      fs.writeFileSync(videoPath, videoBytes);
+      const runTurn = vi.fn(async (_params: unknown) => {});
+      mockAcpManager({ runTurn: (input: unknown) => runTurn(input) });
+
+      await agentCommand(
+        {
+          message: "inspect video",
+          sessionKey: "agent:codex:acp:test",
+          media: [{ path: videoPath, contentType: "video/mp4", kind: "video" }],
+        },
+        runtime,
+      );
+
+      expect(firstRunTurnInput(runTurn)?.attachments).toEqual([
+        { mediaType: "video/mp4", data: videoBytes.toString("base64") },
+      ]);
+      expect(runEmbeddedAgentSpy).not.toHaveBeenCalled();
     });
   });
 

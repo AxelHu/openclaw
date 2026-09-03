@@ -112,6 +112,25 @@ function expectContentBlock(
 }
 
 describe("sanitizeSessionMessagesImages", () => {
+  it("replaces corrupted legacy inline video before provider replay", async () => {
+    const input = castAgentMessages([
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "inspect this" },
+          { type: "video", data: "QUJD…RA==", mimeType: "video/mp4" },
+        ],
+        timestamp: nextTimestamp(),
+      },
+    ]);
+
+    const out = await sanitizeSessionMessagesImages(input, "test");
+    const user = expectDefined(out[0], "sanitized user message");
+    expect(user.role).toBe("user");
+    expect(JSON.stringify(user)).not.toContain("QUJD…RA==");
+    expect(JSON.stringify(user)).toContain("[video omitted: corrupted base64 payload]");
+  });
+
   it("keeps tool call + tool result IDs unchanged by default", async () => {
     const input = makeToolCallResultPairInput();
 

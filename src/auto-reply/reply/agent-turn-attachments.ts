@@ -1,9 +1,12 @@
 /** Resolves media attachments available to the current agent turn. */
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
 import type { AcpTurnAttachment as AgentTurnAttachment } from "../../acp/control-plane/manager.types.js";
+import { DEFAULT_VIDEO_INLINE_MAX_BYTES } from "../../agents/sessions/tools/video-inline-policy.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { logVerbose } from "../../globals.js";
 import type { MediaAttachment } from "../../media-understanding/types.js";
+import { isVideoMediaFact, type MediaFact } from "../../media/media-facts.js";
+import { loadWebMediaRaw } from "../../media/web-media.js";
 import { createLazyImportLoader } from "../../shared/lazy-promise.js";
 import type { MsgContext } from "../templating.js";
 import {
@@ -33,6 +36,8 @@ type AgentTurnAttachmentRuntime = Pick<
 
 const AGENT_TURN_ATTACHMENT_MAX_BYTES = 10 * 1024 * 1024;
 const AGENT_TURN_ATTACHMENT_TIMEOUT_MS = 1_000;
+const AGENT_TURN_VIDEO_ATTACHMENT_MAX_BYTES = DEFAULT_VIDEO_INLINE_MAX_BYTES;
+const AGENT_TURN_VIDEO_ATTACHMENT_TIMEOUT_MS = 10_000;
 
 function hasInboundHistoryMedia(ctx: MsgContext): boolean {
   return (
@@ -50,7 +55,7 @@ export function collectDescribedImageAttachmentIndexes(ctx: MsgContext): Set<num
   );
 }
 
-/** Resolves image attachments for the current agent turn and recent image history. */
+/** Resolves image/video attachments for the current agent turn and recent image history. */
 export async function resolveAgentTurnAttachments(params: {
   ctx: MsgContext;
   cfg: OpenClawConfig;
@@ -108,8 +113,10 @@ export async function resolveAgentTurnAttachments(params: {
   const results: AgentTurnAttachment[] = [];
   const resultIndexes: number[] = [];
   const resolvedHistoryImages: RecentInboundHistoryImage[] = [];
-  const resolveImageAttachment = async (attachment: MediaAttachment): Promise<boolean> => {
-    if (!runtime.isImageAttachment(attachment)) {
+  const resolveMultimodalAttachment = async (attachment: MediaAttachment): Promise<boolean> => {
+    const isImage = runtime.isImageAttachment(attachment);
+    const isVideo = attachment.mime?.startsWith("video/") === true;
+    if (!isImage && !isVideo) {
       return false;
     }
     if (!normalizeOptionalString(attachment.path)) {
@@ -118,11 +125,17 @@ export async function resolveAgentTurnAttachments(params: {
     try {
       const { buffer, mime: mediaType } = await cache.getBuffer({
         attachmentIndex: attachment.index,
-        maxBytes: AGENT_TURN_ATTACHMENT_MAX_BYTES,
-        timeoutMs: AGENT_TURN_ATTACHMENT_TIMEOUT_MS,
+        maxBytes: isVideo ? AGENT_TURN_VIDEO_ATTACHMENT_MAX_BYTES : AGENT_TURN_ATTACHMENT_MAX_BYTES,
+        timeoutMs: isVideo
+          ? AGENT_TURN_VIDEO_ATTACHMENT_TIMEOUT_MS
+          : AGENT_TURN_ATTACHMENT_TIMEOUT_MS,
       });
-      // Declared image kind selects the candidate; byte-aware cache detection owns the provider MIME.
-      if (!mediaType?.startsWith("image/")) {
+      // Declared kind selects the candidate; byte-aware cache detection owns the actual MIME.
+      if (
+        !mediaType ||
+        (isImage && !mediaType?.startsWith("image/")) ||
+        (isVideo && !mediaType?.startsWith("video/"))
+      ) {
         return false;
       }
       results.push({
@@ -130,7 +143,7 @@ export async function resolveAgentTurnAttachments(params: {
         data: buffer.toString("base64"),
       });
       resultIndexes.push(attachment.index);
-      const historyImage = historyAttachmentByIndex.get(attachment.index);
+      const historyImage = isImage ? historyAttachmentByIndex.get(attachment.index) : undefined;
       if (historyImage) {
         resolvedHistoryImages.push(historyImage);
       }
@@ -159,7 +172,9 @@ export async function resolveAgentTurnAttachments(params: {
       currentImageResolved = true;
       continue;
     }
-    currentImageResolved = (await resolveImageAttachment(attachment)) || currentImageResolved;
+    const resolved = await resolveMultimodalAttachment(attachment);
+    currentImageResolved =
+      (runtime.isImageAttachment(attachment) && resolved) || currentImageResolved;
   }
   if (
     includeRecentHistoryImages &&
@@ -168,7 +183,7 @@ export async function resolveAgentTurnAttachments(params: {
   ) {
     // History images are only used when the current turn did not already provide an image.
     for (const attachment of historyAttachments) {
-      await resolveImageAttachment(attachment);
+      await resolveMultimodalAttachment(attachment);
     }
   }
   return {
@@ -191,4 +206,44 @@ export function resolveInlineAgentImageAttachments(
       data: image.data,
     }))
     .filter((image) => image.mediaType.startsWith("image/") && image.data.trim().length > 0);
+}
+
+/** Hydrates canonical current-turn video facts for ACP command ingress. */
+export async function resolveAgentMediaFactVideoAttachments(
+  media: readonly MediaFact[] | undefined,
+  workspaceDir?: string,
+): Promise<AgentTurnAttachment[]> {
+  if (!Array.isArray(media)) {
+    return [];
+  }
+  const attachments: AgentTurnAttachment[] = [];
+  for (const fact of media) {
+    if (!isVideoMediaFact(fact) || fact.hydrationSuppressed === true || fact.providerReference) {
+      continue;
+    }
+    const mediaRef =
+      fact.url?.startsWith("media://inbound/") === true
+        ? fact.url
+        : (normalizeOptionalString(fact.path) ?? normalizeOptionalString(fact.url));
+    if (!mediaRef) {
+      continue;
+    }
+    try {
+      const loaded = await loadWebMediaRaw(mediaRef, {
+        maxBytes: AGENT_TURN_VIDEO_ATTACHMENT_MAX_BYTES,
+        workspaceDir: fact.workspaceDir ?? workspaceDir,
+      });
+      if (loaded.kind !== "video" || !loaded.contentType?.startsWith("video/")) {
+        continue;
+      }
+      attachments.push({
+        mediaType: loaded.contentType,
+        data: loaded.buffer.toString("base64"),
+      });
+    } catch (error) {
+      const errorName = error instanceof Error ? error.name : typeof error;
+      logVerbose(`agent-turn-attachments: failed to hydrate ACP video fact (${errorName})`);
+    }
+  }
+  return attachments;
 }

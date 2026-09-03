@@ -29,6 +29,9 @@ const TOOL_RESULT_CHARS_PER_TOKEN = 2;
 const JSON_PAYLOAD_CHARS_PER_TOKEN = 3;
 const MESSAGE_BOUNDARY_OVERHEAD_TOKENS = 12;
 const CONTENT_BLOCK_OVERHEAD_TOKENS = 6;
+// Native video payloads can contain multi-megabyte base64. Estimate their
+// provider pressure without serializing the opaque bytes into the precheck.
+const VIDEO_BLOCK_TOKENS = 67_000;
 const TRUNCATION_ROUTE_BUFFER_TOKENS = 512;
 
 type CompactionPressureDecision = {
@@ -126,6 +129,9 @@ function estimateContentBlockTokenPressure(
   }
   if (type === "image") {
     return IMAGE_BLOCK_TOKENS;
+  }
+  if (type === "video") {
+    return VIDEO_BLOCK_TOKENS;
   }
   return (
     CONTENT_BLOCK_OVERHEAD_TOKENS + estimateJsonPayloadTokenPressure(block, charsPerToken, mode)

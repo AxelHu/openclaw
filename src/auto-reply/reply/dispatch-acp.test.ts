@@ -30,6 +30,7 @@ import { withFetchPreconnect } from "../../test-utils/fetch-mock.js";
 import { withOpenClawTestState } from "../../test-utils/openclaw-test-state.js";
 import type { FinalizedRuntimeMsgContext } from "../templating.js";
 import {
+  resolveAgentMediaFactVideoAttachments,
   resolveAgentTurnAttachments,
   resolveInlineAgentImageAttachments,
 } from "./agent-turn-attachments.js";
@@ -2204,6 +2205,64 @@ describe("tryDispatchAcpReplyCore", () => {
         data: image.data,
       },
     ]);
+  });
+
+  it("forwards current-turn channel video attachments into ACP runtime turns", async () => {
+    const videoData = Buffer.from("video-bytes");
+    const result = await resolveAgentTurnAttachments({
+      cfg: createAcpTestConfig(),
+      ctx: buildTestCtx({
+        Provider: "discord",
+        Surface: "discord",
+        media: [{ path: "/tmp/clip.mp4", contentType: "video/mp4", kind: "video" }],
+      }),
+      runtime: {
+        MediaAttachmentCache: class {
+          async getBuffer() {
+            return {
+              buffer: videoData,
+              mime: "video/mp4",
+              fileName: "clip.mp4",
+              size: videoData.length,
+            };
+          }
+        } as unknown as typeof import("./dispatch-acp-media.runtime.js").MediaAttachmentCache,
+        isMediaUnderstandingSkipError: (_error: unknown): _error is MediaUnderstandingSkipError =>
+          false,
+        isImageAttachment,
+        normalizeAttachments: () => [
+          { path: "/tmp/clip.mp4", mime: "video/mp4", kind: "video", index: 0 },
+        ],
+        resolveMediaAttachmentLocalRoots: () => ["/tmp"],
+      },
+    });
+
+    expect(result.attachments).toEqual([
+      { mediaType: "video/mp4", data: videoData.toString("base64") },
+    ]);
+    expect(result.recentHistoryImages).toEqual([]);
+  });
+
+  it("hydrates canonical video media facts for direct ACP agent commands", async () => {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "dispatch-acp-video-fact-"));
+    const videoPath = path.join(tempDir, "clip.mp4");
+    const videoBytes = Buffer.from([
+      0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70, 0x6d, 0x70, 0x34, 0x32, 0x00, 0x00, 0x00,
+      0x00, 0x6d, 0x70, 0x34, 0x32, 0x69, 0x73, 0x6f, 0x6d,
+    ]);
+    try {
+      await fs.writeFile(videoPath, videoBytes);
+      const attachments = await resolveAgentMediaFactVideoAttachments(
+        [{ path: videoPath, contentType: "video/mp4", kind: "video" }],
+        tempDir,
+      );
+
+      expect(attachments).toEqual([
+        { mediaType: "video/mp4", data: videoBytes.toString("base64") },
+      ]);
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true });
+    }
   });
 
   it.each([

@@ -9,10 +9,10 @@ import { log } from "../logger.js";
 import { rewriteTranscriptEntriesInSessionManager } from "../transcript-rewrite.js";
 import { readPersistedMediaImageLayout } from "./prompt-image-metadata.js";
 
-export const IMAGE_REJECTION_RECOVERY_CUSTOM_TYPE = "openclaw:image-rejection-recovery";
-export const IMAGE_REJECTION_PLACEHOLDER =
+const IMAGE_REJECTION_RECOVERY_CUSTOM_TYPE = "openclaw:image-rejection-recovery";
+const IMAGE_REJECTION_PLACEHOLDER =
   "[image data removed after the provider rejected a recent image as sensitive; the original image is no longer included in prompt history]";
-export const IMAGE_REJECTION_RECOVERY_MESSAGE =
+const IMAGE_REJECTION_RECOVERY_MESSAGE =
   "System note: the provider rejected a recent image as sensitive. OpenClaw removed that image data from prompt history while retaining the surrounding text. Continue without assuming the removed image is visible.";
 
 const DEFAULT_IMAGE_REJECTION_SCAN_MESSAGES = 12;

@@ -1071,17 +1071,18 @@ describe("handleControlUiHttpRequest", () => {
     }
   });
 
-  it("rejects assistant local media outside allowed preview roots", async () => {
-    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-ui-media-blocked-"));
+  it("serves assistant local media outside preview roots in the private deployment", async () => {
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-ui-media-unrestricted-"));
     try {
       const filePath = path.join(tmp, "photo.png");
       await fs.writeFile(filePath, Buffer.from("not-a-real-png"));
-      const { res, handled, end } = await runAssistantMediaRequest({
+      const { res, handled } = await runAssistantMediaRequest({
         url: `/__openclaw__/assistant-media?source=${encodeURIComponent(filePath)}&token=test-token`,
         method: "GET",
         auth: { mode: "token", token: "test-token", allowTailscale: false },
       });
-      expectNotFoundResponse({ handled, res, end });
+      expect(handled).toBe(true);
+      expect(res.statusCode).toBe(200);
     } finally {
       await fs.rm(tmp, { recursive: true, force: true });
     }
@@ -1326,7 +1327,7 @@ describe("handleControlUiHttpRequest", () => {
     });
   });
 
-  it("reports assistant local media availability failures with a reason", async () => {
+  it("reports missing assistant local media with a reason", async () => {
     const { res, handled, end } = await runAssistantMediaRequest({
       url: `/__openclaw__/assistant-media?meta=1&source=${encodeURIComponent("/Users/test/Documents/private.pdf")}&token=test-token`,
       method: "GET",
@@ -1336,8 +1337,8 @@ describe("handleControlUiHttpRequest", () => {
     expect(res.statusCode).toBe(200);
     expect(responseJson(end)).toEqual({
       available: false,
-      code: "outside-allowed-folders",
-      reason: "Outside allowed folders",
+      code: "file-not-found",
+      reason: "File not found",
     });
   });
 
@@ -1762,7 +1763,7 @@ describe("handleControlUiHttpRequest", () => {
         expect(parsed.cliAgentsEnabled).toBe(true);
         expect(parsed.automaticallyFetchFavicons).toBe(true);
         expect(parsed.devGitBranch).toBeUndefined();
-        expect(Array.isArray(parsed.localMediaPreviewRoots)).toBe(true);
+        expect(parsed.localMediaPreviewRoots).toEqual([]);
       },
     });
   });
@@ -2689,7 +2690,7 @@ describe("handleControlUiHttpRequest", () => {
         expect(parsed.assistantAvatarStatus).toBe("none");
         expect(parsed.assistantAvatarReason).toBe("missing");
         expect(parsed.assistantAgentId).toBe("main");
-        expect(Array.isArray(parsed.localMediaPreviewRoots)).toBe(true);
+        expect(parsed.localMediaPreviewRoots).toEqual([]);
       },
     });
   });

@@ -2,6 +2,7 @@
  * Sanitizes historical embedded-agent message images and empty content blocks.
  */
 import { replaceCompactionReplayOwnerContent } from "@openclaw/ai/transports";
+import { sanitizeInlineVideoBase64 } from "@openclaw/media-core/inline-image-data-url";
 import type { ImageSanitizationLimits } from "../image-sanitization.js";
 import type { AgentMessage, AgentToolResult } from "../runtime/index.js";
 import type { ToolCallIdMode } from "../tool-call-id.js";
@@ -11,6 +12,44 @@ import { stripThoughtSignatures } from "./bootstrap.js";
 
 type ContentBlock = AgentToolResult<unknown>["content"][number];
 const EMPTY_CONTENT_PLACEHOLDER = "[empty content omitted]";
+const CORRUPTED_VIDEO_FALLBACK_TEXT = "[video omitted: corrupted base64 payload]";
+
+function sanitizeLegacyInlineVideoBlocks<T>(content: T[]): T[] {
+  return content.map((block) => {
+    if (!block || typeof block !== "object" || Array.isArray(block)) {
+      return block;
+    }
+    // SAFETY: the guard above narrows block to a non-null, non-array object; fields remain unknown until checked.
+    const record = block as Record<string, unknown>;
+    if (record.type !== "video" || typeof record.data !== "string") {
+      return block;
+    }
+    const mimeField = ["mimeType", "mediaType", "media_type"].find((key) => {
+      const value = record[key];
+      return typeof value === "string" && /^video\//iu.test(value.trim());
+    });
+    if (!mimeField) {
+      return block;
+    }
+    const mimeType = String(record[mimeField]).trim().toLowerCase();
+    const sanitized = sanitizeInlineVideoBase64({ mimeType, base64: record.data });
+    if (!sanitized) {
+      // SAFETY: callers pass transcript content-block unions that admit text blocks; this replaces only an invalid legacy video block.
+      return { type: "text", text: CORRUPTED_VIDEO_FALLBACK_TEXT } as T;
+    }
+    if (sanitized.base64 === record.data && sanitized.mimeType === mimeType) {
+      return block;
+    }
+    const next: Record<string, unknown> = { ...record, data: sanitized.base64 };
+    for (const key of ["mimeType", "mediaType", "media_type"] as const) {
+      if (typeof record[key] === "string" && /^video\//iu.test(record[key].trim())) {
+        next[key] = sanitized.mimeType;
+      }
+    }
+    // SAFETY: next preserves the original runtime block shape and only canonicalizes validated video payload fields.
+    return next as T;
+  });
+}
 
 function dropEmptyTextBlocks<T>(content: T[]): T[] {
   return content.filter((block) => {
@@ -78,7 +117,11 @@ export async function sanitizeSessionMessagesImages(
     if (role === "toolResult") {
       const toolMsg = msg as Extract<AgentMessage, { role: "toolResult" }>;
       const content = Array.isArray(toolMsg.content) ? toolMsg.content : [];
-      const nextContent = await sanitizeContentBlocksImages(content, label, imageSanitization);
+      const nextContent = await sanitizeContentBlocksImages(
+        sanitizeLegacyInlineVideoBlocks(content),
+        label,
+        imageSanitization,
+      );
       out.push({ ...toolMsg, content: ensureNonEmptyContent(dropEmptyTextBlocks(nextContent)) });
       continue;
     }
@@ -87,7 +130,11 @@ export async function sanitizeSessionMessagesImages(
       const userMsg = msg as Extract<AgentMessage, { role: "user" }>;
       const content = userMsg.content;
       if (Array.isArray(content)) {
-        const nextContent = await sanitizeContentBlocksImages(content, label, imageSanitization);
+        const nextContent = await sanitizeContentBlocksImages(
+          sanitizeLegacyInlineVideoBlocks(content),
+          label,
+          imageSanitization,
+        );
         out.push({ ...userMsg, content: ensureNonEmptyContent(dropEmptyTextBlocks(nextContent)) });
         continue;
       }
@@ -102,7 +149,9 @@ export async function sanitizeSessionMessagesImages(
             ? content // Keep signatures for Antigravity Claude
             : stripThoughtSignatures(content, options?.sanitizeThoughtSignatures); // Strip for Gemini
         const finalContent = (await sanitizeContentBlocksImages(
-          dropEmptyTextBlocks(strippedContent) as unknown as ContentBlock[],
+          sanitizeLegacyInlineVideoBlocks(
+            dropEmptyTextBlocks(strippedContent) as unknown as ContentBlock[],
+          ),
           label,
           imageSanitization,
         )) as unknown as typeof assistantMsg.content;

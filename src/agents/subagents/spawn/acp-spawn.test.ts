@@ -1703,6 +1703,29 @@ describe("spawnAcpDirect", () => {
     ]);
   });
 
+  it("keeps prepared video attachments typed as video through the gateway agent call", async () => {
+    const videoBase64 = Buffer.from("mp4-bytes").toString("base64");
+    const result = await spawnAcpDirect(
+      {
+        task: "inspect the video",
+        agentId: "codex",
+        attachments: [{ mediaType: "video/mp4", data: videoBase64 }],
+      },
+      {
+        agentSessionKey: "agent:main:main",
+      },
+    );
+
+    expectAcceptedSpawn(result);
+    const agentCall = findAgentGatewayCall();
+    expect(agentCall?.params?.attachments).toEqual([
+      {
+        type: "video",
+        source: { type: "base64", media_type: "video/mp4", data: videoBase64 },
+      },
+    ]);
+  });
+
   it("omits attachments from gateway call when none are provided", async () => {
     const result = await spawnAcpDirect(
       {

@@ -1,5 +1,8 @@
 import { createLazyAcpElicitationHandler } from "../../auto-reply/reply/acp-elicitation-handler-lazy.js";
-import { resolveInlineAgentImageAttachments } from "../../auto-reply/reply/agent-turn-attachments.js";
+import {
+  resolveAgentMediaFactVideoAttachments,
+  resolveInlineAgentImageAttachments,
+} from "../../auto-reply/reply/agent-turn-attachments.js";
 import { recordAgentRunTerminalOutcome } from "../../channels/turn/agent-run-terminal-outcome.js";
 import type { CliDeps } from "../../cli/deps.types.js";
 import type { SessionEntry } from "../../config/sessions/types.js";
@@ -117,6 +120,11 @@ export async function runAcpAgentCommand(params: {
     }
 
     const acpImageAttachments = resolveInlineAgentImageAttachments(params.opts.images);
+    const acpVideoAttachments = await resolveAgentMediaFactVideoAttachments(
+      params.opts.media,
+      params.workspaceDir,
+    );
+    const acpAttachments = [...acpImageAttachments, ...acpVideoAttachments];
     assertAgentRunLifecycleGenerationCurrent(params.lifecycleGeneration);
     const admittedRunContext = await params.preparedRunAdmission.admit("acp");
     const isElicitationActive = () => {
@@ -166,7 +174,7 @@ export async function runAcpAgentCommand(params: {
       agentId: params.sessionAgentId,
       provenance: params.provenance,
       text: params.body,
-      attachments: acpImageAttachments.length > 0 ? acpImageAttachments : undefined,
+      attachments: acpAttachments.length > 0 ? acpAttachments : undefined,
       mode: "prompt",
       requestId: params.runId,
       signal: params.opts.abortSignal,
