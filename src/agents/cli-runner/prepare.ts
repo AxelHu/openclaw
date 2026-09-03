@@ -57,6 +57,7 @@ import {
 } from "../admitted-run-context.js";
 import { hasAgentRosterProperty, resolveAgentWorkspaceDir } from "../agent-scope-config.js";
 import { resolveAgentDir, resolveSessionAgentIds } from "../agent-scope.js";
+import { buildAgentSubprocessEnv } from "../agent-subprocess-env.js";
 import { hasUsableOAuthCredential } from "../auth-profiles/credential-state.js";
 import { externalCliDiscoveryForProviderAuth } from "../auth-profiles/external-cli-discovery.js";
 import { buildOAuthRefreshFailureLoginCommand } from "../auth-profiles/oauth-refresh-failure.js";
@@ -1456,10 +1457,14 @@ export async function prepareCliRunContext(
           ...(skipLocalCredentialEpoch ? { skipLocalCredential: true } : {}),
         })
       : undefined;
-    const preparedBackendEnv =
-      preparedExecution?.env && Object.keys(preparedExecution.env).length > 0
-        ? { ...preparedBackend.env, ...preparedExecution.env }
-        : preparedBackend.env;
+    const preparedBackendEnv = {
+      ...preparedBackend.env,
+      ...preparedExecution?.env,
+      ...buildAgentSubprocessEnv({
+        agentId: sessionAgentId,
+        workspaceDir,
+      }),
+    };
     const preparedBackendBeforeExecution =
       preparedBackend.beforeExecution || preparedExecution?.beforeExecution
         ? async () => {

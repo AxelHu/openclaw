@@ -2,4 +2,6 @@
 # Ratchet: lower this number when cleanup removes names; never raise it without owner approval.
 # Worker bundle installation no longer injects OPENCLAW_STATE_DIR into a remote npm process.
 # The internal Node-version check no longer contributes a false OPENCLAW_* name.
-500
+# Local 8.1 compatibility retains OPENCLAW_AGENT_ID and OPENCLAW_AGENT_WORKSPACE
+# for the existing stable subprocess identity contract from 7.1-local.
+502

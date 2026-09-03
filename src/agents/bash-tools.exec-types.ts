@@ -47,6 +47,8 @@ export type ExecToolDefaults = {
   preparedRunEnvironment?: PreparedGitHubToolEnvironment;
   autoReviewer?: ExecAutoReviewer;
   agentId?: string;
+  /** Canonical host workspace for the owning agent. */
+  workspaceDir?: string;
   backgroundMs?: number;
   timeoutSec?: number;
   approvalWarningText?: string;

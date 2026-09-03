@@ -449,6 +449,8 @@ export function createExecTool(
           sandbox,
           containerWorkdir,
           channelContext: defaults?.channelContext,
+          agentId: defaults?.agentId,
+          workspaceDir: defaults?.workspaceDir,
           defaultPathPrepend,
           pluginEnv: resolvedExecEnvState?.pluginEnv,
           storeEnv: host === "gateway" ? storeEnv.env : undefined,

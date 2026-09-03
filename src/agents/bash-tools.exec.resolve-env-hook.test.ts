@@ -167,6 +167,38 @@ describe("exec resolve_exec_env hook wiring", () => {
     );
   });
 
+  it("adds immutable stable agent identity to gateway exec subprocesses", async () => {
+    const tool = createExecTool({
+      host: "gateway",
+      security: "full",
+      ask: "off",
+      agentId: "main",
+      workspaceDir: "/agent-workspaces/workspace-main",
+    });
+
+    await tool.execute("call-agent-identity", {
+      command: "echo ok",
+      env: {
+        OPENCLAW_AGENT_ID: "wrong-agent",
+        OPENCLAW_AGENT_WORKSPACE: "/wrong/workspace",
+      },
+      yieldMs: 120_000,
+    });
+
+    expect(mocks.gatewayParams[0]?.requestedEnv).toMatchObject({
+      OPENCLAW_AGENT_ID: "main",
+      OPENCLAW_AGENT_WORKSPACE: "/agent-workspaces/workspace-main",
+    });
+    expect(mocks.gatewayParams[0]?.env).toMatchObject({
+      OPENCLAW_AGENT_ID: "main",
+      OPENCLAW_AGENT_WORKSPACE: "/agent-workspaces/workspace-main",
+    });
+    expect(mocks.spawnInputs[0]?.env).toMatchObject({
+      OPENCLAW_AGENT_ID: "main",
+      OPENCLAW_AGENT_WORKSPACE: "/agent-workspaces/workspace-main",
+    });
+  });
+
   it("merges filtered plugin env into gateway execution and approval-visible requested env", async () => {
     installResolveExecEnvHook({
       EXISTING: "plugin",
@@ -740,6 +772,8 @@ describe("exec resolve_exec_env hook wiring", () => {
     expect(mocks.hookRunner.runResolveExecEnv!).toHaveBeenCalledTimes(1);
     expect(mocks.gatewayParams[0]?.requestedEnv).toEqual({
       LAZY_PLUGIN_SAFE: "yes",
+      OPENCLAW_AGENT_ID: "main",
+      OPENCLAW_AGENT_WORKSPACE: process.cwd(),
       REQUEST_SAFE: "request",
     });
   });

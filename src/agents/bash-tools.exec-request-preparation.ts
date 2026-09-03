@@ -22,6 +22,7 @@ import {
 import { getGlobalHookRunner } from "../plugins/hook-runner-global.js";
 import type { PluginHookChannelContext } from "../plugins/hook-types.js";
 import { safeJsonStringify } from "../utils/safe-json.js";
+import { buildAgentSubprocessEnv } from "./agent-subprocess-env.js";
 import type { HookContext } from "./agent-tools.before-tool-call.js";
 import { stripMalformedXmlArgValueSuffixFromKeys } from "./agent-tools.params.js";
 import { DEFAULT_PATH, applyPathPrepend, applyShellPath } from "./bash-tools.exec-runtime.js";
@@ -364,6 +365,8 @@ export function resolvePreparedExecEnvironment(params: {
   sandbox?: BashSandboxConfig;
   containerWorkdir?: string | null;
   channelContext?: PluginHookChannelContext;
+  agentId?: string;
+  workspaceDir?: string;
   defaultPathPrepend: string[];
   pluginEnv?: Record<string, string>;
   storeEnv?: Record<string, string>;
@@ -383,11 +386,21 @@ export function resolvePreparedExecEnvironment(params: {
     Object.assign(inheritedBaseEnv, params.secretEgressEnv);
   }
   const channelContextEnv = buildChannelContextEnv(params.channelContext);
+  const agentContextEnv = buildAgentSubprocessEnv({
+    agentId: params.agentId,
+    workspaceDir: params.host === "gateway" ? params.workspaceDir : undefined,
+  });
   const explicitEnv: Record<string, string> | undefined =
     params.execParams.env !== undefined ||
     params.pluginEnv !== undefined ||
-    channelContextEnv !== undefined
-      ? { ...params.execParams.env, ...params.pluginEnv, ...channelContextEnv }
+    channelContextEnv !== undefined ||
+    Object.keys(agentContextEnv).length > 0
+      ? {
+          ...params.execParams.env,
+          ...params.pluginEnv,
+          ...channelContextEnv,
+          ...agentContextEnv,
+        }
       : undefined;
   const storeEnvResult = params.storeEnv
     ? sanitizeHostExecEnvWithDiagnostics({
