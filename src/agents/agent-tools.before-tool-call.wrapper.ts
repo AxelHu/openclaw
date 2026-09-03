@@ -28,7 +28,7 @@ import {
   buildToolContentPrivateData,
   emitSkillUsedDiagnostic,
   emitToolBlockedSecurityEvent,
-  findSkillUsageMatch,
+  findSkillUsageMatches,
   reconcileLoopCallExecutionParams,
   recordLoopOutcome,
   rememberPendingTerminalPresentation,
@@ -577,12 +577,12 @@ export function wrapToolWithBeforeToolCallHook(
           toolCallId,
           toolCallOrdinal,
         });
-        const skillMatch = findSkillUsageMatch({
+        const skillMatches = findSkillUsageMatches({
           toolName: normalizedToolName,
           toolParams: executeParams,
           ctx,
         });
-        if (skillMatch) {
+        for (const skillMatch of skillMatches) {
           recordRunSkillUsage({
             runId: ctx?.runId,
             name: skillMatch.skillName,
@@ -592,7 +592,7 @@ export function wrapToolWithBeforeToolCallHook(
           });
         }
         if (hookOptions.emitDiagnostics) {
-          if (skillMatch) {
+          for (const skillMatch of skillMatches) {
             emitSkillUsedDiagnostic({
               ctx,
               match: skillMatch,

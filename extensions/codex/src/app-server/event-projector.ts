@@ -6,6 +6,7 @@ import {
   type BeforeToolCallFailureDisposition,
   type EmbeddedRunAttemptParamsV2 as EmbeddedRunAttemptParams,
 } from "openclaw/plugin-sdk/agent-harness-runtime";
+import { recordSuccessfulSkillUsageForToolCall } from "openclaw/plugin-sdk/agent-harness-tool-runtime";
 import { readStringField as readString } from "openclaw/plugin-sdk/string-coerce-runtime";
 import type { AttemptFailureSource, EmbeddedRunAttemptResult } from "./attempt-terminal.js";
 import { persistCodexContextCompactionActivity } from "./context-compaction-activity.js";
@@ -514,10 +515,29 @@ export class CodexAppServerEventProjector {
     });
   }
 
+  private recordNativeCommandSkillUsage(item: CodexThreadItem | undefined): void {
+    const context = this.options.nativeSkillUsageContext;
+    if (
+      !context ||
+      item?.type !== "commandExecution" ||
+      typeof item.command !== "string" ||
+      !item.command.trim()
+    ) {
+      return;
+    }
+    recordSuccessfulSkillUsageForToolCall({
+      toolName: "bash",
+      toolParams: { command: item.command, cwd: item.cwd ?? context.cwd },
+      toolCallId: item.id,
+      ctx: context,
+    });
+  }
+
   private async handleItemCompleted(params: JsonObject): Promise<void> {
     const item = readItem(params.item);
     this.diagnostics.warnUnknownItemStatus(item);
     this.recordNativeToolOutcome(item);
+    this.recordNativeCommandSkillUsage(item);
     this.clearTerminalPresentationForNativeItem(item);
     const itemId = item?.id ?? readString(params, "itemId");
     if (itemId) {

@@ -1,3 +1,5 @@
+import type { EmbeddedRunAttemptParamsV2 as EmbeddedRunAttemptParams } from "openclaw/plugin-sdk/agent-harness-runtime";
+import type { mapSandboxSkillUsagePaths } from "openclaw/plugin-sdk/agent-harness-tool-runtime";
 import type { AgentPlanStep } from "openclaw/plugin-sdk/channel-outbound";
 import type { AssistantMessage } from "openclaw/plugin-sdk/llm";
 import type { CodexThreadItem, JsonValue } from "./protocol.js";
@@ -6,9 +8,21 @@ import type { CodexTrajectoryRecorder } from "./trajectory.js";
 
 export type CodexAsyncDeliverySettlement = "settled" | "retry";
 
+type CodexNativeSkillUsageContext = {
+  runId?: string;
+  agentId?: string;
+  sessionKey?: string;
+  sessionId?: string;
+  workspaceDir?: string;
+  cwd?: string;
+  skillsSnapshot?: EmbeddedRunAttemptParams["skillsSnapshot"];
+  skillUsagePaths?: ReturnType<typeof mapSandboxSkillUsagePaths>;
+};
+
 export type CodexAppServerEventProjectorOptions = {
   initialContextTokens?: number;
   nativePostToolUseRelayEnabled?: boolean;
+  nativeSkillUsageContext?: CodexNativeSkillUsageContext;
   asyncUserMessageAllowed?: boolean;
   onAsyncDelivery?: (delivery: {
     itemId: string;

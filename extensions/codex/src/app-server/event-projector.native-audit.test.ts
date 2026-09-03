@@ -20,6 +20,67 @@ import {
 registerCodexEventProjectorTestLifecycle();
 
 describe("CodexAppServerEventProjector native tool audit projection", () => {
+  it("records skill usage for successful Codex-native SKILL.md reads", async () => {
+    const params = await createParams();
+    const skillFile = `${params.workspaceDir}/skills/example/SKILL.md`;
+    params.agentId = "main";
+    params.sessionKey = "agent:main:session-1";
+    const projector = await createProjector(params, {
+      nativeSkillUsageContext: {
+        runId: params.runId,
+        agentId: params.agentId,
+        sessionKey: params.sessionKey,
+        sessionId: params.sessionId,
+        workspaceDir: params.workspaceDir,
+        cwd: params.workspaceDir,
+        skillUsagePaths: [
+          {
+            readPath: skillFile,
+            skillFile,
+            skillName: "example",
+            skillSource: "workspace",
+          },
+        ],
+      },
+    });
+    const diagnosticEvents: DiagnosticEventPayload[] = [];
+    const unsubscribe = onInternalDiagnosticEvent((event) => diagnosticEvents.push(event));
+
+    try {
+      await projector.handleNotification(
+        forCurrentTurn("item/completed", {
+          item: {
+            type: "commandExecution",
+            id: "cmd-skill-read",
+            command: `cat ${skillFile}`,
+            cwd: params.workspaceDir,
+            processId: null,
+            source: "agent",
+            status: "completed",
+            commandActions: [],
+            aggregatedOutput: "skill body",
+            exitCode: 0,
+            durationMs: 1,
+          },
+        }),
+      );
+      await flushDiagnosticEvents();
+    } finally {
+      unsubscribe();
+    }
+
+    expect(diagnosticEvents.filter((event) => event.type === "skill.used")).toMatchObject([
+      {
+        type: "skill.used",
+        skillName: "example",
+        skillSource: "workspace",
+        activation: "read",
+        toolName: "exec",
+        toolCallId: "cmd-skill-read",
+      },
+    ]);
+  });
+
   it("synthesizes normalized tool progress for Codex-native tool items", async () => {
     const onAgentEvent = vi.fn();
     const projector = await createProjector({ ...(await createParams()), onAgentEvent });

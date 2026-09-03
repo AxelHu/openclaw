@@ -7,6 +7,10 @@ import {
   resolveAttemptFsWorkspaceOnly,
   setActiveEmbeddedRun,
 } from "openclaw/plugin-sdk/agent-harness-runtime";
+import {
+  mapSandboxSkillUsagePaths,
+  resolveSandboxSkillRuntimeInputs,
+} from "openclaw/plugin-sdk/agent-harness-tool-runtime";
 import { getAgentScopedMediaLocalRoots } from "openclaw/plugin-sdk/media-local-roots";
 import { hasPromptImageInput } from "openclaw/plugin-sdk/session-transcript-runtime";
 import {
@@ -64,7 +68,9 @@ export async function activateCodexAttemptTurn(
     bindingIdentity,
     sessionAgentId,
     contextSessionKey,
+    effectiveWorkspace,
     effectiveCwd,
+    sandbox,
   } = connection;
   const { dynamicToolParams, compactionPlanState, computerContextEpoch, toolBridge } = attemptTools;
   const { state, userInputBridgeRef, steeringQueueRef, turnWatches, completeTurn, interruptTurn } =
@@ -78,6 +84,16 @@ export async function activateCodexAttemptTurn(
     client: resourceState.client,
     threadId: resourceState.thread.threadId,
     attempt: dynamicToolParams,
+  });
+  const nativeSkillRuntime = resolveSandboxSkillRuntimeInputs({
+    sandbox,
+    skillsAnchorWorkspace: effectiveWorkspace,
+    skillsSnapshot: params.skillsSnapshot,
+  });
+  const nativeSkillUsagePaths = mapSandboxSkillUsagePaths({
+    paths: sandbox?.skillUsagePaths,
+    skillsWorkspaceDir: nativeSkillRuntime.skillsWorkspaceDir,
+    skillsPromptWorkspaceDir: nativeSkillRuntime.skillsPromptWorkspaceDir,
   });
   const streamState = { eventEmitted: false, needsTerminalSnapshot: false };
   emitExecutionPhaseOnce("turn_accepted", { phase: "turn_accepted" });
@@ -108,6 +124,18 @@ export async function activateCodexAttemptTurn(
     activeTurnId,
     {
       initialContextTokens: connection.mutable.startupContextTokens,
+      nativeSkillUsageContext: {
+        runId: dynamicToolParams.runId,
+        agentId: dynamicToolParams.agentId,
+        sessionKey: dynamicToolParams.sessionKey,
+        sessionId: dynamicToolParams.sessionId,
+        workspaceDir: effectiveWorkspace,
+        cwd: effectiveCwd,
+        ...(nativeSkillRuntime.skillsSnapshot
+          ? { skillsSnapshot: nativeSkillRuntime.skillsSnapshot }
+          : {}),
+        ...(nativeSkillUsagePaths ? { skillUsagePaths: nativeSkillUsagePaths } : {}),
+      },
       nativePostToolUseRelayEnabled:
         resourceState.nativeHookRelay?.allowedEvents.includes("post_tool_use") === true &&
         resourceState.nativeHookRelay.shouldRelayEvent("post_tool_use"),

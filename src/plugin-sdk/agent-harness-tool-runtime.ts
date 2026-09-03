@@ -10,6 +10,11 @@ import {
 } from "../agents/harness/tool-surface-bridge.js";
 
 export { getCoreTtsToolResultMediaUrls } from "../agents/tools/tts-tool-result-provenance.js";
+export { recordSuccessfulSkillUsageForToolCall } from "../agents/agent-tools.before-tool-call.diagnostics.js";
+export {
+  mapSandboxSkillUsagePaths,
+  resolveSandboxSkillRuntimeInputs,
+} from "../agents/embedded-agent-runner/sandbox-skills.js";
 
 type OpenClawCodingToolsOptions = NonNullable<
   Parameters<typeof import("./agent-harness.js").createOpenClawCodingTools>[0]

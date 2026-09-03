@@ -18,6 +18,10 @@ import {
   type EmbeddedRunAttemptParamsV2 as EmbeddedRunAttemptParams,
   type RuntimeToolSchemaDiagnostic,
 } from "openclaw/plugin-sdk/agent-harness-runtime";
+import {
+  mapSandboxSkillUsagePaths,
+  resolveSandboxSkillRuntimeInputs,
+} from "openclaw/plugin-sdk/agent-harness-tool-runtime";
 import { resolveAgentDir } from "openclaw/plugin-sdk/agent-runtime";
 import {
   resolveCodexScheduledToolProjectionFactory,
@@ -283,6 +287,11 @@ export async function buildDynamicTools(input: DynamicToolBuildParams) {
   });
   const webFetchHostnameAllowlistRef: { value?: string[] } = {};
   const buildOpenClawCodingTools = () => {
+    const skillRuntime = resolveSandboxSkillRuntimeInputs({
+      sandbox: input.sandbox,
+      skillsAnchorWorkspace: input.effectiveWorkspace,
+      skillsSnapshot: params.skillsSnapshot,
+    });
     const toolConstructionPlan = resolveCodexNodePlacementToolConstructionPlan(
       input.sandbox,
       input.nativeToolSurfaceEnabled,
@@ -348,6 +357,12 @@ export async function buildDynamicTools(input: DynamicToolBuildParams) {
               resolvedWorkspace: input.resolvedWorkspace,
             }),
       config: params.config,
+      skillsSnapshot: skillRuntime.skillsSnapshot,
+      skillUsagePaths: mapSandboxSkillUsagePaths({
+        paths: input.sandbox?.skillUsagePaths,
+        skillsWorkspaceDir: skillRuntime.skillsWorkspaceDir,
+        skillsPromptWorkspaceDir: skillRuntime.skillsPromptWorkspaceDir,
+      }),
       githubPublicationAvailable: params.githubPublicationAvailable,
       authProfileStore: params.toolAuthProfileStore ?? params.authProfileStore,
       abortSignal: input.runAbortController.signal,

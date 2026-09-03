@@ -686,6 +686,7 @@ function createOpenClawCodingToolsInternal(options?: OpenClawCodingToolsOptions)
       safeBinTrustedDirs: options?.exec?.safeBinTrustedDirs ?? execConfig.safeBinTrustedDirs,
       safeBinProfiles: options?.exec?.safeBinProfiles ?? execConfig.safeBinProfiles,
       agentId,
+      workspaceDir: capabilityProfile.workspace.spawnWorkspaceRoot ?? workspaceRoot,
       processToolAvailabilityRef,
       scopeKey,
       sessionKey: options?.sessionKey,

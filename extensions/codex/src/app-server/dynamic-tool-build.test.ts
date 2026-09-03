@@ -233,6 +233,78 @@ describe("Codex app-server dynamic tool build", () => {
     expect(onYieldDetected).toHaveBeenCalledWith("Research started; results will follow.");
   });
 
+  it("forwards unsandboxed canonical skill snapshots into OpenClaw dynamic tool wrappers", async () => {
+    const workspaceDir = path.join(tempDir, "skill-identity-workspace");
+    const params = createParams(path.join(tempDir, "skill-identity-session.jsonl"), workspaceDir);
+    params.disableTools = false;
+    params.runtimePlan = createCodexRuntimePlanFixture();
+    const skillFile = path.join(workspaceDir, "skills", "example", "SKILL.md");
+    const skillsSnapshot = {
+      prompt: "",
+      skills: [],
+      resolvedSkills: [
+        {
+          name: "example",
+          description: "Example skill",
+          filePath: skillFile,
+          baseDir: path.dirname(skillFile),
+          source: "workspace",
+        },
+      ],
+    };
+    params.skillsSnapshot = skillsSnapshot as never;
+    let captured: { skillsSnapshot?: unknown; skillUsagePaths?: unknown } | undefined;
+    setOpenClawCodingToolsFactoryForTests((options) => {
+      captured = options;
+      return [];
+    });
+
+    await buildDynamicToolsForTest(params, workspaceDir, { sandbox: null as never });
+
+    expect(captured?.skillsSnapshot).toBe(skillsSnapshot);
+    expect(captured?.skillUsagePaths).toBeUndefined();
+  });
+
+  it("forwards sandbox-mapped skill usage paths into OpenClaw dynamic tool wrappers", async () => {
+    const workspaceDir = path.join(tempDir, "sandbox-skill-identity-workspace");
+    const params = createParams(
+      path.join(tempDir, "sandbox-skill-identity-session.jsonl"),
+      workspaceDir,
+    );
+    params.disableTools = false;
+    params.runtimePlan = createCodexRuntimePlanFixture();
+    const skillFile = path.join(workspaceDir, "skills", "example", "SKILL.md");
+    const skillUsagePaths = [
+      {
+        readPath: skillFile,
+        skillFile,
+        skillName: "example",
+        skillSource: "workspace",
+      },
+    ];
+    let captured: { skillsSnapshot?: unknown; skillUsagePaths?: unknown } | undefined;
+    setOpenClawCodingToolsFactoryForTests((options) => {
+      captured = options;
+      return [];
+    });
+
+    await buildDynamicToolsForTest(params, workspaceDir, {
+      sandbox: {
+        enabled: true,
+        backendId: "docker",
+        workspaceAccess: "ro",
+        workspaceDir,
+        agentWorkspaceDir: workspaceDir,
+        skillsWorkspaceDir: workspaceDir,
+        skillUsagePaths,
+        containerWorkdir: workspaceDir,
+      } as never,
+    });
+
+    expect(captured?.skillsSnapshot).toBeUndefined();
+    expect(captured?.skillUsagePaths).toEqual(skillUsagePaths);
+  });
+
   it("binds a resolver-backed constructed tool surface exactly once", async () => {
     const workspaceDir = path.join(tempDir, "resolver-bound-workspace");
     const params = createParams(path.join(tempDir, "resolver-bound-session.jsonl"), workspaceDir);
