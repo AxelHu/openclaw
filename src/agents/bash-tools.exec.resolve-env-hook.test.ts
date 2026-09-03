@@ -825,6 +825,7 @@ describe("exec resolve_exec_env hook wiring", () => {
     }
     expect(mocks.nodeHostParams[0]?.requestedEnv).toEqual({
       NODE_PLUGIN_SAFE: "node",
+      OPENCLAW_AGENT_ID: "policy-agent",
       REQUEST_SAFE: "request",
     });
     expect(mocks.nodeHostParams[0]?.requestedEnv).not.toHaveProperty("GATEWAY_PLUGIN_SAFE");
