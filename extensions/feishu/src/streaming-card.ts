@@ -14,6 +14,7 @@ import { FEISHU_HTTP_TIMEOUT_MS } from "./client-timeout.js";
 import { getFeishuUserAgent } from "./client.js";
 import { requestFeishuApi } from "./comment-shared.js";
 import { readFeishuJsonResponse } from "./json-response.js";
+import { normalizeCardMentionTags, normalizeTextAtTagClosing } from "./mention.js";
 import { resolveFeishuCardTemplate, type CardHeaderConfig } from "./send.js";
 import { resolveStreamingCardSendMode } from "./streaming-card-send-mode.js";
 import type { FeishuDomain } from "./types.js";
@@ -411,6 +412,7 @@ export class FeishuStreamingSession {
     if (!this.state) {
       return false;
     }
+    const normalizedText = normalizeCardMentionTags(normalizeTextAtTagClosing(text));
     const apiBase = resolveApiBase(this.creds.domain);
     this.state.sequence += 1;
     try {
@@ -427,7 +429,7 @@ export class FeishuStreamingSession {
             "User-Agent": getFeishuUserAgent(),
           },
           body: JSON.stringify({
-            content: text,
+            content: normalizedText,
             sequence: this.state.sequence,
             uuid: `s_${this.state.cardId}_${this.state.sequence}`,
           }),

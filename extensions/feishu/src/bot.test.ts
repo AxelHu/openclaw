@@ -1779,6 +1779,9 @@ describe("handleFeishuMessage command authorization", () => {
         requiredMentionTargets: [{ openId: "ou-peer-bot", name: "Peer Bot", key: "" }],
       }),
     );
+    expect(
+      mockCallArg<Record<string, unknown>>(mockCreateFeishuReplyDispatcher, 0, 0),
+    ).not.toHaveProperty("mentionTargets");
     const inbound = mockCallArg<{ CommandBody?: string; BodyForAgent?: string }>(
       mockFinalizeInboundContext,
       0,

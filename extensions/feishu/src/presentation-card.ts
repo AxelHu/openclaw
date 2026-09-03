@@ -11,6 +11,7 @@ import {
 } from "openclaw/plugin-sdk/interactive-runtime";
 import { createFeishuCardInteractionEnvelope } from "./card-interaction.js";
 import {
+  escapeFeishuCardMarkdownPreservingMentions,
   escapeFeishuCardMarkdownText,
   escapeFeishuCardPlainText,
   resolveSafeFeishuButtonUrl,
@@ -194,13 +195,13 @@ function buildFeishuCardElementsForBlock(
   block: MessagePresentationBlock,
 ): Record<string, unknown>[] {
   if (block.type === "text") {
-    return [{ tag: "markdown", content: escapeFeishuCardMarkdownText(block.text) }];
+    return [{ tag: "markdown", content: escapeFeishuCardMarkdownPreservingMentions(block.text) }];
   }
   if (block.type === "context") {
     return [
       {
         tag: "markdown",
-        content: `<font color='grey'>${escapeFeishuCardMarkdownText(block.text)}</font>`,
+        content: `<font color='grey'>${escapeFeishuCardMarkdownPreservingMentions(block.text)}</font>`,
       },
     ];
   }
@@ -258,7 +259,7 @@ export function buildFeishuPresentationCardElements(params: {
   if (fallbackText) {
     elements.push({
       tag: "markdown",
-      content: escapeFeishuCardMarkdownText(fallbackText),
+      content: escapeFeishuCardMarkdownPreservingMentions(fallbackText),
     });
   }
   for (const block of params.presentation.blocks) {

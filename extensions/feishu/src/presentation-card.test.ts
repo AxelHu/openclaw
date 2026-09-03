@@ -6,6 +6,29 @@ import {
 } from "./presentation-card.js";
 
 describe("buildFeishuPresentationCardElements", () => {
+  it("preserves valid Feishu mentions while escaping surrounding presentation text", () => {
+    const presentation = normalizeMessagePresentation({
+      blocks: [
+        { type: "text", text: 'hello <at user_id="ou_target">Target</a> <unsafe>' },
+        { type: "context", text: '<at id="ou_second">Second</at> </font>' },
+      ],
+    });
+    if (!presentation) {
+      throw new Error("expected valid presentation");
+    }
+
+    expect(buildFeishuPresentationCardElements({ presentation })).toEqual([
+      {
+        tag: "markdown",
+        content: "hello <at id=ou_target>Target</at> &lt;unsafe&gt;",
+      },
+      {
+        tag: "markdown",
+        content: "<font color='grey'><at id=ou_second>Second</at> &lt;/font&gt;</font>",
+      },
+    ]);
+  });
+
   it("renders table blocks through the portable text fallback", () => {
     const presentation = normalizeMessagePresentation({
       blocks: [

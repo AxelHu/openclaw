@@ -193,6 +193,7 @@ export function createFeishuMessageReceiveHandler({
   const log = runtime?.log ?? console.log;
   const error = runtime?.error ?? console.error;
   const enqueue = createSequentialQueue({
+    taskTimeoutMs: 30 * 60 * 1000,
     onTaskTimeout: (key, timeoutMs) => {
       log(
         `feishu[${accountId}]: per-chat task exceeded ${timeoutMs}ms cap (key=${key}); evicting from queue so later same-key messages can proceed (#70133)`,

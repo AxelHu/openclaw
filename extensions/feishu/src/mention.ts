@@ -98,3 +98,81 @@ export function buildMentionedCardContent(targets: MentionTarget[], message: str
   const mentionParts = targets.map((t) => formatMentionForCard(t));
   return `${mentionParts.join(" ")} ${message}`;
 }
+/** Extract inline Feishu mention tags from model-authored card text. */
+export function extractMentionTagsFromText(text: string): {
+  text: string;
+  mentions: MentionTarget[];
+} {
+  const mentions: MentionTarget[] = [];
+  const seen = new Set<string>();
+  const push = (openId: string, name: string) => {
+    if (seen.has(openId)) {
+      return;
+    }
+    seen.add(openId);
+    mentions.push({ openId, name, key: `@_extracted_${mentions.length + 1}` });
+  };
+  let result = text.replace(
+    /<at\s+user_id="(ou_[A-Za-z0-9_]+)"\s*>([^<]*)<\/at>/g,
+    (_match, openId: string, name: string) => {
+      const display = name.trim();
+      push(openId, display);
+      return display ? ` @${display} ` : " ";
+    },
+  );
+  result = result.replace(
+    /<at\s+id="?(ou_[A-Za-z0-9_]+)"?\s*>([^<]*)<\/at>/g,
+    (_match, openId: string, name: string) => {
+      const display = name.trim();
+      push(openId, display);
+      return display ? ` @${display} ` : " ";
+    },
+  );
+  return { text: result.replace(/[^\S\n]+/g, " ").trim(), mentions };
+}
+
+/** Merge explicit mentions with mentions extracted from model-authored text. */
+export function mergeMentionsWithExtracted(
+  base: MentionTarget[] | undefined,
+  extracted: MentionTarget[],
+): MentionTarget[] | undefined {
+  const result = base ? [...base] : [];
+  const seen = new Set(result.map((mention) => mention.openId));
+  for (const mention of extracted) {
+    if (seen.has(mention.openId)) {
+      continue;
+    }
+    seen.add(mention.openId);
+    result.push(mention);
+  }
+  return result.length > 0 ? result : undefined;
+}
+
+/** Normalize complete post/card Feishu mention spans into lark_md card syntax. */
+export function normalizeCardMentionTags(text: string): string {
+  // Only rewrite complete mention spans. An unclosed `<at ...>` is ambiguous
+  // user/model text and must stay literal so later escaping can make it safe.
+  return text.replace(
+    /<at\s+(?:user_id|id)=(?:"([^"]+)"|([^\s>]+))\s*>([^<]*)<\/at>/gi,
+    (match, quotedId: string | undefined, bareId: string | undefined, label: string) => {
+      const rawId = quotedId ?? bareId ?? "";
+      const normalizedId = rawId.replace(/\\(?=[ou_])/g, "");
+      if (!/^ou_[A-Za-z0-9_]+$/u.test(normalizedId)) {
+        return match;
+      }
+      return `<at id=${normalizedId}>${label}</at>`;
+    },
+  );
+}
+
+/** Normalize the common LLM drift that closes a Feishu <at> tag with </a>. */
+export function normalizeTextAtTagClosing(text: string): string {
+  // If the message already contains a valid at-tag, leave mixed markup alone;
+  // repairing one stray close can accidentally widen/nest another mention.
+  if (/<at\b[^>]*>[\s\S]*?<\/at>/i.test(text)) {
+    return text;
+  }
+  return text
+    .replace(/<at\s+user_id="(ou_[A-Za-z0-9_]+)"\s*>([^<]*)<\/a>/g, '<at user_id="$1">$2</at>')
+    .replace(/<at\s+id="?(ou_[A-Za-z0-9_]+)"?\s*>([^<]*)<\/a>/g, '<at id="$1">$2</at>');
+}

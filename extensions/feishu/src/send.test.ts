@@ -231,6 +231,32 @@ describe("getMessageFeishu", () => {
     ).rejects.toThrow("Feishu send failed: no message_id returned");
   });
 
+  it("normalizes malformed inline at-tag closings before building the post payload", async () => {
+    const create = vi.fn().mockResolvedValue({ code: 0, data: { message_id: "om_normalized" } });
+    mockCreateFeishuClient.mockReturnValue({
+      im: {
+        message: {
+          create,
+          reply: vi.fn(),
+          get: mockClientGet,
+          list: mockClientList,
+          patch: mockClientPatch,
+        },
+      },
+    });
+
+    await sendMessageFeishu({
+      cfg: {} as ClawdbotConfig,
+      to: "oc_send",
+      text: '<at user_id="ou_target">Target User</a> hello',
+    });
+
+    expect(mockConvertMarkdownTables).toHaveBeenCalledWith(
+      '<at user_id="ou_target">Target User</at> hello',
+      "preserve",
+    );
+  });
+
   it("sends automatic mentions as native post elements without rewriting body text", async () => {
     const create = vi.fn().mockResolvedValue({ code: 0, data: { message_id: "om_mentions" } });
     mockCreateFeishuClient.mockReturnValue({
@@ -320,6 +346,44 @@ describe("getMessageFeishu", () => {
       body: { elements: [{ tag: "markdown", content: "hello" }] },
       ...(expectedHeader ? { header: expectedHeader } : {}),
     });
+  });
+
+  it("retries a structured card without mention chips after Feishu 230099", async () => {
+    const invalidMentionError = Object.assign(new Error("invalid user resource"), {
+      response: { data: { code: 230099, msg: "invalid user resource" } },
+    });
+    const create = vi
+      .fn()
+      .mockRejectedValueOnce(invalidMentionError)
+      .mockResolvedValueOnce({ code: 0, data: { message_id: "om_card_fallback" } });
+    mockCreateFeishuClient.mockReturnValue({
+      im: {
+        message: {
+          create,
+          reply: vi.fn(),
+          get: mockClientGet,
+          list: mockClientList,
+          patch: mockClientPatch,
+        },
+      },
+    });
+
+    const result = await sendStructuredCardFeishu({
+      cfg: {} as ClawdbotConfig,
+      to: "oc_card",
+      text: '<at user_id="ou_bad">AxelHu</a> important update',
+      header: { title: "Agent" },
+    });
+
+    expect(result.messageId).toBe("om_card_fallback");
+    expect(create).toHaveBeenCalledTimes(2);
+    const first = JSON.parse(String(create.mock.calls[0]?.[0]?.data?.content));
+    const second = JSON.parse(String(create.mock.calls[1]?.[0]?.data?.content));
+    expect(first.body.elements[0].content).toContain("<at id=ou_bad></at>");
+    expect(first.body.elements[0].content).toContain("@AxelHu important update");
+    expect(second.body.elements[0].content).not.toContain("<at id=");
+    expect(second.body.elements[0].content).toContain("@AxelHu important update");
+    expect(second.header.title.content).toBe("Agent");
   });
 
   it("extracts text content from interactive card elements", async () => {
@@ -969,6 +1033,21 @@ describe("editMessageFeishu", () => {
       },
     });
     expect(result).toEqual({ messageId: "om_edit", contentType: "post" });
+  });
+
+  it("normalizes malformed inline at-tag closings for text edits", async () => {
+    mockClientUpdate.mockResolvedValueOnce({ code: 0 });
+
+    await editMessageFeishu({
+      cfg: {} as ClawdbotConfig,
+      messageId: "om_edit_at",
+      text: '<at user_id="ou_target">Target User</a> updated',
+    });
+
+    expect(mockConvertMarkdownTables).toHaveBeenCalledWith(
+      '<at user_id="ou_target">Target User</at> updated',
+      "preserve",
+    );
   });
 
   it("normalizes post edits and accepts content beyond the delivery chunk size", async () => {

@@ -17,7 +17,13 @@ import {
   type FeishuMarkdownChunkOptions,
 } from "./markdown.js";
 import type { MentionTarget } from "./mention-target.types.js";
-import { buildMentionedCardContent } from "./mention.js";
+import {
+  buildMentionedCardContent,
+  extractMentionTagsFromText,
+  mergeMentionsWithExtracted,
+  normalizeCardMentionTags,
+  normalizeTextAtTagClosing,
+} from "./mention.js";
 import { resolveFeishuCardTemplate } from "./native-card.js";
 import { parsePostContent } from "./post.js";
 import {
@@ -31,6 +37,7 @@ import type { FeishuChatType, FeishuMessageInfo, FeishuSendResult } from "./type
 export { resolveFeishuCardTemplate };
 
 const WITHDRAWN_REPLY_ERROR_CODES = new Set([230011, 231003]);
+const INVALID_USER_RESOURCE_CODES = new Set([230099]);
 function shouldFallbackFromReplyTarget(response: { code?: number; msg?: string }): boolean {
   if (response.code !== undefined && WITHDRAWN_REPLY_ERROR_CODES.has(response.code)) {
     return true;
@@ -45,6 +52,7 @@ function isWithdrawnReplyError(err: unknown): boolean {
     return false;
   }
   // SDK error shape: err.code
+  // SAFETY: err is a non-null object above; this only probes an optional SDK error field before runtime type validation.
   const code = (err as { code?: number }).code;
   if (typeof code === "number" && WITHDRAWN_REPLY_ERROR_CODES.has(code)) {
     return true;
@@ -63,6 +71,27 @@ function isWithdrawnReplyError(err: unknown): boolean {
     return isWithdrawnReplyError(cause);
   }
   return false;
+}
+
+function isInvalidUserResourceError(err: unknown): boolean {
+  if (typeof err !== "object" || err === null) {
+    return false;
+  }
+  const code = (err as { code?: number }).code;
+  if (typeof code === "number" && INVALID_USER_RESOURCE_CODES.has(code)) {
+    return true;
+  }
+  // SAFETY: err is a non-null object; the optional Axios-shaped path is fully runtime-checked before use.
+  const response = (err as { response?: { data?: { code?: number } } }).response;
+  if (
+    typeof response?.data?.code === "number" &&
+    INVALID_USER_RESOURCE_CODES.has(response.data.code)
+  ) {
+    return true;
+  }
+  // SAFETY: err is a non-null object; cause remains unknown and is recursively revalidated before inspection.
+  const cause = (err as { cause?: unknown }).cause;
+  return Boolean(cause && cause !== err && isInvalidUserResourceError(cause));
 }
 
 type FeishuCreateMessageClient = {
@@ -477,7 +506,7 @@ export async function sendMessageFeishu(
   if (!preparedPostText) {
     const tableMode = resolveMarkdownTableMode({ cfg, channel: "feishu" });
     messageText = materializeFeishuPostMarkdownSoftBreaks(
-      convertMarkdownTables(text ?? "", tableMode),
+      convertMarkdownTables(normalizeTextAtTagClosing(text ?? ""), tableMode),
     );
   }
 
@@ -567,7 +596,7 @@ export async function editMessageFeishu(params: {
     cfg,
     channel: "feishu",
   });
-  const messageText = convertMarkdownTables(text!, tableMode);
+  const messageText = convertMarkdownTables(normalizeTextAtTagClosing(text!), tableMode);
   const normalizedText = materializeFeishuPostMarkdownSoftBreaks(messageText);
   const content = buildFeishuPostMessageContent({ messageText: normalizedText });
   assertFeishuPostWithinEnvelope(content, "Feishu message edit");
@@ -606,10 +635,15 @@ function buildStructuredCard(
   const content = options?.mentions?.length
     ? buildMentionedCardContent(options.mentions, text)
     : text;
-  const elements: Record<string, unknown>[] = [{ tag: "markdown", content }];
+  const elements: Record<string, unknown>[] = [
+    { tag: "markdown", content: normalizeCardMentionTags(content) },
+  ];
   if (options?.note) {
     elements.push({ tag: "hr" });
-    elements.push({ tag: "markdown", content: `<font color='grey'>${options.note}</font>` });
+    elements.push({
+      tag: "markdown",
+      content: `<font color='grey'>${normalizeCardMentionTags(options.note)}</font>`,
+    });
   }
   const card: Record<string, unknown> = {
     schema: "2.0",
@@ -678,14 +712,41 @@ export async function sendStructuredCardFeishu(params: {
     header,
     note,
   } = params;
-  const card = buildStructuredCard(text, { header, note, mentions });
-  return sendCardFeishu({
-    cfg,
-    to,
-    card,
-    replyToMessageId,
-    replyInThread,
-    allowTopLevelReplyFallback,
-    accountId,
+  const normalizedText = normalizeTextAtTagClosing(text);
+  const { text: textWithoutInlineAt, mentions: inlineAtMentions } =
+    extractMentionTagsFromText(normalizedText);
+  const combinedMentions = mergeMentionsWithExtracted(mentions, inlineAtMentions);
+  const card = buildStructuredCard(textWithoutInlineAt, {
+    header,
+    note,
+    mentions: combinedMentions,
   });
+  try {
+    return await sendCardFeishu({
+      cfg,
+      to,
+      card,
+      replyToMessageId,
+      replyInThread,
+      allowTopLevelReplyFallback,
+      accountId,
+    });
+  } catch (error) {
+    if (!isInvalidUserResourceError(error) || !combinedMentions?.length) {
+      throw error;
+    }
+    logVerbose(
+      `feishu: card send rejected an inline mention (230099); retrying without mention chips`,
+    );
+    const fallbackCard = buildStructuredCard(textWithoutInlineAt, { header, note });
+    return await sendCardFeishu({
+      cfg,
+      to,
+      card: fallbackCard,
+      replyToMessageId,
+      replyInThread,
+      allowTopLevelReplyFallback,
+      accountId,
+    });
+  }
 }

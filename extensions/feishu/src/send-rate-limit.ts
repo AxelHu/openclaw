@@ -1,6 +1,7 @@
 import { isRecord } from "openclaw/plugin-sdk/string-coerce-runtime";
 
-const FEISHU_SEND_RATE_LIMIT_CODES = new Set([230020, 11232]);
+// 2200 is an observed transient send failure; retrying is cheaper than dropping the send.
+const FEISHU_SEND_RATE_LIMIT_CODES = new Set([230020, 11232, 2200]);
 
 export function getFeishuSendRateLimitCode(error: unknown): number | undefined {
   if (!isRecord(error)) {

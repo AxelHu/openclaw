@@ -327,6 +327,17 @@ describe("FeishuStreamingSession", () => {
     return { session, requests, create, reply, remove };
   }
 
+  it("normalizes model-authored mentions before streaming card updates", async () => {
+    const { session, requests } = mockAcceptedStreamingCard({ accountId: "mention-normalization" });
+
+    await session.start("chat_1", "chat_id");
+    await session.update('<at user_id="ou_target">Target</a> hello');
+
+    const updateRequest = requests.find(({ path }) => path.endsWith("/elements/content/content"));
+    expect(updateRequest?.body.content).toBe("<at id=ou_target>Target</at> hello");
+    await session.discard();
+  });
+
   it.each([
     { mode: "create", options: undefined, method: "create" },
     { mode: "root_create", options: { rootId: "root_1" }, method: "create" },

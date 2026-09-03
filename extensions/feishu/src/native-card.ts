@@ -3,6 +3,7 @@ import {
   isRecord,
   normalizeOptionalLowercaseString,
 } from "openclaw/plugin-sdk/string-coerce-runtime";
+import { normalizeCardMentionTags, normalizeTextAtTagClosing } from "./mention.js";
 
 const FEISHU_CARD_TEMPLATES = new Set([
   "blue",
@@ -41,6 +42,23 @@ export function escapeFeishuCardMarkdownText(text: string): string {
         return char;
     }
   });
+}
+
+/** Escape card markdown while preserving complete, normalized Feishu mention spans. */
+export function escapeFeishuCardMarkdownPreservingMentions(text: string): string {
+  const placeholders: string[] = [];
+  const protectedText = normalizeCardMentionTags(normalizeTextAtTagClosing(text)).replace(
+    /<at\s+id=ou_[A-Za-z0-9_]+\s*>[^<]*<\/at>/gi,
+    (match) => {
+      const index = placeholders.push(match) - 1;
+      return `\u0000FEISHU_AT_PLACEHOLDER_${index}\u0000`;
+    },
+  );
+  let escaped = escapeFeishuCardMarkdownText(protectedText);
+  for (const [index, mention] of placeholders.entries()) {
+    escaped = escaped.replace(`\u0000FEISHU_AT_PLACEHOLDER_${index}\u0000`, mention);
+  }
+  return escaped;
 }
 
 export function escapeFeishuCardPlainText(text: string): string {
@@ -128,7 +146,7 @@ function sanitizeNativeFeishuCardElements(element: unknown): Record<string, unkn
     return [
       {
         tag: "markdown",
-        content: escapeFeishuCardMarkdownText(element.content),
+        content: escapeFeishuCardMarkdownPreservingMentions(element.content),
       },
     ];
   }
@@ -138,7 +156,7 @@ function sanitizeNativeFeishuCardElements(element: unknown): Record<string, unkn
       return [
         {
           tag: "markdown",
-          content: escapeFeishuCardMarkdownText(text.content),
+          content: escapeFeishuCardMarkdownPreservingMentions(text.content),
         },
       ];
     }

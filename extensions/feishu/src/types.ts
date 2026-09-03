@@ -9,6 +9,11 @@ export type FeishuAccountConfig = z.infer<typeof FeishuAccountConfigSchema>;
 
 export type FeishuDomain = "feishu" | "lark" | (string & {});
 
+/** Treat both Feishu application sender spellings as non-human senders. */
+export function isFeishuBotSenderType(senderType: string | undefined | null): boolean {
+  return senderType === "app" || senderType === "bot";
+}
+
 export type FeishuDefaultAccountSelectionSource =
   | "explicit-default"
   | "mapped-default"

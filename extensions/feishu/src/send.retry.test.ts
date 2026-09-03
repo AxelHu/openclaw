@@ -19,6 +19,11 @@ const rateLimits = [
     diagnostic: '"feishu_code":11232',
   },
   {
+    name: "observed transient rejection",
+    fail: () => Promise.reject(axiosError(2200)),
+    diagnostic: '"feishu_code":2200',
+  },
+  {
     name: "gateway rejection",
     fail: () => Promise.reject(axiosError(undefined, 429)),
     diagnostic: '"http_status":429',
@@ -37,6 +42,11 @@ const rateLimits = [
     name: "fulfilled tenant rate limit",
     fail: () => Promise.resolve({ code: 11232, msg: "rate limit" }),
     diagnostic: '"feishu_code":11232',
+  },
+  {
+    name: "fulfilled observed transient failure",
+    fail: () => Promise.resolve({ code: 2200, msg: "transient" }),
+    diagnostic: '"feishu_code":2200',
   },
 ];
 
