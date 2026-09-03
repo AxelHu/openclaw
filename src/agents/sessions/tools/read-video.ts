@@ -4,6 +4,7 @@ import { normalizeMimeType } from "@openclaw/media-core/mime";
 import { hasHttpUrlPrefix } from "@openclaw/net-policy/url-protocol";
 import { Type } from "typebox";
 import type { TextContent } from "../../../llm/types.js";
+import { assertLocalMediaWithinRoots } from "../../../media/local-media-access.js";
 import type { MediaFactInput } from "../../../media/media-facts.js";
 import {
   classifyMediaReferenceSource,
@@ -64,8 +65,10 @@ export interface ReadVideoToolOptions {
   }) => Promise<{ url: string; fileId?: string; bytes?: number; fileName?: string }>;
   /** Exact provider execution id paired with uploadVideo. */
   hostedProviderId?: string;
-  /** Host-local roots allowed for local reads. Omit to preserve unrestricted read-tool behavior. */
+  /** Host-local roots associated with this tool surface. */
   localRoots?: readonly string[];
+  /** Treat localRoots as an authorization boundary instead of ordinary media preview hints. */
+  enforceLocalRoots?: boolean;
   /** Optional authorized reader, used by sandbox-backed tool surfaces. */
   readFile?: (
     filePath: string,
@@ -101,7 +104,7 @@ async function resolveLocalVideoSource(source: string, cwd: string): Promise<str
 
 function createDefaultReadVideoOperations(
   cwd: string,
-  options?: Pick<ReadVideoToolOptions, "localRoots" | "readFile">,
+  options?: Pick<ReadVideoToolOptions, "localRoots" | "enforceLocalRoots" | "readFile">,
 ): ReadVideoOperations {
   return {
     async load(source, loadOptions) {
@@ -123,6 +126,9 @@ function createDefaultReadVideoOperations(
       }
 
       const absolutePath = await resolveLocalVideoSource(source, cwd);
+      if (options?.enforceLocalRoots) {
+        await assertLocalMediaWithinRoots(absolutePath, options.localRoots ?? []);
+      }
       const loaded = await loadWebMediaRaw(absolutePath, {
         maxBytes: loadOptions.maxBytes,
         workspaceDir: cwd,

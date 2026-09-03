@@ -185,6 +185,7 @@ export function createCoreCodingTools(options: CoreCodingToolsOptions): AnyAgent
             ? {
                 ...readVideoOptions,
                 localRoots: [options.containmentRoot, ...(skillReadRoots ?? [])],
+                enforceLocalRoots: true,
               }
             : readVideoOptions,
       );

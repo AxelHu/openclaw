@@ -79,14 +79,40 @@ async function resolveLocalMediaPathForContainment(mediaPath: string): Promise<s
   try {
     return await fs.realpath(mediaPath);
   } catch {
-    // Missing files (for example, staged outbound media supplied by host-read
-    // callbacks) still need symlink-aware parent containment.
+    // Missing files still need symlink-aware parent containment before the
+    // eventual bounded read reports the concrete filesystem error.
     try {
       return path.join(await fs.realpath(path.dirname(mediaPath)), path.basename(mediaPath));
     } catch {
       return path.resolve(mediaPath);
     }
   }
+}
+
+/**
+ * Enforces an explicit local-root authorization boundary for callers whose
+ * roots are permissions rather than preview hints. Private-deployment media
+ * loading intentionally does not apply this globally.
+ */
+export async function assertLocalMediaWithinRoots(
+  mediaPath: string,
+  localRoots: readonly string[],
+): Promise<void> {
+  if (localRoots.length === 0) {
+    throw new LocalMediaAccessError(
+      "path-not-allowed",
+      `Local media path is not under an allowed directory: ${mediaPath}`,
+    );
+  }
+  const resolved = await resolveLocalMediaPathForContainment(mediaPath);
+  const resolvedRoots = await resolveLocalMediaRoots(localRoots);
+  if (resolvedRoots.some((resolvedRoot) => isPathInside(resolvedRoot, resolved))) {
+    return;
+  }
+  throw new LocalMediaAccessError(
+    "path-not-allowed",
+    `Local media path is not under an allowed directory: ${mediaPath}`,
+  );
 }
 
 type ResolvedLocalMediaBoundary = {
@@ -153,57 +179,10 @@ async function resolveLocalMediaBoundary(
       roots: [resolvedRoot],
     };
   }
-  // SECURITY (private deployment): unscoped ordinary host-local media remains
-  // intentionally unrestricted. A caller that supplies non-empty localRoots is
-  // explicitly requesting containment (for example workspaceOnly readVideo), so
-  // preserve the upstream strict-root semantics for that call.
-  if (localRoots === undefined || localRoots.length === 0) {
-    return { rejectHardlinks: false, roots: "any" };
-  }
-
-  const roots = localRoots;
-  const resolved = await resolveLocalMediaPathForContainment(mediaPath);
-  const resolvedRoots =
-    options?.resolvedRoots ??
-    (await options?.resolveRoots?.()) ??
-    (await resolveLocalMediaRoots(roots));
-  const workspaceRootIndex = roots.findIndex((root) => path.basename(root) === "workspace");
-  const workspaceRoot = roots[workspaceRootIndex];
-  if (workspaceRoot) {
-    const stateDir = await resolveCanonicalBoundaryPath(path.dirname(workspaceRoot));
-    const rel = path.relative(stateDir, resolved);
-    const firstSegment = rel.split(path.sep)[0] ?? "";
-    if (rel && isPathInside(stateDir, resolved) && firstSegment.startsWith("workspace-")) {
-      const agentWorkspace = path.join(stateDir, firstSegment);
-      // Broad roots such as the shared temp directory must not authorize sibling workspaces.
-      const hasScopedWorkspaceRoot = resolvedRoots.some(
-        (root) => isPathInside(agentWorkspace, root) && isPathInside(root, resolved),
-      );
-      if (!hasScopedWorkspaceRoot) {
-        throw new LocalMediaAccessError(
-          "path-not-allowed",
-          `Local media path is not under an allowed directory: ${mediaPath}`,
-        );
-      }
-    }
-  }
-  for (const [index, resolvedRoot] of resolvedRoots.entries()) {
-    const root = roots[index] ?? resolvedRoot;
-    if (resolvedRoot === path.parse(resolvedRoot).root) {
-      throw new LocalMediaAccessError(
-        "invalid-root",
-        `Invalid localRoots entry (refuses filesystem root): ${root}. Pass a narrower directory.`,
-      );
-    }
-    if (isPathInside(resolvedRoot, resolved)) {
-      return { rejectHardlinks: false, roots: resolvedRoots };
-    }
-  }
-
-  throw new LocalMediaAccessError(
-    "path-not-allowed",
-    `Local media path is not under an allowed directory: ${mediaPath}`,
-  );
+  // SECURITY (private deployment): ordinary host-local media paths are intentionally
+  // not restricted to configured preview roots. Managed inbound roots above remain
+  // strict, while the actual open still uses openLocalFileSafely plus bounded reads.
+  return { rejectHardlinks: false, roots: "any" };
 }
 
 /** Verifies that a local media path is managed inbound media or lives under allowed roots. */
