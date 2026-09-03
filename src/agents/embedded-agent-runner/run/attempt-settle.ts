@@ -200,6 +200,7 @@ export async function runEmbeddedAttemptSettledPhase(
   let contextBudgetStatus: EmbeddedRunAttemptResult["contextBudgetStatus"];
   let finalPromptText: string | undefined;
   let messagesSnapshot: AgentMessage[] = [];
+  let sensitiveImageRecoveryApplied = false;
   let sessionIdUsed = activeSession.sessionId;
   let sessionFileUsed: string | undefined = attempt.sessionFile;
   let preflightRecovery: EmbeddedRunAttemptResult["preflightRecovery"];
@@ -491,6 +492,7 @@ export async function runEmbeddedAttemptSettledPhase(
       });
     }
     messagesSnapshot = settledStream.messagesSnapshot;
+    sensitiveImageRecoveryApplied = settledStream.sensitiveImageRecoveryApplied;
     sessionIdUsed = settledStream.sessionIdUsed;
     lastAssistant = settledStream.lastAssistant;
     currentAttemptAssistant = settledStream.currentAttemptAssistant;
@@ -614,6 +616,7 @@ export async function runEmbeddedAttemptSettledPhase(
       systemPromptReport,
       finalPromptText,
       messagesSnapshot,
+      sensitiveImageRecoveryApplied: sensitiveImageRecoveryApplied || undefined,
       ...(beforeAgentFinalizeRevisionReason ? { beforeAgentFinalizeRevisionReason } : {}),
       lastAssistant,
       currentAttemptAssistant,

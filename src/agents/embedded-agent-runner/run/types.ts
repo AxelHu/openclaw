@@ -296,6 +296,8 @@ export type EmbeddedRunAttemptResult = {
   /** Exact provider-response count when the harness can observe model iterations directly. */
   modelIterations?: number;
   messagesSnapshot: AgentMessage[];
+  /** The settled transcript removed provider-rejected sensitive image data. */
+  sensitiveImageRecoveryApplied?: boolean;
   /** Owner-eligible settled finalization, with frozen evidence or an unavailable projection. */
   settledTurnFinalizationContext?:
     | { readonly source: "openclaw-transcript"; readonly messages: readonly AgentMessage[] }

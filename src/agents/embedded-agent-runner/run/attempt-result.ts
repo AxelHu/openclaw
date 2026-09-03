@@ -81,6 +81,7 @@ type EmbeddedAttemptResultState = Pick<
   | "systemPromptReport"
   | "finalPromptText"
   | "messagesSnapshot"
+  | "sensitiveImageRecoveryApplied"
   | "beforeAgentFinalizeRevisionReason"
   | "lastAssistant"
   | "currentAttemptAssistant"

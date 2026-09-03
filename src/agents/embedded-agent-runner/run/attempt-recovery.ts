@@ -387,6 +387,23 @@ export async function recoverEmbeddedRunAttempt(input: {
   if (!currentAttemptReplaySafe) {
     return replayUnsafeOutcome;
   }
+  if (
+    promptError &&
+    !terminalInterrupted &&
+    promptErrorSource === "prompt" &&
+    attempt.sensitiveImageRecoveryApplied &&
+    !attempt.codexAppServerFailure
+  ) {
+    runInput.laneController.throwIfAborted();
+    sessionPromptState.markOwnedTranscriptRetry();
+    sessionPromptState.continueFromCurrentTranscript();
+    log.warn(
+      `provider rejected a recent image as sensitive; continuing from rewritten transcript ` +
+        `provider=${preparedRuntime.provider} model=${preparedRuntime.modelId} ` +
+        `runId=${params.runId} sessionId=${params.sessionId}`,
+    );
+    return retry();
+  }
   const hasRecoverableCodexAppServerTimeoutOutcome = Boolean(
     attempt.codexAppServerFailure && attempt.promptTimeoutOutcome,
   );

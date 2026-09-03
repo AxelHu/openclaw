@@ -70,6 +70,7 @@ import {
   waitForCompactionRetryWithAggregateTimeout,
 } from "./compaction-retry-aggregate-timeout.js";
 import { selectCompactionTimeoutSnapshot } from "./compaction-timeout.js";
+import { recoverRecentSensitiveImageRejection } from "./image-rejection-recovery.js";
 import { materializeProviderContext } from "./images.js";
 import { wrapStreamFnWithMessageTransform } from "./message-transform-stream-wrapper.js";
 import type { EmbeddedRunAttemptParams, EmbeddedRunAttemptResult } from "./types.js";
@@ -86,6 +87,7 @@ type StreamSettleResult = {
   promptErrorSource: AgentRunAttemptFailureSource | null;
   timedOutDuringCompaction: boolean;
   compactionOccurredThisAttempt: boolean;
+  sensitiveImageRecoveryApplied: boolean;
   messagesSnapshot: AgentMessage[];
   sessionIdUsed: string;
   lastAssistant: EmbeddedRunAttemptResult["lastAssistant"];
@@ -273,6 +275,7 @@ export async function settleEmbeddedAttemptStream(input: {
   }
 
   let compactionOccurredThisAttempt = false;
+  let sensitiveImageRecoveryApplied = false;
   let messagesSnapshot: AgentMessage[] = [];
   let lastAssistant: AssistantMessage | undefined;
   let currentAttemptAssistant: AssistantMessage | undefined;
@@ -306,6 +309,30 @@ export async function settleEmbeddedAttemptStream(input: {
           `normalized compaction timeout transcript tail: removedEntries=${removedEntries} ` +
             `runId=${attempt.runId} sessionId=${attempt.sessionId}`,
         );
+      }
+    }
+
+    if (promptError && promptErrorSource === "prompt" && !compactionOccurredThisAttempt) {
+      try {
+        const recovery = recoverRecentSensitiveImageRejection({
+          sessionManager,
+          rawError: formatErrorMessage(promptError),
+          sessionFile: attempt.sessionFile,
+          sessionKey: attempt.sessionKey,
+          runId: attempt.runId,
+          sessionId: attempt.sessionId,
+        });
+        sensitiveImageRecoveryApplied = recovery.recovered;
+        if (recovery.recovered) {
+          activeSession.agent.state.messages = sessionManager.buildSessionContext().messages;
+        }
+      } catch (error) {
+        if (!input.isProbeSession) {
+          log.warn(
+            `failed to recover provider-sensitive image history: ${formatErrorMessage(error)} ` +
+              `runId=${attempt.runId} sessionId=${attempt.sessionId}`,
+          );
+        }
       }
     }
 
@@ -414,6 +441,7 @@ export async function settleEmbeddedAttemptStream(input: {
     promptErrorSource,
     timedOutDuringCompaction: input.readLifecycleState().timedOutDuringCompaction,
     compactionOccurredThisAttempt,
+    sensitiveImageRecoveryApplied,
     messagesSnapshot,
     sessionIdUsed,
     lastAssistant,

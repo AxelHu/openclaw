@@ -162,7 +162,92 @@ async function recoverAfterTransportDrop(scenario: TransportDropScenario = {}) {
   };
 }
 
+async function recoverAfterSensitiveImageRewrite() {
+  const promptError = new Error("input new_sensitive: image is sensitive");
+  const attempt = makeEmbeddedRunnerAttempt({
+    terminal: { kind: "failed", source: "prompt", error: promptError },
+    sensitiveImageRecoveryApplied: true,
+  });
+  const terminalState = resolveEmbeddedRunAttemptTerminalState({
+    attempt,
+    assistant: undefined,
+  });
+  const markOwnedTranscriptRetry = vi.fn();
+  const continueFromCurrentTranscript = vi.fn();
+  const recovery = await recoverEmbeddedRunAttempt({
+    runInput: {
+      runParams: {
+        config: {},
+        agentId: "main",
+        sessionId: "session:image-recovery",
+        runId: "run:image-recovery",
+      },
+      resolvedSessionKey: "agent:main:image-recovery",
+      startedAtMs: Date.now(),
+      laneController: { throwIfAborted: vi.fn() },
+    },
+    preparedRuntime: {
+      provider: "minimax",
+      modelId: "MiniMax-M3",
+      model: { id: "MiniMax-M3" },
+      genericCompactionRecoveryAllowed: false,
+      snapshot: () => ({
+        thinkLevel: "off",
+        agentHarness: { id: "openclaw" },
+        outerContextTokenMeta: {},
+        pluginHarnessOwnsTransport: false,
+      }),
+    },
+    normalizedAttempt: {
+      attempt,
+      sessionIdUsed: attempt.sessionIdUsed,
+      attemptAssistant: undefined,
+      currentAttemptAssistant: undefined,
+      currentAttemptCompletedAssistant: undefined,
+      terminalState,
+      setTerminalLifecycleMeta: vi.fn(),
+      attemptCompactionCount: 0,
+      activeErrorContext: { provider: "minimax", model: "MiniMax-M3" },
+      resolveReplayInvalidForAttempt: () => false,
+      canRestartForLiveSwitch: false,
+    },
+    runtimePlan: { auth: {} },
+    sessionPromptState: {
+      sessionFile: "/tmp/image-recovery.jsonl",
+      markOwnedTranscriptRetry,
+      continueFromCurrentTranscript,
+    },
+    failoverRetryController: {
+      resolveAuthProfileFailureReason: vi.fn(),
+      advanceAuthProfile: vi.fn(),
+      advanceRateLimitAuthProfile: vi.fn(),
+      maybeMarkAuthProfileFailure: vi.fn(),
+      maybeBackoffBeforeOverloadFailover: vi.fn(),
+    },
+    compactionRuntime: disabledCompactionRuntime,
+    contextRecoveryState: createEmbeddedRunContextRecoveryState(),
+    usageAccumulator: createUsageAccumulator(),
+    lastRunPromptUsage: undefined,
+    runtimeAuthRetry: false,
+    codexAppServerRecoveryRetryAvailable: false,
+    codexAppServerRecoveryRetries: 0,
+    lastRetryFailoverReason: null,
+    traceAttempts: [],
+    sessionAgentId: "main",
+  } as never);
+  return { recovery, markOwnedTranscriptRetry, continueFromCurrentTranscript };
+}
+
 describe("recoverEmbeddedRunAttempt", () => {
+  it("retries from the rewritten transcript after sensitive-image recovery", async () => {
+    const { recovery, markOwnedTranscriptRetry, continueFromCurrentTranscript } =
+      await recoverAfterSensitiveImageRewrite();
+
+    expect(recovery).toMatchObject({ action: "retry" });
+    expect(markOwnedTranscriptRetry).toHaveBeenCalledTimes(1);
+    expect(continueFromCurrentTranscript).toHaveBeenCalledTimes(1);
+  });
+
   it("continues from the transcript after a transient transport drop on a settled exec batch", async () => {
     const {
       recovery,

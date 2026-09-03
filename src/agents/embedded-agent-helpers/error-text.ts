@@ -33,6 +33,7 @@ import {
 } from "../failover/user-copy.js";
 import { formatSandboxToolPolicyBlockedMessage } from "../sandbox/runtime-status.js";
 import { buildAssistantFailoverSignal } from "./assistant-message-failures.js";
+import { formatSensitiveImageRejectionErrorCopy } from "./image-rejection-error.js";
 import { classifyProviderRuntimeFailureKind } from "./provider-runtime-failure.js";
 const log = createSubsystemLogger("errors");
 const sandboxToolPolicyAuditMessages = new WeakSet<AssistantMessage>();
@@ -99,6 +100,10 @@ export function formatAssistantErrorText(
   const raw = (msg.errorMessage ?? "").trim();
   if (msg.stopReason !== "error" && !raw) {
     return undefined;
+  }
+  const sensitiveImageCopy = raw ? formatSensitiveImageRejectionErrorCopy(raw) : undefined;
+  if (sensitiveImageCopy) {
+    return sensitiveImageCopy;
   }
   const formatCopy = renderFormatErrorCopy(raw);
   const classifiedFacts = facts ?? classifyAssistantErrorFacts(msg, opts);
