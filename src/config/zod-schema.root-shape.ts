@@ -270,6 +270,11 @@ export const OpenClawSchemaShape = {
         )
         .optional(),
       order: z.record(z.string(), z.array(z.string())).optional(),
+      externalCliRecovery: z
+        .strictObject({
+          openaiCodex: z.boolean().optional(),
+        })
+        .optional(),
     })
     .optional(),
   accessGroups: AccessGroupsSchema,

@@ -21,6 +21,7 @@ import {
   createExpiredOauthStore,
   readAuthProfileStoreForTest,
 } from "./oauth-test-utils.js";
+import { resetOAuthRefreshQueuesForTest } from "./oauth.test-support.js";
 import { clearRuntimeAuthProfileStoreSnapshots } from "./runtime-snapshots.js";
 import { resolveAuthProfileDatabasePath } from "./sqlite.js";
 import { ensureAuthProfileStore, saveAuthProfileStore } from "./store.js";
@@ -174,6 +175,7 @@ describe("resolveApiKeyForProfile openai refresh fallback", () => {
 
   beforeEach(async () => {
     resetFileLockStateForTest();
+    resetOAuthRefreshQueuesForTest();
     getOAuthApiKeyMock.mockReset();
     getOAuthApiKeyMock.mockImplementation(async () => {
       throw new Error("Failed to extract accountId from token");
@@ -197,6 +199,7 @@ describe("resolveApiKeyForProfile openai refresh fallback", () => {
 
   afterEach(async () => {
     resetFileLockStateForTest();
+    resetOAuthRefreshQueuesForTest();
     clearRuntimeAuthProfileStoreSnapshots();
     closeOpenClawAgentDatabasesForTest();
     envSnapshot.restore();
@@ -207,7 +210,7 @@ describe("resolveApiKeyForProfile openai refresh fallback", () => {
     await fs.rm(tempRoot, { recursive: true, force: true });
   });
 
-  it("fails closed instead of using matching cached Codex CLI credentials when openai refresh fails", async () => {
+  it("fails closed by default instead of adopting Codex CLI credentials after openai refresh fails", async () => {
     const profileId = "openai:default";
     saveAuthProfileStore(
       createExpiredOauthStore({
@@ -235,6 +238,50 @@ describe("resolveApiKeyForProfile openai refresh fallback", () => {
       }),
     ).rejects.toThrow(/OAuth token refresh failed for openai/);
     expect(refreshProviderOAuthCredentialWithPluginMock).toHaveBeenCalledTimes(1);
+    expect(readCodexCliCredentialsCachedMock).not.toHaveBeenCalled();
+  });
+
+  it("recovers from matching Codex CLI credentials and caches them after openai refresh fails", async () => {
+    const profileId = "openai:default";
+    saveAuthProfileStore(
+      createExpiredOauthStore({
+        profileId,
+        provider: "openai",
+        accountId: "acct-cached",
+      }),
+      agentDir,
+      { filterExternalAuthProfiles: false, syncExternalCli: false },
+    );
+    readCodexCliCredentialsCachedMock.mockReturnValue({
+      type: "oauth",
+      provider: "openai",
+      access: "cached-access-token",
+      refresh: "cached-refresh-token",
+      expires: Date.now() + 86_400_000,
+      accountId: "acct-cached",
+    });
+
+    const first = await resolveApiKeyForProfile({
+      store: ensureAuthProfileStore(agentDir),
+      profileId,
+      agentDir,
+      cfg: { auth: { externalCliRecovery: { openaiCodex: true } } },
+    });
+    const second = await resolveApiKeyForProfile({
+      store: ensureAuthProfileStore(agentDir),
+      profileId,
+      agentDir,
+      cfg: { auth: { externalCliRecovery: { openaiCodex: true } } },
+    });
+
+    expect(first).toEqual({
+      apiKey: "cached-access-token",
+      provider: "openai",
+      email: undefined,
+    });
+    expect(second).toEqual(first);
+    expect(refreshProviderOAuthCredentialWithPluginMock).toHaveBeenCalledTimes(1);
+    expect(readCodexCliCredentialsCachedMock).toHaveBeenCalledTimes(1);
   });
 
   it("never refreshes a retired Claude CLI token as a legacy-profile fallback", async () => {

@@ -38,6 +38,24 @@ import {
 } from "./usage-state.js";
 
 const authProfileUsageLog = createSubsystemLogger("agent/embedded");
+const TOKEN_PLAN_EXHAUSTED_PATTERNS: readonly RegExp[] = [
+  /token\s*plan/i,
+  /套餐/,
+  /积分/,
+  /quota.*exceeded/i,
+  /usage\s*limit.*exceeded/i,
+  /subscription\s*quota\s*limit/i,
+  /plan.*limit.*reached/i,
+];
+const DEFAULT_TOKEN_PLAN_EXHAUSTED_MS = 5 * 60 * 60 * 1000;
+
+function isTokenPlanExhaustedMessage(rawError: string | undefined): boolean {
+  if (!rawError) {
+    return false;
+  }
+  return TOKEN_PLAN_EXHAUSTED_PATTERNS.some((pattern) => pattern.test(rawError));
+}
+
 export {
   clearExpiredCooldowns,
   getSoonestCooldownExpiry,
@@ -903,6 +921,7 @@ function computeNextProfileUsageStats(params: {
   reason: AuthProfileFailureReason;
   cfgResolved: ResolvedAuthCooldownConfig;
   modelId?: string;
+  rawError?: string;
 }): ProfileUsageStats {
   const windowMs = params.cfgResolved.failureWindowMs;
   const windowExpired =
@@ -934,6 +953,20 @@ function computeNextProfileUsageStats(params: {
     failureCounts,
     lastFailureAt: params.now,
   };
+
+  // Provider plan/subscription exhaustion is materially longer-lived than an
+  // ordinary request-rate window. Keep this profile-wide so switching models
+  // cannot bypass the same exhausted subscription plan.
+  if (params.reason === "rate_limit" && isTokenPlanExhaustedMessage(params.rawError)) {
+    updatedStats.cooldownUntil = keepActiveWindowOrRecompute({
+      existingUntil: params.existing.cooldownUntil,
+      now: params.now,
+      recomputedUntil: resolveUsageWindowUntil(params.now, DEFAULT_TOKEN_PLAN_EXHAUSTED_MS),
+    });
+    updatedStats.cooldownReason = "rate_limit";
+    updatedStats.cooldownModel = undefined;
+    return updatedStats;
+  }
 
   const disabledFailureReason =
     params.reason === "billing" || params.reason === "auth_permanent" ? params.reason : null;
@@ -1020,8 +1053,10 @@ export async function markAuthProfileFailure(params: {
   agentDir?: string;
   runId?: string;
   modelId?: string;
+  /** Raw provider error text used to distinguish long-window plan exhaustion. */
+  rawError?: string;
 }): Promise<void> {
-  const { store, profileId, reason, agentDir, runId, modelId } = params;
+  const { store, profileId, reason, agentDir, runId, modelId, rawError } = params;
   const profile = store.profiles[profileId];
   if (!profile || isAuthCooldownBypassedForProvider(profile.provider)) {
     return;
@@ -1068,6 +1103,7 @@ export async function markAuthProfileFailure(params: {
         reason,
         cfgResolved,
         modelId,
+        rawError,
       });
       nextStats = currentWhamResult
         ? applyWhamCooldownResult({

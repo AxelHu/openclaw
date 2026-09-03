@@ -21,4 +21,9 @@ export type AuthConfig = {
   profiles?: Record<string, AuthProfileConfig>;
   /** Preferred profile order per provider id. */
   order?: Record<string, string[]>;
+  /** Explicit recovery from external CLI-owned credentials after managed OAuth refresh failure. */
+  externalCliRecovery?: {
+    /** Adopt a newer same-account Codex CLI credential for the default OpenAI profile. */
+    openaiCodex?: boolean;
+  };
 };

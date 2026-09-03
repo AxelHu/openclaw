@@ -166,6 +166,32 @@ describe("markAuthProfileFailure", () => {
       expectCooldownInRange(remainingMs, 4.5 * 60 * 60 * 1000, 5.5 * 60 * 60 * 1000);
     });
   });
+
+  it.each([
+    "MiniMax error 2056: Token Plan 用量上限",
+    "subscription quota limit reached",
+    "usage limit exceeded for this plan",
+  ])("uses a profile-wide ~5h cooldown for plan exhaustion: %s", async (rawError) => {
+    await withAuthProfileStore(async ({ agentDir, store }) => {
+      const startedAt = Date.now();
+      await markAuthProfileFailure({
+        store,
+        profileId: "anthropic:default",
+        reason: "rate_limit",
+        modelId: "claude-sonnet-4.6",
+        rawError,
+        agentDir,
+      });
+
+      const stats = store.usageStats?.["anthropic:default"];
+      expect(typeof stats?.cooldownUntil).toBe("number");
+      const remainingMs = (stats?.cooldownUntil as number) - startedAt;
+      expectCooldownInRange(remainingMs, 4.5 * 60 * 60 * 1000, 5.5 * 60 * 60 * 1000);
+      expect(stats?.cooldownReason).toBe("rate_limit");
+      expect(stats?.cooldownModel).toBeUndefined();
+    });
+  });
+
   it("records billing backoff for inline provider api keys without creating an auth profile", async () => {
     await withAuthProfileStore(async ({ agentDir, store }) => {
       const startedAt = Date.now();
