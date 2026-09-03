@@ -27,6 +27,7 @@ import {
 import {
   DEFAULT_AGENTS_FILENAME,
   DEFAULT_BOOTSTRAP_FILENAME,
+  DEFAULT_ENVIRONMENT_FILENAME,
   DEFAULT_IDENTITY_FILENAME,
   DEFAULT_MEMORY_FILENAME,
   DEFAULT_SOUL_FILENAME,
@@ -975,6 +976,17 @@ describe("loadWorkspaceBootstrapFiles", () => {
     expectSingleMemoryEntry(files, "memory");
   });
 
+  it("includes ENVIRONMENT.md when present", async () => {
+    const tempDir = await makeTempWorkspace("openclaw-workspace-");
+    await writeWorkspaceFile({ dir: tempDir, name: "ENVIRONMENT.md", content: "local facts" });
+
+    const files = await loadWorkspaceBootstrapFiles(tempDir);
+    expect(files.find((file) => file.name === DEFAULT_ENVIRONMENT_FILENAME)).toMatchObject({
+      missing: false,
+      content: "local facts",
+    });
+  });
+
   it("ignores lowercase memory.md when MEMORY.md is absent", async () => {
     const tempDir = await makeTempWorkspace("openclaw-workspace-");
     await writeWorkspaceFile({ dir: tempDir, name: "memory.md", content: "alt" });
@@ -1171,6 +1183,7 @@ describe("filterBootstrapFilesForSession", () => {
     { name: "IDENTITY.md", path: "/w/IDENTITY.md", content: "", missing: false },
     { name: "USER.md", path: "/w/USER.md", content: "", missing: false },
     { name: "BOOTSTRAP.md", path: "/w/BOOTSTRAP.md", content: "", missing: false },
+    { name: "ENVIRONMENT.md", path: "/w/ENVIRONMENT.md", content: "", missing: false },
     { name: "MEMORY.md", path: "/w/MEMORY.md", content: "", missing: false },
   ];
 

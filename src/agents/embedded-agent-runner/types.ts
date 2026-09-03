@@ -112,6 +112,7 @@ export type TraceAttempt = {
     | "surface_error"
     | "candidate_failed"
     | "rotate_profile"
+    | "transient_retry"
     | "same_model_rate_limit"
     | "fallback_model"
     | "aborted"

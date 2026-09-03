@@ -104,6 +104,7 @@ export async function handleAssistantFailover(params: {
     profileId?: string;
     reason?: AuthProfileFailureReason | null;
     modelId?: string;
+    rawError?: string;
   }) => Promise<void>;
   maybeRetrySameModelRateLimit: (retry?: ShortWindowRateLimitRetry) => Promise<boolean>;
   maybeBackoffBeforeOverloadFailover: (reason: FailoverReason | null) => Promise<void>;
@@ -116,6 +117,7 @@ export async function handleAssistantFailover(params: {
 }): Promise<AssistantFailoverOutcome> {
   const terminal = projectAgentRunAttemptTerminal(params.terminal);
   const externalAbort = terminal.externalAbort || params.signalOwnedInterruption;
+  const failureRawError = params.lastAssistant?.errorMessage?.trim();
   let overloadProfileRotations = params.overloadProfileRotations;
   let decision = params.initialDecision;
   const sameModelIdleTimeoutRetry = (): AssistantFailoverOutcome => {
@@ -157,6 +159,7 @@ export async function handleAssistantFailover(params: {
           profileId: failedProfileId,
           reason: failureReason,
           modelId: params.modelId,
+          rawError: failureRawError,
         });
       } catch (err) {
         params.warn(`profile failure mark failed: ${String(err)}`);

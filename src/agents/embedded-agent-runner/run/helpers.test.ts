@@ -13,6 +13,7 @@ import {
   resolveLatestCallUsage,
   resolveNextSameModelRateLimitRetryCount,
   resolveSameModelRateLimitRetryDelayMs,
+  resolveTransientRetryMaxAttempts,
 } from "./helpers.js";
 
 describe("resolveEmbeddedAttemptBasePrompt", () => {
@@ -181,6 +182,39 @@ describe("resolveNextSameModelRateLimitRetryCount", () => {
       retriedSameModelRateLimit: true,
     });
     expect(retriesSoFar).toBe(1);
+  });
+});
+
+describe("resolveTransientRetryMaxAttempts", () => {
+  it("defaults to two same-profile transient retries", () => {
+    expect(resolveTransientRetryMaxAttempts()).toBe(2);
+  });
+
+  it("honors the global default and a per-agent override", () => {
+    const cfg = {
+      agents: {
+        defaults: { transientRetry: { maxAttempts: 3 } },
+        entries: {
+          main: { transientRetry: { maxAttempts: 1 } },
+        },
+      },
+    } as never;
+
+    expect(resolveTransientRetryMaxAttempts(cfg)).toBe(3);
+    expect(resolveTransientRetryMaxAttempts(cfg, "main")).toBe(1);
+  });
+
+  it("clamps runtime values defensively to the schema range", () => {
+    expect(
+      resolveTransientRetryMaxAttempts({
+        agents: { defaults: { transientRetry: { maxAttempts: -5 } } },
+      } as never),
+    ).toBe(0);
+    expect(
+      resolveTransientRetryMaxAttempts({
+        agents: { defaults: { transientRetry: { maxAttempts: 99 } } },
+      } as never),
+    ).toBe(10);
   });
 });
 

@@ -103,6 +103,7 @@ function makeExhaustedCredentialFailureInput(options?: { replaySafe?: boolean })
     sameModelIdleTimeoutRetries: 0,
     previousRetryFailoverReason: null,
     maybeMarkAuthProfileFailure,
+    maybeRetrySameProfileTransient: vi.fn(() => false),
     maybeRetrySameModelRateLimit: vi.fn(async () => false),
     maybeBackoffBeforeOverloadFailover: vi.fn(async () => {}),
     advanceAuthProfile,
@@ -616,6 +617,44 @@ describe("handleEmbeddedAssistantFailure", () => {
         stage: "assistant",
       },
     ]);
+  });
+
+  it("uses the bounded same-profile transient retry only after normal failover cannot advance", async () => {
+    const fixture = makeIdleTimeoutFailureInput({ replaySafe: true });
+    const assistant = buildEmbeddedRunnerAssistant({
+      provider: "anthropic",
+      model: "mock-1",
+      stopReason: "error",
+      errorMessage: "request timed out",
+    });
+    const attempt = makeEmbeddedRunnerAttempt({
+      terminal: { kind: "timeout", phase: "prompt", source: "idle" },
+      lastAssistant: assistant,
+      currentAttemptAssistant: assistant,
+      replayMetadata: { hadPotentialSideEffects: false, replaySafe: true },
+      currentAttemptReplayMetadata: { hadPotentialSideEffects: false, replaySafe: true },
+    });
+    fixture.input.attempt = attempt;
+    fixture.input.attemptAssistant = assistant;
+    fixture.input.currentAttemptAssistant = assistant;
+    fixture.input.terminalState = resolveEmbeddedRunAttemptTerminalState({ attempt, assistant });
+    fixture.input.fallbackConfigured = false;
+    fixture.input.canRestartForLiveSwitch = false;
+    fixture.input.advanceAuthProfile = vi.fn(async () => false);
+    fixture.input.maybeRetrySameProfileTransient = vi.fn(() => true);
+
+    const outcome = await handleEmbeddedAssistantFailure(fixture.input);
+
+    expect(outcome).toMatchObject({ action: "retry", lastRetryFailoverReason: "timeout" });
+    expect(fixture.input.advanceAuthProfile).toHaveBeenCalledOnce();
+    expect(fixture.input.maybeRetrySameProfileTransient).toHaveBeenCalledWith("timeout");
+    expect(fixture.traceAttempts.at(-1)).toEqual({
+      provider: "anthropic",
+      model: "mock-1",
+      result: "transient_retry",
+      reason: "timeout",
+      stage: "assistant",
+    });
   });
 
   it.each(["HTTP 429 Too Many Requests", INCOMPLETE_TERMINAL_STREAM_MESSAGE])(

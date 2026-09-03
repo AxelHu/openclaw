@@ -1,9 +1,11 @@
 /**
  * Shared run helpers for retry limits, model reporting, and final text.
  */
+import type { OpenClawConfig } from "../../../config/types.openclaw.js";
 import { generateSecureToken } from "../../../infra/secure-random.js";
 import type { AssistantMessage } from "../../../llm/types.js";
 import { extractAssistantTextForPhase } from "../../../shared/chat-message-content.js";
+import { resolveAgentConfig } from "../../agent-scope-config.js";
 import { extractAssistantVisibleText } from "../../embedded-agent-utils.js";
 import {
   deriveContextPromptTokens,
@@ -46,6 +48,7 @@ const DEFAULT_MAX_RATE_LIMIT_PROFILE_ROTATIONS = 1;
 // minute scale, so wait out the current provider/model window before spending
 // a profile rotation or model failover.
 export const MAX_SAME_MODEL_RATE_LIMIT_RETRIES = 3;
+const DEFAULT_TRANSIENT_RETRY_MAX_ATTEMPTS = 2;
 // Linear step: retriesSoFar=0 -> 10s, 1 -> 20s, 2 -> 30s. Total wait across the
 // 3-retry budget is 60s, roughly one RPM window.
 const SAME_MODEL_RATE_LIMIT_BACKOFF_STEP_MS = 10_000;
@@ -61,6 +64,17 @@ export function resolveOverloadProfileRotationLimit(): number {
 
 export function resolveRateLimitProfileRotationLimit(): number {
   return DEFAULT_MAX_RATE_LIMIT_PROFILE_ROTATIONS;
+}
+
+/** Resolves the local compatibility cap for same-profile transient retries. */
+export function resolveTransientRetryMaxAttempts(cfg?: OpenClawConfig, agentId?: string): number {
+  const configured =
+    (cfg && agentId ? resolveAgentConfig(cfg, agentId)?.transientRetry?.maxAttempts : undefined) ??
+    cfg?.agents?.defaults?.transientRetry?.maxAttempts;
+  if (typeof configured !== "number" || !Number.isFinite(configured)) {
+    return DEFAULT_TRANSIENT_RETRY_MAX_ATTEMPTS;
+  }
+  return Math.min(10, Math.max(0, Math.floor(configured)));
 }
 
 /**

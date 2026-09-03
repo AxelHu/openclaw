@@ -9,6 +9,19 @@ import { validateConfigObjectRaw } from "./validation.js";
 import { ToolsSchema } from "./zod-schema.agent-runtime.js";
 import { OpenClawSchema } from "./zod-schema.js";
 
+describe("auth external CLI recovery config", () => {
+  it("keeps OpenAI Codex CLI recovery explicitly opt-in", () => {
+    expect(OpenClawSchema.parse({}).auth?.externalCliRecovery).toBeUndefined();
+    expect(
+      OpenClawSchema.parse({ auth: { externalCliRecovery: { openaiCodex: true } } }).auth
+        ?.externalCliRecovery,
+    ).toEqual({ openaiCodex: true });
+    expect(
+      OpenClawSchema.safeParse({ auth: { externalCliRecovery: { openaiCodex: "true" } } }).success,
+    ).toBe(false);
+  });
+});
+
 describe("config schema", () => {
   type SchemaInput = NonNullable<Parameters<typeof buildConfigSchemaCore>[0]>;
   let baseSchema: ReturnType<typeof buildConfigSchemaCore>;
@@ -939,6 +952,25 @@ describe("config schema", () => {
     });
 
     expect(result.success).toBe(false);
+  });
+
+  it("accepts bounded transient retry config in default and per-agent scopes", () => {
+    const config = OpenClawSchema.parse({
+      agents: {
+        defaults: { transientRetry: { maxAttempts: 3 } },
+        entries: {
+          main: { transientRetry: { maxAttempts: 1 } },
+        },
+      },
+    });
+
+    expect(config.agents?.defaults?.transientRetry?.maxAttempts).toBe(3);
+    expect(config.agents?.entries?.main?.transientRetry?.maxAttempts).toBe(1);
+    expect(
+      OpenClawSchema.safeParse({
+        agents: { defaults: { transientRetry: { maxAttempts: 11 } } },
+      }).success,
+    ).toBe(false);
   });
 
   it("rejects per-agent subagent model timeout config", () => {

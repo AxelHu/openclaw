@@ -104,6 +104,8 @@ export type AgentConfig = {
   modelPolicy?: AgentModelPolicyConfig;
   /** @deprecated Legacy per-agent compaction config is kept for raw doctor migration/repair. */
   compaction?: AgentDefaultsConfig["compaction"];
+  /** Optional per-agent same-profile transient retry override. */
+  transientRetry?: AgentDefaultsConfig["transientRetry"];
   /** Optional per-agent default thinking level (overrides agents.defaults.thinkingDefault). */
   thinkingDefault?: AgentDefaultsConfig["thinkingDefault"];
   /** Optional per-agent default verbosity level. */

@@ -24,6 +24,7 @@ import {
   resolveOverloadProfileRotationLimit,
   resolveRateLimitProfileRotationLimit,
   resolveSameModelRateLimitRetryDelayMs,
+  resolveTransientRetryMaxAttempts,
 } from "./helpers.js";
 import type { prepareEmbeddedRunRuntime } from "./runtime-preparation.js";
 
@@ -42,6 +43,7 @@ export function createEmbeddedRunFailoverRetryController(input: {
   modelId: string;
   globalLane: string;
   agentDir: string;
+  agentId: string;
   fallbackConfigured: boolean;
   profileFailureStore: PreparedRuntime["profileFailureStore"];
   getLastProfileId: () => string | undefined;
@@ -63,8 +65,18 @@ export function createEmbeddedRunFailoverRetryController(input: {
   const overloadFailoverBackoffMs = resolveOverloadFailoverBackoffMs();
   const overloadProfileRotationLimit = resolveOverloadProfileRotationLimit();
   const rateLimitProfileRotationLimit = resolveRateLimitProfileRotationLimit();
+  const transientRetryMaxAttempts = resolveTransientRetryMaxAttempts(params.config, input.agentId);
   let rateLimitProfileRotations = 0;
   let consecutiveSameModelRateLimitRetries = 0;
+  let sameProfileTransientRetries = 0;
+
+  const advanceAuthProfile = async (): Promise<boolean> => {
+    const advanced = await input.advanceAuthProfile();
+    if (advanced) {
+      sameProfileTransientRetries = 0;
+    }
+    return advanced;
+  };
 
   const sleepForRetry = async (delayMs: number) => {
     try {
@@ -94,6 +106,7 @@ export function createEmbeddedRunFailoverRetryController(input: {
     profileId?: string;
     reason?: AuthProfileFailureReason | null;
     modelId?: string;
+    rawError?: string;
   }) => {
     const { profileId, reason } = failure;
     if (input.harnessOwnsTransport() && (reason === "auth" || reason === "auth_permanent")) {
@@ -118,6 +131,7 @@ export function createEmbeddedRunFailoverRetryController(input: {
         agentDir,
         runId: params.runId,
         modelId: failure.modelId,
+        rawError: failure.rawError,
       });
       return;
     }
@@ -155,7 +169,7 @@ export function createEmbeddedRunFailoverRetryController(input: {
         retriedSameModelRateLimit: false,
       });
     },
-    advanceAuthProfile: input.advanceAuthProfile,
+    advanceAuthProfile,
     advanceRateLimitAuthProfile: async (context: RateLimitAuthProfileContext): Promise<boolean> => {
       if (rateLimitProfileRotations >= rateLimitProfileRotationLimit && fallbackConfigured) {
         const status = resolveFailoverStatus("rate_limit");
@@ -176,7 +190,7 @@ export function createEmbeddedRunFailoverRetryController(input: {
           },
         );
       }
-      const rotated = await input.advanceAuthProfile();
+      const rotated = await advanceAuthProfile();
       if (rotated) {
         rateLimitProfileRotations += 1;
       }
@@ -198,7 +212,7 @@ export function createEmbeddedRunFailoverRetryController(input: {
       const profileFailureReason = resolveProfileFailureReason(failoverReason);
       const userPinnedProfile =
         params.authProfileIdSource === "user" && failedProfileId === params.authProfileId;
-      const rotated = userPinnedProfile ? false : await input.advanceAuthProfile();
+      const rotated = userPinnedProfile ? false : await advanceAuthProfile();
       try {
         await maybeMarkAuthProfileFailure({
           profileId: failedProfileId,
@@ -226,6 +240,19 @@ export function createEmbeddedRunFailoverRetryController(input: {
         `overload backoff before failover for ${provider}/${modelId}: delayMs=${overloadFailoverBackoffMs}`,
       );
       await sleepForRetry(overloadFailoverBackoffMs);
+    },
+    maybeRetrySameProfileTransient: (reason: FailoverReason | null): boolean => {
+      if (reason !== "timeout" && reason !== "overloaded" && reason !== "format") {
+        return false;
+      }
+      if (sameProfileTransientRetries >= transientRetryMaxAttempts) {
+        return false;
+      }
+      sameProfileTransientRetries += 1;
+      log.warn(
+        `[transient-retry] ${sanitizeForLog(provider)}/${sanitizeForLog(modelId)} profile=${input.getLastProfileId() ?? "(unset)"} reason=${reason} retrying same profile (${sameProfileTransientRetries}/${transientRetryMaxAttempts})`,
+      );
+      return true;
     },
     maybeRetrySameModelRateLimit: async (retry?: {
       retryAfterSeconds?: number;

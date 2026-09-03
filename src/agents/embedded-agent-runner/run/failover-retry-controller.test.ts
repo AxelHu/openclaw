@@ -28,6 +28,7 @@ function createController(
     modelId: "gpt-5.6-luna",
     globalLane: "test",
     agentDir: "/tmp/openclaw-failover-retry-controller-test",
+    agentId: "main",
     fallbackConfigured,
     profileFailureStore: { version: 1, profiles: {} },
     getLastProfileId: () => "openai:p1",
@@ -85,6 +86,19 @@ describe("createEmbeddedRunFailoverRetryController", () => {
 
     expect(advanceAuthProfile).toHaveBeenCalledTimes(1);
     expect(mocks.sleepWithAbort).toHaveBeenCalledWith(10_000, undefined);
+  });
+
+  it("bounds same-profile transient retries and resets them after profile rotation", async () => {
+    const advanceAuthProfile = vi.fn(async () => true);
+    const controller = createController(advanceAuthProfile);
+
+    expect(controller.maybeRetrySameProfileTransient("overloaded")).toBe(true);
+    expect(controller.maybeRetrySameProfileTransient("format")).toBe(true);
+    expect(controller.maybeRetrySameProfileTransient("timeout")).toBe(false);
+    expect(controller.maybeRetrySameProfileTransient("rate_limit")).toBe(false);
+
+    await expect(controller.advanceAuthProfile()).resolves.toBe(true);
+    expect(controller.maybeRetrySameProfileTransient("timeout")).toBe(true);
   });
 
   it("escalates after one successful rate-limit rotation without advancing again", async () => {

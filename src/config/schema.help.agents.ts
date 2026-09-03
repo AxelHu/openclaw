@@ -118,6 +118,10 @@ export const AGENT_FIELD_HELP: Record<string, string> = {
     "Max image side length in pixels when sanitizing transcript/tool-result image payloads (default: 1200).",
   "agents.defaults.imageQuality":
     'Image-tool media compression preference: "auto" adapts to provider/model limits and image count, "efficient" saves tokens and bytes, "balanced" keeps the current middle ground, and "high" preserves more detail for screenshots and document images.',
+  "agents.defaults.transientRetry":
+    "Same-profile retry tuning for replay-safe transient provider failures before normal profile rotation or model fallback.",
+  "agents.defaults.transientRetry.maxAttempts":
+    "Maximum same-profile retries for timeout, overloaded, and format failures. 0 disables this local compatibility retry. Default: 2; maximum: 10.",
   "agents.defaults.compaction":
     "Compaction behavior for when context nears token limits, including strategy and pre-compaction memory flush behavior. Use this when long-running sessions need stable continuity under tight context windows.",
   "agents.defaults.compaction.enabled":

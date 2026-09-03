@@ -108,6 +108,12 @@ export type AgentContextLimitsConfig = {
   postCompactionMaxChars?: number;
 };
 
+/** Same-profile retry tuning for replay-safe transient provider failures. */
+export type AgentTransientRetryConfig = {
+  /** Maximum same-profile retries before normal rotation/fallback handling continues. Default: 2. */
+  maxAttempts?: number;
+};
+
 export type AgentDefaultsConfig = {
   /** @deprecated Doctor-only legacy input. */
   imageGenerationModel?: AgentToolModelConfig;
@@ -213,6 +219,8 @@ export type AgentDefaultsConfig = {
   contextLimits?: AgentContextLimitsConfig;
   /** Opt-in: prune old tool results from the LLM context to reduce token usage. */
   contextPruning?: AgentContextPruningConfig;
+  /** Bounded same-profile retries for replay-safe timeout/overloaded/format failures. */
+  transientRetry?: AgentTransientRetryConfig;
   /** Compaction tuning and pre-compaction memory flush behavior. */
   compaction?: AgentCompactionConfig;
   /** Embedded OpenClaw runner hardening and compatibility controls. */

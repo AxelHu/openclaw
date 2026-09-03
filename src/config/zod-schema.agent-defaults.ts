@@ -137,6 +137,12 @@ export const AgentDefaultsSchema = z
       })
       .strict()
       .optional(),
+    transientRetry: z
+      .object({
+        maxAttempts: z.number().int().min(0).max(10).optional(),
+      })
+      .strict()
+      .optional(),
     compaction: z
       .object({
         enabled: z.boolean().optional(),

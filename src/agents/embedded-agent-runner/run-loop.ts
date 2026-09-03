@@ -257,6 +257,7 @@ export async function runPreparedEmbeddedLoop(
     modelId,
     globalLane,
     agentDir,
+    agentId: sessionAgentId,
     fallbackConfigured,
     profileFailureStore,
     getLastProfileId: () => preparedRuntime.snapshot().lastProfileId,
@@ -533,6 +534,7 @@ export async function runPreparedEmbeddedLoop(
         sameModelIdleTimeoutRetries,
         previousRetryFailoverReason: lastRetryFailoverReason,
         maybeMarkAuthProfileFailure: failoverRetryController.maybeMarkAuthProfileFailure,
+        maybeRetrySameProfileTransient: failoverRetryController.maybeRetrySameProfileTransient,
         maybeRetrySameModelRateLimit: failoverRetryController.maybeRetrySameModelRateLimit,
         maybeBackoffBeforeOverloadFailover:
           failoverRetryController.maybeBackoffBeforeOverloadFailover,

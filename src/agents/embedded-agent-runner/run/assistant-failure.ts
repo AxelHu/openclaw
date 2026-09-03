@@ -25,7 +25,7 @@ import type { TraceAttempt } from "../types.js";
 import { handleAssistantFailover, isShortWindowRateLimitMessage } from "./assistant-failover.js";
 import { isCurrentAttemptReplaySafe } from "./attempt-terminal-evidence.js";
 import { createFailoverDecisionLogger } from "./failover-observation.js";
-import { resolveRunFailoverDecision } from "./failover-policy.js";
+import { mergeRetryFailoverReason, resolveRunFailoverDecision } from "./failover-policy.js";
 import { shouldRetrySilentErrorAssistantTurn } from "./incomplete-turn-recovery.js";
 import type { RunEmbeddedAgentParams } from "./params.js";
 import {
@@ -84,7 +84,9 @@ export async function handleEmbeddedAssistantFailure(input: {
     profileId?: string;
     reason?: AuthProfileFailureReason | null;
     modelId?: string;
+    rawError?: string;
   }) => Promise<void>;
+  maybeRetrySameProfileTransient: (reason: FailoverReason | null) => boolean;
   maybeRetrySameModelRateLimit: (retry?: { retryAfterSeconds?: number }) => Promise<boolean>;
   maybeBackoffBeforeOverloadFailover: (reason: FailoverReason | null) => Promise<void>;
   advanceAuthProfile: Parameters<typeof handleAssistantFailover>[0]["advanceAuthProfile"];
@@ -361,6 +363,23 @@ export async function handleEmbeddedAssistantFailure(input: {
       });
     }
     throw outcome.error;
+  }
+  if (input.maybeRetrySameProfileTransient(assistantFailoverReason)) {
+    input.traceAttempts.push({
+      provider: input.activeErrorContext.provider,
+      model: input.activeErrorContext.model,
+      result: "transient_retry",
+      ...(assistantFailoverReason ? { reason: assistantFailoverReason } : {}),
+      stage: "assistant",
+    });
+    return buildOutcome(input, {
+      action: "retry",
+      lastRetryFailoverReason: mergeRetryFailoverReason({
+        previous: input.previousRetryFailoverReason,
+        failoverReason: assistantFailoverReason,
+      }),
+      assistantProfileFailureReason,
+    });
   }
   return buildOutcome(input, {
     action: "proceed",

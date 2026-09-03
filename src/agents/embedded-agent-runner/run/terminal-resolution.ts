@@ -205,6 +205,7 @@ export async function resolveEmbeddedRunTerminal(input: {
     profileId?: string;
     reason?: AuthProfileFailureReason | null;
     modelId?: string;
+    rawError?: string;
   }) => Promise<void>;
   assistantProfileFailureReason?: AuthProfileFailureReason | null;
   startedAtMs: number;
@@ -533,6 +534,7 @@ async function completeEmbeddedRun(
           profileId: input.authProfileId,
           reason: input.assistantProfileFailureReason,
           modelId: input.modelId,
+          rawError: input.attemptAssistant?.errorMessage?.trim(),
         });
       } catch (bookkeepingError) {
         log.warn(
