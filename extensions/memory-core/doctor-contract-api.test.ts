@@ -2174,6 +2174,26 @@ describe("memory-core doctor dreaming migration", () => {
     await expect(fs.access(`${legacyPath}.migrated`)).resolves.toBeUndefined();
   });
 
+  it("archives a conflicting legacy memory sidecar under a numbered suffix when an archive exists", async () => {
+    const stateDir = path.join(rootDir, "state");
+    const legacyPath = path.join(stateDir, "memory", "main.sqlite");
+    const agentPath = path.join(stateDir, "agents", "main", "agent", "openclaw-agent.sqlite");
+    await writeLegacyMemorySidecar(legacyPath);
+    await fs.writeFile(`${legacyPath}.migrated`, "preexisting different archive");
+    await createCanonicalMemoryIndex(agentPath, "canonical memory remains authoritative");
+
+    const result = await legacyMemoryIndexMigration().migrateLegacyState(migrationParams());
+
+    expect(result.warnings).toEqual([]);
+    expect(result.changes).toEqual([
+      "Resolved Memory Core legacy memory index conflict for agent main by keeping canonical per-agent SQLite rows",
+      `Archived Memory Core legacy memory index sidecar legacy source -> ${legacyPath}.migrated.2`,
+    ]);
+    await expect(fs.access(legacyPath)).rejects.toThrow();
+    await expect(fs.access(`${legacyPath}.migrated`)).resolves.toBeUndefined();
+    await expect(fs.access(`${legacyPath}.migrated.2`)).resolves.toBeUndefined();
+  });
+
   it("archives conflicting custom derived indexes without creating a retry copy", async () => {
     const stateDir = path.join(rootDir, "state");
     const legacyPath = path.join(rootDir, "custom-memory", "main.sqlite");

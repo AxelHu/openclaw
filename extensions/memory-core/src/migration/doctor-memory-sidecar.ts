@@ -8,6 +8,7 @@ import { resolveUserPath } from "openclaw/plugin-sdk/memory-core-host-engine-fs"
 // runtime-sqlite/kysely graph, so its helpers load lazily in the async migration.
 import { normalizeAgentId } from "openclaw/plugin-sdk/routing";
 import {
+  archiveLegacyStateSource,
   legacyStateFileExists,
   type PluginDoctorStateMigration,
 } from "openclaw/plugin-sdk/runtime-doctor-migrations";
@@ -246,53 +247,14 @@ async function archiveLegacyMemorySidecar(params: {
       }),
     )
   ).filter((filePath): filePath is string => filePath !== null);
-  if (existingSources.length === 0) {
-    return;
-  }
-  const existingArchives = (
-    await Promise.all(
-      existingSources.map(async (sourcePath) => {
-        const archivedPath = `${sourcePath}.migrated`;
-        return (await legacyStateFileExists(archivedPath)) ? archivedPath : null;
-      }),
-    )
-  ).filter((filePath): filePath is string => filePath !== null);
-  if (existingArchives.length > 0) {
-    params.warnings.push(
-      `Left migrated Memory Core legacy memory index sidecar in place because ${existingArchives[0]} already exists`,
-    );
-    return;
-  }
-  const renamed: Array<{ sourcePath: string; archivedPath: string }> = [];
   for (const sourcePath of existingSources) {
-    const archivedPath = `${sourcePath}.migrated`;
-    try {
-      await fs.rename(sourcePath, archivedPath);
-      renamed.push({ sourcePath, archivedPath });
-    } catch (err) {
-      for (const entry of renamed.toReversed()) {
-        try {
-          if (
-            (await legacyStateFileExists(entry.archivedPath)) &&
-            !(await legacyStateFileExists(entry.sourcePath))
-          ) {
-            await fs.rename(entry.archivedPath, entry.sourcePath);
-          }
-        } catch (rollbackErr) {
-          params.warnings.push(
-            `Failed restoring Memory Core legacy memory index sidecar ${entry.archivedPath}: ${String(rollbackErr)}`,
-          );
-        }
-      }
-      params.warnings.push(
-        `Failed archiving Memory Core legacy memory index sidecar ${sourcePath}: ${String(err)}; restored ${renamed.length} already archived file(s)`,
-      );
-      return;
-    }
+    await archiveLegacyStateSource({
+      filePath: sourcePath,
+      label: "Memory Core legacy memory index sidecar",
+      changes: params.changes,
+      warnings: params.warnings,
+    });
   }
-  params.changes.push(
-    `Archived Memory Core legacy memory index sidecar -> ${params.source.legacyPath}.migrated`,
-  );
 }
 
 async function preserveLegacyMemorySidecarRetryPath(params: {
