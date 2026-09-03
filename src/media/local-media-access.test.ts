@@ -73,7 +73,7 @@ describe("assertLocalMediaAllowed", () => {
     }
   });
 
-  it("allows sibling workspace paths even when explicit roots are narrower", async () => {
+  it("keeps sibling workspace isolation when explicit roots are supplied", async () => {
     const tmpDir = path.join(
       os.tmpdir(),
       `ocl-local-media-${Date.now()}-${Math.random().toString(36).slice(2)}`,
@@ -93,14 +93,16 @@ describe("assertLocalMediaAllowed", () => {
     try {
       const roots = [tmpDir, workspaceDir, workspaceXiaoqianDir];
       await expect(assertLocalMediaAllowed(mediaPath, roots)).resolves.toBeUndefined();
-      await expect(assertLocalMediaAllowed(siblingMediaPath, roots)).resolves.toBeUndefined();
+      await expect(assertLocalMediaAllowed(siblingMediaPath, roots)).rejects.toMatchObject({
+        code: "path-not-allowed",
+      });
     } finally {
       await fs.rm(tmpDir, { recursive: true, force: true });
     }
   });
 
   it.runIf(process.platform !== "win32")(
-    "keeps safe-open behavior while allowing sibling workspaces when the default workspace is symlinked",
+    "keeps sibling isolation when explicit roots include a symlinked default workspace",
     async () => {
       const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "ocl-local-media-symlink-"));
       const stateDir = path.join(tmpDir, "state");
@@ -121,7 +123,9 @@ describe("assertLocalMediaAllowed", () => {
       try {
         const roots = [tmpDir, workspaceDir, ownWorkspaceDir];
         await expect(assertLocalMediaAllowed(ownMediaPath, roots)).resolves.toBeUndefined();
-        await expect(assertLocalMediaAllowed(siblingMediaPath, roots)).resolves.toBeUndefined();
+        await expect(assertLocalMediaAllowed(siblingMediaPath, roots)).rejects.toMatchObject({
+          code: "path-not-allowed",
+        });
       } finally {
         await fs.rm(tmpDir, { recursive: true, force: true });
       }
