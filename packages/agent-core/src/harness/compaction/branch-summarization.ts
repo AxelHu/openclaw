@@ -145,39 +145,39 @@ export function prepareBranchEntries(
   return { messages, fileOps, totalTokens };
 }
 
-const BRANCH_SUMMARY_PREAMBLE = `The user explored a different conversation branch before returning here.
-Summary of that exploration:
+const BRANCH_SUMMARY_PREAMBLE = `用户在回到这里之前探索了另一个对话分支。
+该分支探索摘要：
 
 `;
 
-const BRANCH_SUMMARY_PROMPT = `Create a structured summary of this conversation branch for context when returning later.
+const BRANCH_SUMMARY_PROMPT = `为这个对话分支生成结构化摘要，以便之后返回时恢复上下文。
 
-Use this EXACT format:
+严格使用以下格式；section header 保持原样：
 
 ## Goal
-[What was the user trying to accomplish in this branch?]
+[用户在这个分支中希望完成什么？]
 
 ## Constraints & Preferences
-- [Any constraints, preferences, or requirements mentioned]
-- [Or "(none)" if none were mentioned]
+- [提到的约束、偏好或要求]
+- [若没有则写 "(none)"]
 
 ## Progress
 ### Done
-- [x] [Completed tasks/changes]
+- [x] [已完成的任务/改动]
 
 ### In Progress
-- [ ] [Work that was started but not finished]
+- [ ] [已开始但尚未完成的工作]
 
 ### Blocked
-- [Issues preventing progress, if any]
+- [阻止继续推进的问题；没有则写明]
 
 ## Key Decisions
-- **[Decision]**: [Brief rationale]
+- **[Decision]**: [简要理由]
 
 ## Next Steps
-1. [What should happen next to continue this work]
+1. [为了继续这项工作，下一步应做什么]
 
-Keep each section concise. Preserve exact file paths, function names, and error messages.`;
+每个 section 保持简洁。文件路径、函数名和错误消息必须逐字保留。`;
 
 /** Generate a summary for abandoned branch entries. */
 export async function generateBranchSummary(

@@ -24,10 +24,10 @@ describe("GPT-5 prompt overlay runtime contract", () => {
 
     expect(contribution?.stablePrefix).toContain("<persona_latch>");
     expect(contribution?.sectionOverrides?.interaction_style).toContain(
-      "Live chat: short, natural, human.",
+      "实时聊天保持简短、自然、有人味",
     );
     expect(contribution?.sectionOverrides?.interaction_style).not.toContain(
-      "Heartbeat = useful proactive progress",
+      "Heartbeat 的目的是真正主动推进",
     );
   });
 
@@ -39,7 +39,7 @@ describe("GPT-5 prompt overlay runtime contract", () => {
     });
 
     expect(contribution?.sectionOverrides?.interaction_style).not.toContain(
-      "Heartbeat = useful proactive progress",
+      "Heartbeat 的目的是真正主动推进",
     );
   });
 
@@ -51,7 +51,7 @@ describe("GPT-5 prompt overlay runtime contract", () => {
     });
 
     expect(contribution?.sectionOverrides?.interaction_style).toContain(
-      "Heartbeat = useful proactive progress",
+      "Heartbeat 的目的是真正主动推进",
     );
   });
 
@@ -64,7 +64,7 @@ describe("GPT-5 prompt overlay runtime contract", () => {
 
     expect(contribution?.stablePrefix).toContain("<persona_latch>");
     expect(contribution?.sectionOverrides?.interaction_style).toContain(
-      "Live chat: short, natural, human.",
+      "实时聊天保持简短、自然、有人味",
     );
   });
 
@@ -84,7 +84,7 @@ describe("GPT-5 prompt overlay runtime contract", () => {
     expect(openAiContribution?.sectionOverrides).toStrictEqual({});
     expect(nonOpenAiContribution?.stablePrefix).toContain("<persona_latch>");
     expect(nonOpenAiContribution?.sectionOverrides?.interaction_style).toContain(
-      "Live chat: short, natural, human.",
+      "实时聊天保持简短、自然、有人味",
     );
   });
 

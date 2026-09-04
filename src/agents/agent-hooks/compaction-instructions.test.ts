@@ -11,11 +11,11 @@ describe("DEFAULT_COMPACTION_INSTRUCTIONS", () => {
   });
 
   it("contains language preservation directive", () => {
-    expect(DEFAULT_COMPACTION_INSTRUCTIONS).toContain("primary language");
+    expect(DEFAULT_COMPACTION_INSTRUCTIONS).toContain("主要语言");
   });
 
   it("contains factual content directive", () => {
-    expect(DEFAULT_COMPACTION_INSTRUCTIONS).toContain("factual content");
+    expect(DEFAULT_COMPACTION_INSTRUCTIONS).toContain("事实内容");
   });
 
   it("does not exceed MAX_INSTRUCTION_LENGTH (800 chars)", () => {

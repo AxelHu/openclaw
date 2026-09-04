@@ -12,10 +12,10 @@ import { normalizeOptionalString } from "@openclaw/normalization-core/string-coe
  * summary structure intact.
  */
 const DEFAULT_COMPACTION_INSTRUCTIONS =
-  "Write the summary body in the primary language used in the conversation.\n" +
-  "Focus on factual content: what was discussed, decisions made, and current state.\n" +
-  "Keep the required summary structure and section headers unchanged.\n" +
-  "Do not translate or alter code, file paths, identifiers, or error messages.";
+  "摘要正文使用对话的主要语言；中文会话默认使用中文。\n" +
+  "聚焦事实内容：讨论了什么、做了哪些决定、当前状态如何。\n" +
+  "保持要求的摘要结构与 section header 原样不变。\n" +
+  "不要翻译或改写代码、文件路径、标识符或错误消息。";
 
 /**
  * Upper bound on custom instruction length to prevent prompt bloat.

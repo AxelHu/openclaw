@@ -865,7 +865,7 @@ describe("generateSummary thinking options", () => {
     };
     const streamFn = vi.fn<StreamFn>((_model, context, options) => {
       expect(options?.reasoning).toBe("low");
-      expect(context.systemPrompt).toContain("user and an AI assistant");
+      expect(context.systemPrompt).toContain("用户与 AI 助手之间的对话");
       expect(context.systemPrompt).not.toContain("AI coding assistant");
       const stream = createAssistantMessageEventStream();
       stream.push({ type: "done", reason: "stop", message: summaryMessage });

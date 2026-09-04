@@ -1496,10 +1496,10 @@ describe("provider-runtime", () => {
 
     expect(contribution?.stablePrefix).toContain("<persona_latch>");
     expect(contribution?.sectionOverrides?.interaction_style).toContain(
-      "Live chat: short, natural, human.",
+      "实时聊天保持简短、自然、有人味",
     );
     expect(contribution?.sectionOverrides?.interaction_style).not.toContain(
-      "Heartbeat = useful proactive progress",
+      "Heartbeat 的目的是真正主动推进",
     );
   });
 
@@ -1515,7 +1515,7 @@ describe("provider-runtime", () => {
     });
 
     expect(contribution?.sectionOverrides?.interaction_style).not.toContain(
-      "Heartbeat = useful proactive progress",
+      "Heartbeat 的目的是真正主动推进",
     );
   });
 
@@ -1574,7 +1574,7 @@ describe("provider-runtime", () => {
 
     expect(contribution?.stablePrefix).toContain("<persona_latch>");
     expect(contribution?.sectionOverrides?.interaction_style).toContain(
-      "Live chat: short, natural, human.",
+      "实时聊天保持简短、自然、有人味",
     );
   });
 

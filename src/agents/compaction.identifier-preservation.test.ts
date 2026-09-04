@@ -78,12 +78,10 @@ describe("compaction identifier-preservation instructions", () => {
     await runSummary(2);
 
     expect(mockGenerateSummary).toHaveBeenCalledTimes(1);
-    expect(firstSummaryInstructions()).toContain(
-      "Preserve all opaque identifiers exactly as written",
-    );
-    expect(firstSummaryInstructions()).toContain("UUIDs");
-    expect(firstSummaryInstructions()).toContain("IPs");
-    expect(firstSummaryInstructions()).toContain("ports");
+    expect(firstSummaryInstructions()).toContain("所有不透明标识符必须逐字保留");
+    expect(firstSummaryInstructions()).toContain("UUID");
+    expect(firstSummaryInstructions()).toContain("IP");
+    expect(firstSummaryInstructions()).toContain("端口");
     expect(firstSummaryInstructions()).not.toContain("tokens");
     expect(firstSummaryInstructions()).not.toContain("API keys");
   });
@@ -94,9 +92,7 @@ describe("compaction identifier-preservation instructions", () => {
     });
 
     expect(mockGenerateSummary).toHaveBeenCalledTimes(1);
-    expect(firstSummaryInstructions()).toContain(
-      "Preserve all opaque identifiers exactly as written",
-    );
+    expect(firstSummaryInstructions()).toContain("所有不透明标识符必须逐字保留");
     expect(firstSummaryInstructions()).toContain("Additional focus:");
     expect(firstSummaryInstructions()).toContain("Focus on release-impacting bugs.");
   });
@@ -110,9 +106,7 @@ describe("compaction identifier-preservation instructions", () => {
 
     expect(mockGenerateSummary).toHaveBeenCalledTimes(3);
     for (const call of mockGenerateSummary.mock.calls) {
-      expect(extractSummaryInstructions(call)).toContain(
-        "Preserve all opaque identifiers exactly as written",
-      );
+      expect(extractSummaryInstructions(call)).toContain("所有不透明标识符必须逐字保留");
     }
 
     type SyntheticMergeMessage = { role: "user"; content: string; timestamp: number };
@@ -135,7 +129,7 @@ describe("compaction identifier-preservation instructions", () => {
     expect(mockGenerateSummary).toHaveBeenCalledTimes(3);
     const mergedCall = latestSummaryCall();
     const instructions = extractSummaryInstructions(mergedCall);
-    expect(instructions).toContain("Merge these partial summaries into a single cohesive summary.");
+    expect(instructions).toContain("将这些局部摘要合并成一份连贯的完整摘要。");
     expect(instructions).toContain("Prioritize customer-visible regressions.");
     expect((instructions.match(/Additional focus:/g) ?? []).length).toBe(1);
   });
@@ -151,8 +145,8 @@ function extractSummaryInstructions(call: unknown[] | undefined): string {
     const arg = call[index];
     if (
       typeof arg === "string" &&
-      (arg.includes("Preserve all opaque identifiers exactly as written") ||
-        arg.includes("Merge these partial summaries into a single cohesive summary.") ||
+      (arg.includes("所有不透明标识符必须逐字保留") ||
+        arg.includes("将这些局部摘要合并成一份连贯的完整摘要。") ||
         arg.includes("Additional focus:"))
     ) {
       return arg;
@@ -164,7 +158,7 @@ function extractSummaryInstructions(call: unknown[] | undefined): string {
 describe("buildCompactionSummarizationInstructions", () => {
   it("returns base instructions when no custom text is provided", () => {
     const result = buildCompactionSummarizationInstructions();
-    expect(result).toContain("Preserve all opaque identifiers exactly as written");
+    expect(result).toContain("所有不透明标识符必须逐字保留");
     expect(result).not.toContain("Additional focus:");
     expect(result).not.toContain("tokens");
     expect(result).not.toContain("API keys");
@@ -174,7 +168,7 @@ describe("buildCompactionSummarizationInstructions", () => {
     // Stable formatting matters because staged merge prompts append this block
     // again if duplicate headers are not guarded.
     const result = buildCompactionSummarizationInstructions("Keep deployment details.");
-    expect(result).toContain("Preserve all opaque identifiers exactly as written");
+    expect(result).toContain("所有不透明标识符必须逐字保留");
     expect(result).toContain("Additional focus:");
     expect(result).toContain("Keep deployment details.");
   });
@@ -183,8 +177,8 @@ describe("buildCompactionSummarizationInstructions", () => {
 describe("compaction identifier policy", () => {
   it("defaults to strict identifier preservation", () => {
     const built = buildCompactionSummarizationInstructions();
-    expect(built).toContain("Preserve all opaque identifiers exactly as written");
-    expect(built).toContain("UUIDs");
+    expect(built).toContain("所有不透明标识符必须逐字保留");
+    expect(built).toContain("UUID");
     expect(built).not.toContain("tokens");
     expect(built).not.toContain("API keys");
   });
@@ -202,7 +196,7 @@ describe("compaction identifier policy", () => {
     });
 
     expect(built).toContain("Keep ticket IDs unchanged.");
-    expect(built).not.toContain("Preserve all opaque identifiers exactly as written");
+    expect(built).not.toContain("所有不透明标识符必须逐字保留");
   });
 
   it("falls back to strict text when custom policy is missing instructions", () => {
@@ -210,7 +204,7 @@ describe("compaction identifier policy", () => {
       identifierPolicy: "custom",
       identifierInstructions: "   ",
     });
-    expect(built).toContain("Preserve all opaque identifiers exactly as written");
+    expect(built).toContain("所有不透明标识符必须逐字保留");
   });
 
   it("keeps custom focus text when identifier policy is off", () => {

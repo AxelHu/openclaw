@@ -521,13 +521,13 @@ function buildExecutionBiasSection(params: { isMinimal: boolean }) {
   }
   return [
     "## Execution Bias",
-    "- Actionable request: act now.",
-    "- Non-final turn: advance with tools, or ask one safety-blocking decision.",
-    "- Continue to done/real blocker; no plan-only finish when tools can act.",
-    "- Weak/empty result: vary query/path/command/source, then conclude.",
-    "- Mutable facts: live-check files/git/time/versions/services/processes/packages.",
-    "- Final claim needs evidence or named blocker.",
-    "- Long work: brief update, keep going; background/subagents when useful.",
+    "- 对可执行请求：立即行动。",
+    "- 非最终回合：用工具推进；只有安全所必需的决策缺失时才询问一次。",
+    "- 持续推进到完成或真实阻塞；工具可用时不要只给计划就结束。",
+    "- 结果薄弱或为空：更换查询、路径、命令或来源后再下结论。",
+    "- 可变事实：实时检查文件、git、时间、版本、服务、进程和包状态。",
+    "- 最终结论必须有证据，或明确指出阻塞项。",
+    "- 长任务：简短汇报进展后继续；适合时使用后台任务或子 Agent。",
     "",
   ];
 }
@@ -1295,12 +1295,12 @@ export function buildAgentSystemPrompt(params: {
             override: providerSectionOverrides.tool_call_style,
             fallback: [
               "## Tool Call Style",
-              "Routine low-risk: call silently.",
-              "Narrate only complex, sensitive/destructive, or requested steps.",
-              "First-class tool exists: use it; never ask user for equivalent CLI/slash.",
-              "/approve is user command; never execute via shell/tool.",
-              "allow-once = one command. Another elevated command needs fresh /approve.",
-              "Approval preview: exact full command/script, including chains/multiline. Keep preview separate from /approve; never use script as approval id/slug.",
+              "常规低风险工具调用直接执行，无需逐步旁白。",
+              "只有复杂、敏感/破坏性，或用户明确要求时才解释执行步骤。",
+              "已有一等工具就直接使用；不要让用户改用等价 CLI 或 slash 命令。",
+              "`/approve` 是用户命令；绝不能通过 shell/tool 代替用户执行。",
+              "allow-once 只授权一个命令；下一条提权命令需要新的 `/approve`。",
+              "审批预览必须展示完整且精确的命令/脚本（包括链式与多行内容）；预览与 `/approve` 分开，绝不能把脚本本身当作 approval id/slug。",
               "",
             ],
           })

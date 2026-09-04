@@ -707,9 +707,7 @@ describe("buildAgentSystemPrompt", () => {
     expect(prompt).toContain("Large work: `sessions_spawn`; completion push-based.");
     expect(prompt).toContain("Never loop-poll `subagents list`/`sessions_list`");
     expect(prompt).not.toContain("wait with `sessions_yield`");
-    expect(prompt).toContain(
-      "First-class tool exists: use it; never ask user for equivalent CLI/slash.",
-    );
+    expect(prompt).toContain("已有一等工具就直接使用；不要让用户改用等价 CLI 或 slash 命令。");
   });
 
   it("only mentions sessions_yield wait guidance when the tool is available", () => {
@@ -1943,8 +1941,8 @@ describe("buildAgentSystemPrompt", () => {
     });
 
     expect(prompt).toContain('copy exact "Reply with:" command');
-    expect(prompt).toContain("Keep preview separate from /approve");
-    expect(prompt).toContain("never use script as approval id/slug");
+    expect(prompt).toContain("预览与 `/approve` 分开");
+    expect(prompt).toContain("绝不能把脚本本身当作 approval id/slug");
   });
 
   it("includes runtime provider capabilities when present", () => {

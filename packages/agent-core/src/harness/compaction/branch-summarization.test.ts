@@ -192,8 +192,8 @@ describe("branch summarization", () => {
       throw result.error;
     }
     expect(result.value).toEqual({
-      summary: `The user explored a different conversation branch before returning here.
-Summary of that exploration:
+      summary: `用户在回到这里之前探索了另一个对话分支。
+该分支探索摘要：
 
 ${summaryText}
 

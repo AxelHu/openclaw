@@ -43,22 +43,21 @@ type PartialSummaryError = Error & { partialSummary?: string };
 
 const DEFAULT_SUMMARY_FALLBACK = "No prior history.";
 const MERGE_SUMMARIES_INSTRUCTIONS = [
-  "Merge these partial summaries into a single cohesive summary.",
+  "将这些局部摘要合并成一份连贯的完整摘要。",
   "",
-  "MUST PRESERVE:",
-  "- Active tasks and their current status (in-progress, blocked, pending)",
-  "- Batch operation progress (e.g., '5/17 items completed')",
-  "- The last thing the user requested and what was being done about it",
-  "- Decisions made and their rationale",
-  "- TODOs, open questions, and constraints",
-  "- Any commitments or follow-ups promised",
+  "必须保留：",
+  "- 活跃任务及其当前状态（in-progress、blocked、pending）",
+  "- 批量操作进度（例如“已完成 5/17 项”）",
+  "- 用户最近一次要求，以及当时正在如何处理",
+  "- 已做出的决定及其理由",
+  "- TODO、未决问题与约束",
+  "- 已承诺的事项或后续跟进",
   "",
-  "PRIORITIZE recent context over older history. The agent needs to know",
-  "what it was doing, not just what was discussed.",
+  "近期上下文优先于更早历史。Agent 需要知道自己当时正在做什么，",
+  "而不仅仅是曾经讨论过什么。",
 ].join("\n");
 const IDENTIFIER_PRESERVATION_INSTRUCTIONS =
-  "Preserve all opaque identifiers exactly as written (no shortening or reconstruction), " +
-  "including UUIDs, hashes, IDs, hostnames, IPs, ports, URLs, and file names.";
+  "所有不透明标识符必须逐字保留（不得缩短或重构），包括 UUID、hash、ID、主机名、IP、端口、URL 与文件名。";
 
 /** Optional instruction policy for preserving identifiers during compaction. */
 export type CompactionSummarizationInstructions = {

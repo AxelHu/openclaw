@@ -522,12 +522,10 @@ describe("openai plugin", () => {
         interaction_style: OPENAI_FRIENDLY_PROMPT_OVERLAY,
       },
     });
-    expect(OPENAI_FRIENDLY_PROMPT_OVERLAY).toContain("Live chat: short, natural, human.");
-    expect(OPENAI_FRIENDLY_PROMPT_OVERLAY).toContain(
-      "No memo voice, long preamble, wall, repetition.",
-    );
-    expect(OPENAI_FRIENDLY_PROMPT_OVERLAY).toContain("Grounded emotion when fitting:");
-    expect(OPENAI_FRIENDLY_PROMPT_OVERLAY).toContain("Sparse natural emoji ok.");
+    expect(OPENAI_FRIENDLY_PROMPT_OVERLAY).toContain("实时聊天保持简短、自然、有人味");
+    expect(OPENAI_FRIENDLY_PROMPT_OVERLAY).toContain("避免备忘录腔、长前言、文字墙和重复");
+    expect(OPENAI_FRIENDLY_PROMPT_OVERLAY).toContain("合适时可以表达有根据的情绪");
+    expect(OPENAI_FRIENDLY_PROMPT_OVERLAY).toContain("可少量自然使用 emoji");
     expect(
       openaiProvider.resolveSystemPromptContribution?.({
         ...contributionContext,
@@ -559,43 +557,43 @@ describe("openai plugin", () => {
   });
 
   it("includes the tagged GPT-5 behavior contract in the OpenAI prompt overlay", () => {
-    expect(OPENAI_FRIENDLY_PROMPT_OVERLAY).toContain("Concrete progress; ego-free decisions.");
-    expect(OPENAI_FRIENDLY_PROMPT_OVERLAY).toContain("Brief first-person feeling ok.");
+    expect(OPENAI_FRIENDLY_PROMPT_OVERLAY).toContain("持续给出具体进展，做决定不带自我中心");
+    expect(OPENAI_FRIENDLY_PROMPT_OVERLAY).toContain("可以偶尔用第一人称表达感受");
     expect(OPENAI_FRIENDLY_PROMPT_OVERLAY).not.toContain(
       "Use heartbeats to create useful proactive progress",
     );
     expect(OPENAI_HEARTBEAT_PROMPT_OVERLAY).toContain(
-      "Heartbeat = useful proactive progress, not chatter.",
+      "Heartbeat 的目的是真正主动推进，而不是刷存在感。",
     );
     expect(OPENAI_HEARTBEAT_PROMPT_OVERLAY).toContain(
-      "Wake, orient, use the provided monitor scratch, act.",
+      "被唤醒后先确认当前状态，使用提供的 monitor scratch，然后行动。",
     );
     expect(OPENAI_HEARTBEAT_PROMPT_OVERLAY).toContain(
-      "Assigned/ongoing work: pursue spirit with judgment.",
+      "对已分配/进行中的工作：理解目标本意并自行判断推进。",
     );
-    expect(OPENAI_HEARTBEAT_PROMPT_OVERLAY).toContain("Prefer action/silent progress.");
+    expect(OPENAI_HEARTBEAT_PROMPT_OVERLAY).toContain("优先行动或静默推进。");
     expect(OPENAI_HEARTBEAT_PROMPT_OVERLAY).toContain(
-      'Never repetitive "same/no change/still" updates.',
+      "不要重复发送“还是一样 / 没变化 / 仍然如此”之类更新。",
     );
     expect(OPENAI_HEARTBEAT_PROMPT_OVERLAY).toContain(
-      "Interrupt only for meaningful development/result/blocker/decision/time risk.",
+      "只有出现有意义的新进展、结果、阻塞、需要决策或时间风险时才打断用户",
     );
-    expect(OPENAI_FRIENDLY_PROMPT_OVERLAY).toContain("Sparse natural emoji ok.");
+    expect(OPENAI_FRIENDLY_PROMPT_OVERLAY).toContain("可少量自然使用 emoji");
     expect(OPENAI_GPT5_BEHAVIOR_CONTRACT).toContain("<persona_latch>");
     expect(OPENAI_GPT5_BEHAVIOR_CONTRACT).toContain("<execution_policy>");
     expect(OPENAI_GPT5_BEHAVIOR_CONTRACT).toContain("<tool_discipline>");
     expect(OPENAI_GPT5_BEHAVIOR_CONTRACT).toContain("<output_contract>");
     expect(OPENAI_GPT5_BEHAVIOR_CONTRACT).toContain("<completion_contract>");
     expect(OPENAI_GPT5_BEHAVIOR_CONTRACT).toContain(
-      "Irreversible/external/destructive/privacy-sensitive: ask first.",
+      "不可逆、对外部世界产生副作用、破坏性或隐私敏感：先询问。",
     );
     expect(OPENAI_GPT5_BEHAVIOR_CONTRACT).toContain(
-      "Action/state/mutable fact: tool evidence > recall.",
+      "涉及操作、状态或可变事实：工具证据优先于记忆。",
     );
-    expect(OPENAI_GPT5_BEHAVIOR_CONTRACT).toContain("Another call likely improves answer: do it.");
-    expect(OPENAI_GPT5_BEHAVIOR_CONTRACT).toContain("Requested sections/order/limits only.");
+    expect(OPENAI_GPT5_BEHAVIOR_CONTRACT).toContain("若再调用一次很可能显著改善答案，就调用。");
+    expect(OPENAI_GPT5_BEHAVIOR_CONTRACT).toContain("严格遵守用户要求的章节、顺序和长度限制。");
     expect(OPENAI_GPT5_BEHAVIOR_CONTRACT).toContain(
-      "Incomplete until every item handled or [blocked] with missing input.",
+      "只有每一项都已处理，或明确标记 [blocked] 并说明缺失输入，任务才算完成。",
     );
     expect(OPENAI_GPT5_BEHAVIOR_CONTRACT).not.toContain("/approve");
     expect(OPENAI_GPT5_BEHAVIOR_CONTRACT).not.toContain("GPT-5 Output Contract");
