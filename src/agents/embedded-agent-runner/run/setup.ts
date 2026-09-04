@@ -211,6 +211,7 @@ function resolveEffectiveRuntimeModel(params: {
   contextConfigProvider?: string;
   modelId: string;
   runtimeModel: ProviderRuntimeModel;
+  agentContextTokens?: number;
   contextWindow?: string;
 }): {
   ctxInfo: ContextWindowInfo;
@@ -227,6 +228,7 @@ function resolveEffectiveRuntimeModel(params: {
     cfg: params.cfg,
     provider: params.contextConfigProvider ?? params.provider,
     modelId: params.modelId,
+    agentContextTokens: params.agentContextTokens,
     modelContextTokens: readAgentModelContextTokens(params.runtimeModel),
     modelContextWindow: contextWindowProfile.contextTokens,
     defaultTokens: DEFAULT_CONTEXT_TOKENS,
@@ -292,6 +294,7 @@ export function resolveEmbeddedRuntimeModelPolicy(params: {
   modelId: string;
   runtimeModel: ProviderRuntimeModel;
   nativeModelOwned: boolean;
+  agentContextTokens?: number;
   contextWindow?: string;
 }): {
   contextWindowInfo?: ContextWindowInfo;

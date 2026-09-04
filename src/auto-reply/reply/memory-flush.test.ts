@@ -6,10 +6,61 @@ import { describe, expect, it } from "vitest";
 import type { ModelDefinitionConfig, ModelProviderConfig } from "../../config/types.models.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { modelKey } from "../../shared/model-key.js";
-import { resolveResponsesServerCompactionThreshold } from "./memory-flush.js";
+import {
+  resolveMemoryFlushContextWindowTokens,
+  resolveResponsesServerCompactionThreshold,
+} from "./memory-flush.js";
 
 const TEST_MODEL_ID = "gpt-5.4";
 const TEST_CONTEXT_WINDOW = 200_000;
+
+describe("memory flush agent context budget", () => {
+  it("uses the tighter per-agent contextTokens budget", () => {
+    const cfg: OpenClawConfig = {
+      models: {
+        providers: {
+          minimax: {
+            baseUrl: "https://api.minimaxi.com/anthropic",
+            models: [buildModelConfig({ contextWindow: 1_000_000 })],
+          },
+        },
+      },
+      agents: { entries: { mala: { contextTokens: 850_000 } } },
+    };
+
+    expect(
+      resolveMemoryFlushContextWindowTokens({
+        cfg,
+        agentId: "mala",
+        provider: "minimax",
+        modelId: TEST_MODEL_ID,
+      }),
+    ).toBe(850_000);
+  });
+
+  it("never expands a smaller model budget", () => {
+    const cfg: OpenClawConfig = {
+      models: {
+        providers: {
+          minimax: {
+            baseUrl: "https://api.minimaxi.com/anthropic",
+            models: [buildModelConfig({ contextTokens: 128_000, contextWindow: 200_000 })],
+          },
+        },
+      },
+      agents: { entries: { mala: { contextTokens: 850_000 } } },
+    };
+
+    expect(
+      resolveMemoryFlushContextWindowTokens({
+        cfg,
+        agentId: "mala",
+        provider: "minimax",
+        modelId: TEST_MODEL_ID,
+      }),
+    ).toBe(128_000);
+  });
+});
 
 function buildModelConfig(
   route: Pick<

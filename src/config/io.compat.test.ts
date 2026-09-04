@@ -150,7 +150,7 @@ describe("config io paths", () => {
         contextWindow: 128_000,
       });
       expect(config.agents?.defaults).not.toHaveProperty("contextTokens");
-      expect(config.agents?.entries?.ops).not.toHaveProperty("contextTokens");
+      expect(config.agents?.entries?.ops).toHaveProperty("contextTokens", 32_000);
       expect(resolvedBudget).toBe(64_000);
       expect(snapshot.sourceConfigBeforeMigrations).toMatchObject(authored);
       expect(logger.warn).toHaveBeenCalledWith(

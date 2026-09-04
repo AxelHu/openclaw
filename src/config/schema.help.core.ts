@@ -317,6 +317,8 @@ export const CORE_FIELD_HELP: Record<string, string> = {
     "Per-agent override for the skills prompt character budget. This extends the existing skills.limits.maxSkillsPromptChars path instead of routing the same budget through contextLimits.",
   "agents.entries.*.contextLimits":
     "Optional per-agent overrides for the focused context budget knobs. Omitted fields inherit agents.defaults.contextLimits.",
+  "agents.entries.*.contextTokens":
+    "Optional effective context-token budget for this agent. Caps prompt, tool-result, and compaction budgeting without changing the provider model's native contextWindow; smaller model limits still win.",
   "agents.entries.*.contextLimits.memoryGetMaxChars":
     "Per-agent override for the default memory_get max character budget.",
   "agents.entries.*.contextLimits.postCompactionMaxChars":

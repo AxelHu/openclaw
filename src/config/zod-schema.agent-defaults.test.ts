@@ -507,6 +507,13 @@ describe("agent defaults schema", () => {
     expect(agent.contextLimits?.memoryGetMaxChars).toBe(18_000);
   });
 
+  it("accepts a positive per-agent contextTokens budget", () => {
+    expect(AgentEntrySchema.parse({ id: "ops", contextTokens: 850_000 }).contextTokens).toBe(
+      850_000,
+    );
+    expect(AgentEntrySchema.safeParse({ id: "ops", contextTokens: 0 }).success).toBe(false);
+  });
+
   it("accepts positive heartbeat timeoutSeconds on defaults and agent entries", () => {
     const defaults = AgentDefaultsSchema.parse({
       heartbeat: { timeoutSeconds: 45 },

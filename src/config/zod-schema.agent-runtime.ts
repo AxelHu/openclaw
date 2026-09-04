@@ -927,6 +927,7 @@ export const AgentEntrySchema = z
     workspace: z.string().optional(),
     agentDir: z.string().optional(),
     model: AgentModelSchema.optional(),
+    contextTokens: z.number().int().positive().optional(),
     utilityModel: z.string().optional(),
     models: AgentModelMapSchema.optional(),
     modelPolicy: AgentModelPolicySchema.optional(),

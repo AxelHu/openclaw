@@ -113,6 +113,41 @@ describe("context-window-guard", () => {
     });
   });
 
+  it("caps the effective budget with agentContextTokens while preserving model reference", () => {
+    const info = resolveContextWindowInfo({
+      cfg: undefined,
+      provider: "minimax",
+      modelId: "MiniMax-M3",
+      agentContextTokens: 850_000,
+      modelContextWindow: 1_000_000,
+      defaultTokens: 200_000,
+    });
+
+    expect(info).toEqual({
+      source: "agentContextTokens",
+      tokens: 850_000,
+      referenceTokens: 1_000_000,
+    });
+  });
+
+  it("treats a deliberate agentContextTokens cap as a budget, not a tiny-model failure", () => {
+    const info = resolveContextWindowInfo({
+      cfg: undefined,
+      provider: "example",
+      modelId: "large",
+      agentContextTokens: 32_000,
+      modelContextWindow: 1_000_000,
+      defaultTokens: 200_000,
+    });
+    const guard = evaluateContextWindowGuard({ info });
+
+    expect(guard.referenceTokens).toBe(1_000_000);
+    expect(guard.hardMinTokens).toBe(4_000);
+    expect(guard.warnBelowTokens).toBe(8_000);
+    expect(guard.shouldWarn).toBe(false);
+    expect(guard.shouldBlock).toBe(false);
+  });
+
   it("matches bare provider model config ids against provider-scoped runtime model ids", () => {
     const cfg = openRouterModelConfig({ contextWindow: 1_000_000, contextTokens: 936_000 });
 

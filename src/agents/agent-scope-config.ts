@@ -58,6 +58,7 @@ export type ResolvedAgentConfig = {
   workspace?: string;
   agentDir?: string;
   model?: AgentEntry["model"];
+  contextTokens?: AgentEntry["contextTokens"];
   models?: AgentEntry["models"];
   params?: AgentEntry["params"];
   runtime?: AgentEntry["runtime"];
@@ -347,6 +348,10 @@ export function resolveAgentConfig(
       typeof entry.model === "string" || (entry.model && typeof entry.model === "object")
         ? entry.model
         : undefined,
+    contextTokens:
+      typeof entry.contextTokens === "number" && Number.isFinite(entry.contextTokens)
+        ? Math.floor(entry.contextTokens)
+        : undefined,
     ...(entry.models ? { models: entry.models } : {}),
     ...(entry.params ? { params: entry.params } : {}),
     ...(entry.runtime ? { runtime: entry.runtime } : {}),
@@ -389,6 +394,20 @@ export function resolveAgentConfig(
     sandbox: entry.sandbox,
     tools: entry.tools,
   };
+}
+
+/** Resolves a positive per-agent effective context-token cap when configured. */
+export function resolveAgentContextTokens(
+  cfg: OpenClawConfig | undefined,
+  agentId?: string | null,
+): number | undefined {
+  if (!cfg || !agentId) {
+    return undefined;
+  }
+  const configured = resolveAgentConfig(cfg, agentId)?.contextTokens;
+  return typeof configured === "number" && Number.isFinite(configured) && configured > 0
+    ? Math.floor(configured)
+    : undefined;
 }
 
 export function resolveAgentContextLimits(

@@ -91,6 +91,12 @@ export type AgentConfig = {
   workspace?: string;
   agentDir?: string;
   model?: AgentModelConfig;
+  /**
+   * Optional effective context-token budget for this agent. This caps the
+   * runtime/model budget without changing the provider model's native
+   * contextWindow metadata. Smaller model windows still win.
+   */
+  contextTokens?: number;
   /** Optional per-agent model for short internal tasks such as generated session titles. */
   utilityModel?: string;
   /**

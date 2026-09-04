@@ -1,6 +1,7 @@
 // Builds memory flush prompts when conversation context exceeds model budget.
 import { resolveAnthropicServerCompactionPlan } from "@openclaw/ai/internal/anthropic";
 import { resolveOpenAIResponsesServerCompactionPlan } from "@openclaw/ai/internal/openai-responses-payload-policy";
+import { resolveAgentContextTokens } from "../../agents/agent-scope-config.js";
 import { resolveContextTokensForModel } from "../../agents/context.js";
 import { DEFAULT_CONTEXT_TOKENS } from "../../agents/defaults.js";
 import { resolveModelExtraParamSources } from "../../agents/model-extra-params.js";
@@ -15,18 +16,20 @@ import { resolveFreshSessionTotalTokens, type SessionEntry } from "../../config/
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 
 export function resolveMemoryFlushContextWindowTokens(params: {
+  agentId?: string;
   modelId?: string;
   cfg?: OpenClawConfig;
   provider?: string;
 }): number {
-  return (
+  const modelTokens =
     resolveContextTokensForModel({
       cfg: params.cfg,
       provider: params.provider,
       model: params.modelId,
       allowAsyncLoad: false,
-    }) ?? DEFAULT_CONTEXT_TOKENS
-  );
+    }) ?? DEFAULT_CONTEXT_TOKENS;
+  const agentTokens = resolveAgentContextTokens(params.cfg, params.agentId);
+  return agentTokens === undefined ? modelTokens : Math.min(modelTokens, agentTokens);
 }
 
 export function resolveMaxActiveTranscriptBytes(cfg?: OpenClawConfig): number | undefined {

@@ -810,6 +810,7 @@ export async function runSessionCompactionIfNeeded(params: {
   const compactionStore = params.sessionStore ?? { [compactionSessionKey]: entry };
 
   const contextWindowTokens = resolveMemoryFlushContextWindowTokens({
+    agentId: compactionAgentId,
     cfg: params.cfg,
     provider: resolveContextConfigProviderForRuntime({
       provider: params.followupRun.run.provider,
@@ -1279,6 +1280,11 @@ export async function runMemoryFlushIfNeeded(params: {
     return { sessionEntry: entry ?? params.sessionEntry, outcome: "skipped" };
   }
 
+  const configuredAgentId = params.followupRun.run.agentId ?? resolveDefaultAgentId(params.cfg);
+  const memoryFlushAgentId = params.sessionKey
+    ? resolveAgentIdFromSessionKey(params.sessionKey, configuredAgentId)
+    : configuredAgentId;
+
   const flushRunId = memoryDeps.randomUUID();
   let flushRunRegistered = false;
   let activeSessionEntry = entry ?? params.sessionEntry;
@@ -1286,6 +1292,7 @@ export async function runMemoryFlushIfNeeded(params: {
   const recordFailure = (error: unknown) =>
     recordMemoryFlushFailure(error, params, activeSessionEntry);
   const contextWindowTokens = resolveMemoryFlushContextWindowTokens({
+    agentId: memoryFlushAgentId,
     cfg: params.cfg,
     provider: resolveContextConfigProviderForRuntime({
       provider: params.followupRun.run.provider,

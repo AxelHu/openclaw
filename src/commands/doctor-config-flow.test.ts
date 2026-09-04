@@ -1706,7 +1706,7 @@ describe("doctor config flow", () => {
           },
         },
       },
-      agents: { defaults: {}, entries: { ops: {} } },
+      agents: { defaults: {}, entries: { ops: { contextTokens: 32_000 } } },
     };
     const legacy = {
       models: {
@@ -1732,7 +1732,7 @@ describe("doctor config flow", () => {
       "models.providers.openai.contextTokens → models.providers.openai.models[0].contextTokens",
     );
     expect(previewText).toContain("Removed agents.defaults.contextTokens");
-    expect(previewText).toContain("Removed agents.entries.ops.contextTokens");
+    expect(previewText).not.toContain("Removed agents.entries.ops.contextTokens");
     expect(previewText).toContain("models.providers.<provider>.models[].contextTokens");
 
     terminalNoteMock.mockClear();
@@ -1749,7 +1749,7 @@ describe("doctor config flow", () => {
     expect(repaired.pendingChangePanels?.join("\n")).toContain(
       "Removed models.providers.openai.contextWindow after baking it into explicit model entries.",
     );
-    expect(terminalNoteMock.mock.calls.map(([message]) => message).join("\n")).toContain(
+    expect(terminalNoteMock.mock.calls.map(([message]) => message).join("\n")).not.toContain(
       "agents.entries.ops.contextTokens cannot be represented per model",
     );
   });

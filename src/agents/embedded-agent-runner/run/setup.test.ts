@@ -398,6 +398,71 @@ describe("resolveEmbeddedRuntimeModelPolicy", () => {
     expect(unselected.effectiveModel.contextWindow).toBe(272_000);
   });
 
+  it("applies a per-agent contextTokens budget without rewriting model catalog capacity", () => {
+    const runtimeModel: ProviderRuntimeModel = {
+      provider: "minimax",
+      id: "MiniMax-M3",
+      name: "MiniMax M3",
+      baseUrl: "https://api.minimaxi.com/anthropic",
+      api: "anthropic-messages",
+      reasoning: true,
+      input: ["text"],
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      contextWindow: 1_000_000,
+      maxTokens: 32_768,
+    };
+    const resolved = resolveEmbeddedRunEffectiveModel({
+      runParams: {
+        agentId: "mala",
+        config: {
+          agents: { entries: { mala: { contextTokens: 850_000 } } },
+        },
+      } as never,
+      provider: "minimax",
+      modelConfigProvider: "minimax",
+      modelId: "MiniMax-M3",
+      agentHarnessId: "openclaw",
+      runtimeModel,
+      nativeModelOwned: false,
+    });
+
+    expect(resolved.contextTokenBudget).toBe(850_000);
+    expect(resolved.contextWindowInfo).toEqual({
+      source: "agentContextTokens",
+      tokens: 850_000,
+      referenceTokens: 1_000_000,
+    });
+    expect(resolved.effectiveModel.contextWindow).toBe(850_000);
+    expect(runtimeModel.contextWindow).toBe(1_000_000);
+  });
+
+  it("passes the tighter per-agent cap to plugin transports as authored context authority", () => {
+    const resolved = resolveEmbeddedRunEffectiveModel({
+      runParams: {
+        agentId: "ops",
+        config: {
+          agents: { entries: { ops: { contextTokens: 48_000 } } },
+          models: {
+            providers: {
+              openai: {
+                baseUrl: "https://api.openai.com/v1",
+                models: [createConfiguredModel({ contextTokens: 64_000 })],
+              },
+            },
+          },
+        },
+      } as never,
+      provider: "openai",
+      modelConfigProvider: "openai",
+      modelId: "gpt-5.5",
+      agentHarnessId: "codex",
+      runtimeModel: createRuntimeModel(),
+      nativeModelOwned: true,
+    });
+
+    expect(resolved.authoredContextTokenCap).toBe(48_000);
+  });
+
   it("preserves the effective budget and adds an authored cap for plugin transports (#124702)", () => {
     const resolve = (models: ModelDefinitionConfig[]) =>
       resolveEmbeddedRunEffectiveModel({

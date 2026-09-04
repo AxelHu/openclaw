@@ -98,7 +98,7 @@ describe("legacy context-budget config migration", () => {
     ]);
   });
 
-  it("removes every agent-level cap surface and is idempotent", () => {
+  it("retires only the global agent cap while preserving per-agent budgets", () => {
     const raw = {
       agents: {
         defaults: { contextTokens: 128_000 },
@@ -110,23 +110,19 @@ describe("legacy context-budget config migration", () => {
     const migrated = migrateLegacyContextBudgetConfig(raw);
 
     expect(migrated.config).toEqual({
-      agents: { defaults: {}, entries: { ops: {}, writer: {} }, list: [{ id: "legacy" }] },
+      agents: {
+        defaults: {},
+        entries: { ops: { contextTokens: 64_000 }, writer: {} },
+        list: [{ id: "legacy", contextTokens: 32_000 }],
+      },
     });
     expect(migrated.changes).toEqual([
       {
         path: "agents.defaults.contextTokens",
         message: "Removed agents.defaults.contextTokens.",
       },
-      {
-        path: "agents.entries.ops.contextTokens",
-        message: "Removed agents.entries.ops.contextTokens.",
-      },
-      {
-        path: "agents.list[0].contextTokens",
-        message: "Removed agents.list[0].contextTokens.",
-      },
     ]);
-    expect(migrated.warnings).toHaveLength(3);
+    expect(migrated.warnings).toHaveLength(1);
     expect(migrateLegacyContextBudgetConfig(migrated.config)).toEqual({
       config: migrated.config,
       changed: false,
@@ -134,6 +130,17 @@ describe("legacy context-budget config migration", () => {
       warnings: [],
     });
     expect(raw.agents.defaults).toHaveProperty("contextTokens", 128_000);
+  });
+
+  it("treats a per-agent contextTokens budget as canonical", () => {
+    const canonical = { agents: { entries: { ops: { contextTokens: 64_000 } } } };
+
+    expect(migrateLegacyContextBudgetConfig(canonical)).toEqual({
+      config: canonical,
+      changed: false,
+      changes: [],
+      warnings: [],
+    });
   });
 
   it("returns the original canonical config without cloning or changes", () => {

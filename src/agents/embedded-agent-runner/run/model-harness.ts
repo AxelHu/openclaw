@@ -1,5 +1,6 @@
 import type { Model } from "../../../llm/types.js";
 import { OPENCLAW_AGENT_RUNTIME_ID } from "../../agent-runtime-id.js";
+import { resolveAgentContextTokens } from "../../agent-scope-config.js";
 import { resolveAuthoredModelContextTokens } from "../../context-resolution.js";
 import {
   selectAgentHarness,
@@ -33,6 +34,10 @@ export function resolveEmbeddedRunEffectiveModel(
     nativeModelOwned: boolean;
   },
 ) {
+  const agentContextTokenCap = resolveAgentContextTokens(
+    params.runParams.config,
+    params.runParams.agentId,
+  );
   const contextConfigProvider = resolveContextConfigProviderForRuntime({
     provider: params.modelConfigProvider,
     runtimeId: params.agentHarnessId,
@@ -45,9 +50,10 @@ export function resolveEmbeddedRunEffectiveModel(
     modelId: params.modelId,
     runtimeModel: params.runtimeModel,
     nativeModelOwned: params.nativeModelOwned,
+    agentContextTokens: agentContextTokenCap,
     ...(params.runParams.contextWindow ? { contextWindow: params.runParams.contextWindow } : {}),
   });
-  const authoredContextTokenCap =
+  const authoredModelContextTokenCap =
     params.agentHarnessId === OPENCLAW_AGENT_RUNTIME_ID
       ? undefined
       : resolveAuthoredModelContextTokens({
@@ -55,6 +61,14 @@ export function resolveEmbeddedRunEffectiveModel(
           provider: contextConfigProvider,
           model: params.modelId,
         });
+  const authoredContextTokenCap =
+    params.agentHarnessId === OPENCLAW_AGENT_RUNTIME_ID
+      ? undefined
+      : authoredModelContextTokenCap === undefined
+        ? agentContextTokenCap
+        : agentContextTokenCap === undefined
+          ? authoredModelContextTokenCap
+          : Math.min(authoredModelContextTokenCap, agentContextTokenCap);
   return {
     ...resolved,
     ...(authoredContextTokenCap === undefined ? {} : { authoredContextTokenCap }),

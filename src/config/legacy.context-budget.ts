@@ -31,18 +31,7 @@ function hasLegacyContextBudgetConfig(root: JsonRecord): boolean {
   if (isRecord(agents.defaults) && Object.hasOwn(agents.defaults, "contextTokens")) {
     return true;
   }
-  if (
-    isRecord(agents.entries) &&
-    Object.values(agents.entries).some(
-      (entry) => isRecord(entry) && Object.hasOwn(entry, "contextTokens"),
-    )
-  ) {
-    return true;
-  }
-  return (
-    Array.isArray(agents.list) &&
-    agents.list.some((entry) => isRecord(entry) && Object.hasOwn(entry, "contextTokens"))
-  );
+  return false;
 }
 
 function removeAgentContextTokens(
@@ -66,17 +55,6 @@ function removeAgentContextTokens(
     });
   };
   removeContextTokens(agents.defaults, "agents.defaults.contextTokens");
-  const entries = agents.entries;
-  if (isRecord(entries)) {
-    for (const [agentId, entry] of Object.entries(entries)) {
-      removeContextTokens(entry, `agents.entries.${agentId}.contextTokens`);
-    }
-  }
-  if (Array.isArray(agents.list)) {
-    for (const [index, entry] of agents.list.entries()) {
-      removeContextTokens(entry, `agents.list[${index}].contextTokens`);
-    }
-  }
 }
 
 function migrateProviderContextBudgets(

@@ -55,6 +55,7 @@ export function resolveContextWindowInfo(params: {
   cfg: OpenClawConfig | undefined;
   provider: string;
   modelId: string;
+  agentContextTokens?: number;
   modelContextTokens?: number;
   modelContextWindow?: number;
   defaultTokens: number;
@@ -82,11 +83,19 @@ export function resolveContextWindowInfo(params: {
     normalizePositiveInt(params.modelContextWindow);
   const defaultTokens =
     normalizePositiveInt(params.defaultTokens) ?? CONTEXT_WINDOW_WARN_BELOW_TOKENS;
-  return fromModelsConfig
+  const modelInfo = fromModelsConfig
     ? { tokens: fromModelsConfig, source: "modelsConfig" as const }
     : fromModel
       ? { tokens: fromModel, source: "model" as const }
       : { tokens: defaultTokens, source: "default" as const };
+  const agentContextTokens = normalizePositiveInt(params.agentContextTokens);
+  return agentContextTokens !== null && agentContextTokens < modelInfo.tokens
+    ? {
+        tokens: agentContextTokens,
+        referenceTokens: modelInfo.tokens,
+        source: "agentContextTokens" as const,
+      }
+    : modelInfo;
 }
 
 type ContextWindowGuardResult = ContextWindowInfo & {
@@ -191,7 +200,11 @@ export function evaluateContextWindowGuard(params: {
   const normalizedTokens = normalizePositiveInt(params.info.tokens);
   const tokens = normalizedTokens ?? 0;
   const referenceTokens = normalizePositiveInt(params.info.referenceTokens) ?? tokens;
-  const resolvedThresholds = resolveContextWindowGuardThresholds(referenceTokens);
+  // agentContextTokens is an intentional operator-authored budget, not evidence
+  // that the provider/model itself has a dangerously small native window.
+  const thresholdReferenceTokens =
+    params.info.source === "agentContextTokens" ? tokens : referenceTokens;
+  const resolvedThresholds = resolveContextWindowGuardThresholds(thresholdReferenceTokens);
   const warnBelow = Math.max(
     1,
     Math.floor(params.warnBelowTokens ?? resolvedThresholds.warnBelowTokens),
