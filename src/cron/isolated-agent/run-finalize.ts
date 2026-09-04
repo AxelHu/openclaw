@@ -5,6 +5,7 @@ import {
 } from "@openclaw/normalization-core/number-coercion";
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
 import { hasAcceptedSessionSpawn } from "../../agents/accepted-session-spawn.js";
+import { resolveAgentContextTokens } from "../../agents/agent-scope-config.js";
 import { resolveAuthoredModelContextTokens } from "../../agents/context-resolution.js";
 import { hasCommittedMessagingToolDeliveryEvidence } from "../../agents/embedded-agent-runner/delivery-evidence.js";
 import { hasIntentionalTerminalCompletion } from "../../agents/embedded-agent-runner/result-fallback-classifier.js";
@@ -131,6 +132,7 @@ export async function finalizeCronRun(params: {
     agentHarnessId,
     resolvedContextTokens: modelContextTokens,
     authoredContextTokens,
+    agentContextTokens: resolveAgentContextTokens(prepared.cfgWithAgentDefaults, prepared.agentId),
   });
   const contextTokens = runtimeContextTokens ?? projectedContextTokens ?? DEFAULT_CONTEXT_TOKENS;
   // Preserve persisted provenance only when the projector selected that owner;

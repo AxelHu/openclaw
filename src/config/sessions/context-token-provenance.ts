@@ -96,9 +96,11 @@ export function resolveProjectedSessionContextTokens(params: {
   agentHarnessId: string | null | undefined;
   resolvedContextTokens: number | null | undefined;
   authoredContextTokens?: number | null | undefined;
+  agentContextTokens?: number | null | undefined;
 }): number | undefined {
   const resolvedContextTokens = resolvePositiveContextTokens(params.resolvedContextTokens);
   const authoredContextTokens = resolvePositiveContextTokens(params.authoredContextTokens);
+  const agentContextTokens = resolvePositiveContextTokens(params.agentContextTokens);
   const trustedContextTokens = resolveTrustedSessionContextTokens(params);
   const persistedResolution =
     resolvedContextTokens === undefined && authoredContextTokens === undefined
@@ -114,7 +116,15 @@ export function resolveProjectedSessionContextTokens(params: {
       : trustedContextTokens !== undefined && resolvedContextTokens !== undefined
         ? Math.min(trustedContextTokens, resolvedContextTokens)
         : (trustedContextTokens ?? resolvedContextTokens ?? persistedResolution);
-  return params.entry?.modelSelectionLocked === true
-    ? (trustedContextTokens ?? currentContextTokens)
-    : currentContextTokens;
+  const selectedContextTokens =
+    params.entry?.modelSelectionLocked === true
+      ? (trustedContextTokens ?? currentContextTokens)
+      : currentContextTokens;
+  // An operator-authored per-agent budget is an upper bound on every runtime
+  // selection for that agent. It must never inflate a provider/runtime window
+  // that is already smaller, but it also must not disappear from read-only
+  // status projections just because the model catalog reports its native cap.
+  return selectedContextTokens !== undefined && agentContextTokens !== undefined
+    ? Math.min(selectedContextTokens, agentContextTokens)
+    : selectedContextTokens;
 }

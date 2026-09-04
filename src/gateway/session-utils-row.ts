@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { asNonNegativeFiniteNumber } from "@openclaw/normalization-core/number-coercion";
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
+import { resolveAgentContextTokens } from "../agents/agent-scope-config.js";
 import { resolveAuthoredModelContextTokens } from "../agents/context-resolution.js";
 import { resolveContextTokensForModel } from "../agents/context.js";
 import { DEFAULT_MODEL, DEFAULT_PROVIDER } from "../agents/defaults.js";
@@ -396,6 +397,7 @@ export function buildGatewaySessionRow(params: {
     agentHarnessId: thinkingProjection.agentRuntime.id,
     resolvedContextTokens: resolvedCurrentContextTokens,
     authoredContextTokens,
+    agentContextTokens: resolveAgentContextTokens(cfg, sessionAgentId),
   });
   const fastModeState = resolveFastModeState({
     cfg,

@@ -1,6 +1,7 @@
 // Builds the status summary used by human and JSON status output.
 // It aggregates sessions, tasks, heartbeat, channel summary, and model/runtime metadata.
 
+import { resolveAgentContextTokens } from "../agents/agent-scope-config.js";
 import { resolveAgentConfig } from "../agents/agent-scope.js";
 import { DEFAULT_CONTEXT_TOKENS, DEFAULT_MODEL, DEFAULT_PROVIDER } from "../agents/defaults.js";
 import { areRuntimeModelRefsEquivalent } from "../agents/model-runtime-aliases.js";
@@ -311,6 +312,7 @@ async function prepareSessionStatusDetails(cfg: OpenClawConfig, now: number) {
               provider: lookupModel.provider,
               model: lookupModelId,
             }),
+            agentContextTokens: resolveAgentContextTokens(cfg, agentId),
           }) ?? null;
         const total = resolveSessionTotalTokens(entry);
         const freshTotal = resolveFreshSessionTotalTokens(entry);

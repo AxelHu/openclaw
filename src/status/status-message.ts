@@ -6,6 +6,7 @@ import {
   normalizeOptionalLowercaseString,
   normalizeOptionalString,
 } from "@openclaw/normalization-core/string-coerce";
+import { resolveAgentContextTokens } from "../agents/agent-scope-config.js";
 import { resolveAuthoredModelContextTokens } from "../agents/context-resolution.js";
 import { resolveContextTokensForModel } from "../agents/context.js";
 import { resolveCronStyleNow } from "../agents/current-time.js";
@@ -788,6 +789,7 @@ export function buildStatusMessageParts(args: StatusArgs): StatusMessageParts {
       provider: contextLookupProvider,
       model: contextLookupModel,
     }),
+    agentContextTokens: resolveAgentContextTokens(contextConfig, args.agentId),
   });
   const runtimeSnapshotHasFallbackProvenance =
     initialFallbackState.active ||

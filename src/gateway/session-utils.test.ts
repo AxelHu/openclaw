@@ -1514,6 +1514,48 @@ describe("gateway session utils", () => {
   );
 
   test.each([true, false])(
+    "caps the projected session window with per-agent contextTokens (lightweight=%s)",
+    (lightweightListRow) => {
+      const cfg = {
+        agents: {
+          defaults: {
+            model: { primary: "openai/gpt-5.6-sol" },
+            models: { "openai/gpt-5.6-sol": { agentRuntime: { id: "openclaw" } } },
+          },
+          entries: {
+            main: { contextTokens: 850_000 },
+          },
+        },
+        models: {
+          providers: {
+            openai: {
+              models: [{ id: "gpt-5.6-sol", contextTokens: 1_000_000 }],
+            },
+          },
+        },
+      } as unknown as OpenClawConfig;
+
+      const row = buildGatewaySessionRow({
+        cfg,
+        storePath: "",
+        store: {},
+        key: "agent:main:main",
+        entry: {
+          sessionId: "agent-context-cap",
+          modelProvider: "openai",
+          model: "gpt-5.6-sol",
+          agentHarnessId: "openclaw",
+          contextTokens: 1_000_000,
+          contextTokensSource: "resolved",
+        } as SessionEntry,
+        lightweightListRow,
+      });
+
+      expect(row.contextTokens).toBe(850_000);
+    },
+  );
+
+  test.each([true, false])(
     "projects current Codex context when producer provenance is missing (lightweight=%s)",
     (lightweightListRow) => {
       const cfg = {

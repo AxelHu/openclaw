@@ -14,6 +14,7 @@ import { getTerminalTableWidth, renderTable } from "../../packages/terminal-core
 import { colorize, isRich, theme } from "../../packages/terminal-core/src/theme.js";
 import { readAcpSessionMetaBatch } from "../acp/runtime/session-meta.js";
 import { resolveModelAgentRuntimeMetadata } from "../agents/agent-runtime-metadata.js";
+import { resolveAgentContextTokens } from "../agents/agent-scope-config.js";
 import { resolveAuthoredModelContextTokens } from "../agents/context-resolution.js";
 import { DEFAULT_CONTEXT_TOKENS } from "../agents/defaults.js";
 import {
@@ -417,6 +418,7 @@ export async function sessionsCommand(
         provider: modelRef.provider,
         model: modelRef.model,
       }),
+      agentContextTokens: resolveAgentContextTokens(cfg, agentId),
     });
     return Object.assign({}, row, {
       agentId,

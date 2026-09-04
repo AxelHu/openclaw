@@ -104,6 +104,42 @@ describe("resolveProjectedSessionContextTokens", () => {
     ).toBe(1_000_000);
   });
 
+  it("caps a native model window with an authored per-agent budget", () => {
+    expect(
+      resolveProjectedSessionContextTokens({
+        entry: { ...matchingRuntimeEntry, contextTokensSource: "resolved" },
+        ...currentSelection,
+        resolvedContextTokens: 1_000_000,
+        agentContextTokens: 850_000,
+      }),
+    ).toBe(850_000);
+  });
+
+  it("does not inflate a smaller trusted runtime window to the per-agent budget", () => {
+    expect(
+      resolveProjectedSessionContextTokens({
+        entry: matchingRuntimeEntry,
+        ...currentSelection,
+        resolvedContextTokens: 1_000_000,
+        agentContextTokens: 850_000,
+      }),
+    ).toBe(272_000);
+  });
+
+  it("applies the per-agent budget to locked sessions", () => {
+    expect(
+      resolveProjectedSessionContextTokens({
+        entry: {
+          modelSelectionLocked: true,
+          contextTokens: 1_000_000,
+        },
+        ...currentSelection,
+        resolvedContextTokens: 1_000_000,
+        agentContextTokens: 850_000,
+      }),
+    ).toBe(850_000);
+  });
+
   it("keeps matching runtime telemetry below a higher native window", () => {
     expect(
       resolveProjectedSessionContextTokens({
