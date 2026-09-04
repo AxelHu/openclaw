@@ -391,6 +391,21 @@ describe("memory-core plugin runtime registration", () => {
     });
   });
 
+  it("reports the QMD backend when the local compatibility bridge is enabled", () => {
+    const runtime = registerMemoryCoreRuntime();
+    const cfg = {
+      plugins: {
+        entries: {
+          "memory-core": { config: { qmdBridge: { enabled: true } } },
+        },
+      },
+    } as OpenClawConfig;
+
+    expect(runtime.resolveMemoryBackendConfig({ cfg, agentId: "main" })).toEqual({
+      backend: "qmd",
+    });
+  });
+
   it("defers nested host runtime access until the injected operation runs", async () => {
     const acquireLocalService = vi.fn(async () => undefined);
     const openKeyedStore = vi.fn(() => ({}));

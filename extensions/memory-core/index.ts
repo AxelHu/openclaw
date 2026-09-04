@@ -25,6 +25,7 @@ import {
   type MemoryToolOptions,
 } from "./src/memory-tool-contract.js";
 import type { MemoryCoreAcquireLocalService } from "./src/memory/embedding-local-service.js";
+import { resolveQmdBridgeConfig } from "./src/memory/qmd-bridge-manager.js";
 import type { MemoryCoreRuntimeHost } from "./src/memory/runtime-host.js";
 import { registerSessionBackfillGatewayMethods } from "./src/session-backfill-gateway.js";
 
@@ -212,6 +213,9 @@ function createLazyMemoryRuntime(host: MemoryCoreRuntimeHost): MemoryPluginRunti
       return await classifyWorkspaceMemoryPaths(params);
     },
     resolveMemoryBackendConfig(params) {
+      if (resolveQmdBridgeConfig(params.cfg, params.agentId)) {
+        return { backend: "qmd" };
+      }
       return resolveMemoryBackendConfig(params);
     },
     async closeAllMemorySearchManagers() {

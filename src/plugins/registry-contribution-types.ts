@@ -218,7 +218,7 @@ export type RegisteredMemorySearchManager = Omit<MemorySearchManager, "readFile"
   ): Promise<LegacyMemoryReadResult | MemoryReadResult>;
 };
 
-type MemoryRuntimeBackendConfig = { backend: "builtin" };
+type MemoryRuntimeBackendConfig = { backend: "builtin" | "qmd" };
 
 export type MemoryPluginRuntime = {
   getMemorySearchManager(params: {
@@ -230,7 +230,7 @@ export type MemoryPluginRuntime = {
   }): Promise<{
     manager: RegisteredMemorySearchManager | null;
     debug?: {
-      backend?: "builtin";
+      backend?: "builtin" | "qmd";
       purpose?: "default" | "status" | "cli";
       managerMs?: number;
     };

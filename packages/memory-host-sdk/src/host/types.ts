@@ -86,7 +86,7 @@ export type MemorySyncParams = {
 };
 
 export type MemorySearchRuntimeDebug = {
-  backend: "builtin";
+  backend: "builtin" | "qmd";
   configuredMode?: string;
   effectiveMode?: string;
   fallback?: string;
@@ -141,7 +141,7 @@ export type MemoryVectorIndexState =
   | { state: "unverified" };
 
 export type MemoryProviderStatus = {
-  backend: "builtin";
+  backend: "builtin" | "qmd";
   provider: string;
   model?: string;
   requestedProvider?: string;

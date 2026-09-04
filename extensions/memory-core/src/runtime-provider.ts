@@ -7,6 +7,7 @@ import {
   closeMemorySearchManager,
   getMemorySearchManager,
 } from "./memory/index.js";
+import { resolveQmdBridgeConfig } from "./memory/qmd-bridge-manager.js";
 import type { MemoryCoreRuntimeHost } from "./memory/runtime-host.js";
 import { classifyWorkspaceMemoryPaths } from "./workspace-path-classifier.js";
 
@@ -28,6 +29,9 @@ export function createMemoryRuntime(host: MemoryCoreRuntimeHost = {}): MemoryPlu
       };
     },
     resolveMemoryBackendConfig(params) {
+      if (resolveQmdBridgeConfig(params.cfg, params.agentId)) {
+        return { backend: "qmd" };
+      }
       return resolveMemoryBackendConfig(params);
     },
     async authorizeSearchHits(params) {

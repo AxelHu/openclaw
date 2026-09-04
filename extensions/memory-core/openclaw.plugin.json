@@ -57,6 +57,58 @@
     "type": "object",
     "additionalProperties": false,
     "properties": {
+      "qmdBridge": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "default": false
+          },
+          "serverName": {
+            "type": "string",
+            "default": "qmd"
+          },
+          "startDaemon": {
+            "type": "boolean",
+            "default": true
+          },
+          "searchMode": {
+            "type": "string",
+            "enum": ["query", "search", "vsearch"],
+            "default": "query"
+          },
+          "rerank": {
+            "type": "boolean",
+            "default": true
+          },
+          "maxResults": {
+            "type": "integer",
+            "minimum": 1,
+            "default": 6
+          },
+          "timeoutMs": {
+            "type": "integer",
+            "minimum": 1,
+            "default": 30000
+          },
+          "maxSnippetChars": {
+            "type": "integer",
+            "minimum": 1,
+            "default": 2200
+          },
+          "collectionPrefix": {
+            "type": "string",
+            "default": "memory-dir-"
+          },
+          "collectionOverrides": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          }
+        }
+      },
       "memoryPolicy": {
         "type": "object",
         "additionalProperties": false,
