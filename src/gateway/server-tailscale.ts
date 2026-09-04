@@ -1,6 +1,7 @@
 // Gateway Tailscale exposure helper.
 // Applies Serve/Funnel routes and returns optional shutdown cleanup.
 import { formatErrorMessage } from "../infra/errors.js";
+import { isTailscaleRouteOwnershipConflictError } from "../infra/tailscale-route-ownership-error.js";
 import {
   claimTailscaleRoute,
   getTailnetHostname,
@@ -82,6 +83,16 @@ export async function startGatewayTailscaleExposure(params: {
     clearPublishedOrigin?.();
     await claim?.stop();
     params.logTailscale.warn(`${params.tailscaleMode} failed: ${formatErrorMessage(err)}`);
+    if (
+      params.tailscaleMode === "serve" &&
+      !claim &&
+      !isTailscaleRouteOwnershipConflictError(err)
+    ) {
+      params.logTailscale.warn(
+        "continuing without managed Tailscale Serve ingress; the Gateway remains available on its local listener",
+      );
+      return null;
+    }
     throw err;
   }
 

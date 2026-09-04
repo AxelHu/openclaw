@@ -101,9 +101,42 @@ describe("startGatewayTailscaleExposure", () => {
     expect(mocks.hasTailscaleFunnelRouteForPort).not.toHaveBeenCalled();
   });
 
-  it("fails startup when the managed route cannot be claimed", async () => {
+  it("keeps the Gateway up when managed Serve cannot be claimed", async () => {
+    const failure = new Error("tailscale unavailable");
+    const logTailscale = createLogger();
+    mocks.claimTailscaleRoute.mockRejectedValue(failure);
+
+    await expect(
+      startGatewayTailscaleExposure({
+        tailscaleMode: "serve",
+        port: 18789,
+        logTailscale,
+      }),
+    ).resolves.toBeNull();
+    expect(logTailscale.warn).toHaveBeenCalledWith(expect.stringContaining(failure.message));
+    expect(logTailscale.warn).toHaveBeenCalledWith(
+      expect.stringContaining("continuing without managed Tailscale Serve ingress"),
+    );
+  });
+
+  it("still fails startup when managed Funnel cannot be claimed", async () => {
     const failure = new Error("tailscale unavailable");
     mocks.claimTailscaleRoute.mockRejectedValue(failure);
+
+    await expect(
+      startGatewayTailscaleExposure({
+        tailscaleMode: "funnel",
+        port: 18789,
+        logTailscale: createLogger(),
+      }),
+    ).rejects.toBe(failure);
+  });
+
+  it("still fails Serve startup on an ownership conflict", async () => {
+    const conflict = Object.assign(new Error("ownership conflict"), {
+      code: "TAILSCALE_ROUTE_OWNERSHIP_CONFLICT",
+    });
+    mocks.claimTailscaleRoute.mockRejectedValue(conflict);
 
     await expect(
       startGatewayTailscaleExposure({
@@ -111,7 +144,7 @@ describe("startGatewayTailscaleExposure", () => {
         port: 18789,
         logTailscale: createLogger(),
       }),
-    ).rejects.toBe(failure);
+    ).rejects.toBe(conflict);
   });
 
   it("fails startup when the route owner exits after reporting readiness", async () => {
