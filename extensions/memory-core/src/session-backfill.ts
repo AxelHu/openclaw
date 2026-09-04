@@ -1,6 +1,7 @@
 import path from "node:path";
 import { listSessionTranscriptCorpusEntriesForAgent } from "openclaw/plugin-sdk/memory-core-host-engine-sessions";
 import type { MemorySearchResult } from "openclaw/plugin-sdk/memory-core-host-runtime-files";
+import { buildCanonicalDailyMemoryRelativePath } from "./daily-memory-paths.js";
 import type { SessionIngestionFileState } from "./dreaming-ingestion-state.js";
 import { removeBackfillDiaryEntries, writeBackfillDiaryEntries } from "./dreaming-narrative.js";
 import {
@@ -273,7 +274,7 @@ function buildSessionBackfillDiaryEntries(params: {
   const entries = params.days.map(({ day, candidates }) => {
     let bodyLines: string[] | undefined;
     if (params.rem) {
-      const relPath = `memory/${day}.md`;
+      const relPath = buildCanonicalDailyMemoryRelativePath(day);
       const file = previewGroundedRemForFile({
         relPath,
         content: `## Session transcript\n\n${candidates.map((candidate) => candidate.rendered).join("\n")}\n`,

@@ -613,6 +613,13 @@ describe("short-term promotion", () => {
         0.9,
         "user: Save important context from this session to the daily memory file. STRICT RULES: 1. The file MUST be named exactly memory/2026-06-18.md",
       ),
+      memoryRecallResult(
+        "memory/daily/2026-06/2026-06-18.md",
+        4,
+        4,
+        0.89,
+        "user: 压缩前记忆刷新。仅将值得长期保留的记忆写入 memory/daily/2026-06/2026-06-18.md。",
+      ),
     ]);
 
     const store = await testing.readRecallStore(workspaceDir, new Date().toISOString());

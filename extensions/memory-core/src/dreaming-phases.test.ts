@@ -1037,6 +1037,40 @@ describe("memory-core dreaming phases", () => {
     );
   });
 
+  it("ingests the local canonical nested daily memory layout", async () => {
+    const workspaceDir = await createDreamingWorkspace();
+    const dailyDir = path.join(workspaceDir, "memory", "daily", "2026-04");
+    await fs.mkdir(dailyDir, { recursive: true });
+    await fs.writeFile(
+      path.join(dailyDir, "2026-04-05.md"),
+      ["# 2026-04-05", "", "- Canonical nested diary signal."].join("\n"),
+      "utf-8",
+    );
+
+    const { beforeAgentReply } = createDefaultStorageLightDreamingHarness(workspaceDir, {
+      lookbackDays: 2,
+    });
+    await withDreamingTestClock(async () => {
+      await triggerLightDreaming(beforeAgentReply, workspaceDir, 5);
+    });
+
+    const after = await rankShortTermPromotionCandidates({
+      workspaceDir,
+      minScore: 0,
+      minRecallCount: 0,
+      minUniqueQueries: 0,
+      nowMs: Date.parse("2026-04-05T10:05:00.000Z"),
+    });
+    expect(after).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: "memory/daily/2026-04/2026-04-05.md",
+          snippet: "Canonical nested diary signal.",
+        }),
+      ]),
+    );
+  });
+
   it("ingests slugged daily memory files (YYYY-MM-DD-slug.md) alongside date-only files (#69536)", async () => {
     const workspaceDir = await createDreamingWorkspace();
     await fs.writeFile(
@@ -3256,6 +3290,28 @@ describe("previewRemHarness", () => {
 
     expect(preview.groundedInputPaths).toStrictEqual([]);
     expect(preview.grounded).toBeNull();
+  });
+
+  it("collects canonical nested daily notes as grounded inputs", async () => {
+    const workspaceDir = await createDreamingWorkspace();
+    const dailyDir = path.join(workspaceDir, "memory", "daily", "2026-04");
+    await fs.mkdir(dailyDir, { recursive: true });
+    const dailyPath = path.join(dailyDir, "2026-04-15.md");
+    await fs.writeFile(dailyPath, "# Day\n\nNested REM input.\n", "utf-8");
+
+    const preview = await previewRemHarness({
+      workspaceDir,
+      grounded: true,
+      pluginConfig: {
+        dreaming: {
+          enabled: true,
+          phases: { rem: { enabled: true, limit: 10 } },
+        },
+      },
+    });
+
+    expect(preview.groundedInputPaths).toEqual([dailyPath]);
+    expect(preview.grounded?.scannedFiles).toBe(1);
   });
 
   it("skips REM short-term candidates whose source file disappeared", async () => {

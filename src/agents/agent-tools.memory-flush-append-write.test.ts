@@ -7,7 +7,7 @@ import { wrapToolMemoryFlushAppendOnlyWrite } from "./agent-tools.read.js";
 import type { AnyAgentTool } from "./agent-tools.types.js";
 import { createWriteTool } from "./sessions/tools/index.js";
 
-const RELATIVE_PATH = "memory/2026-08-08.md";
+const RELATIVE_PATH = "memory/daily/2026-08/2026-08-08.md";
 
 let declaredWriteOutputSchema: Parameters<typeof validateJsonSchemaValue>[0]["schema"];
 

@@ -685,7 +685,9 @@ describe("runMemoryFlushIfNeeded", () => {
     expect(flushCall.prompt).toContain("Pre-compaction memory flush.");
     expect(flushCall.transcriptPrompt).toBe("");
     expect(flushCall.prompt).not.toBe(flushCall.transcriptPrompt);
-    expect(flushCall.memoryFlushWritePath).toMatch(/^memory\/\d{4}-\d{2}-\d{2}\.md$/);
+    // This lifecycle test injects a synthetic plan. Canonical path generation
+    // belongs to memory-core's buildMemoryFlushPlan coverage above this layer.
+    expect(flushCall.memoryFlushWritePath).toBe("memory/2023-11-14.md");
     expect(flushCall.silentExpected).toBe(true);
     expect(flushCall.allowEmptyAssistantReplyAsSilent).toBe(true);
     expect(flushCall.terminalReplyExpectation).toBe("optional");

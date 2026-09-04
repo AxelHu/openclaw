@@ -1,6 +1,5 @@
 // Memory Core plugin module implements dreaming phases behavior.
 import { createHash } from "node:crypto";
-import type { Dirent } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
@@ -18,6 +17,12 @@ import {
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk/plugin-entry";
 import { normalizeStringEntries, uniqueStrings } from "openclaw/plugin-sdk/string-coerce-runtime";
 import { normalizeConceptToken } from "./concept-vocabulary.js";
+import {
+  compareDailyMemoryFilesByNewestDay,
+  listWorkspaceDailyMemoryFiles,
+  parseDailyMemoryFileName,
+  type DailyMemoryFile,
+} from "./daily-memory-paths.js";
 import { isPromotionOriginBlocked } from "./dreaming-consolidation-candidates.js";
 import { appendFailedDreamingEvent } from "./dreaming-events.js";
 import {
@@ -514,35 +519,6 @@ type DailyIngestionBatch = {
   >;
 };
 
-type DailyMemoryFile = {
-  fileName: string;
-  day: string;
-  canonical: boolean;
-};
-
-function parseDailyMemoryFileName(fileName: string): DailyMemoryFile | null {
-  const match = fileName.match(DAILY_MEMORY_FILENAME_RE);
-  const day = match?.[1];
-  return day
-    ? {
-        fileName,
-        day,
-        canonical: fileName.toLowerCase() === `${day}.md`,
-      }
-    : null;
-}
-
-function compareDailyMemoryFilesByNewestDay(left: DailyMemoryFile, right: DailyMemoryFile): number {
-  const dayOrder = right.day.localeCompare(left.day);
-  if (dayOrder !== 0) {
-    return dayOrder;
-  }
-  if (left.canonical !== right.canonical) {
-    return left.canonical ? -1 : 1;
-  }
-  return left.fileName.localeCompare(right.fileName);
-}
-
 function resolveWorkspaceMemoryRelativePath(workspaceDir: string, filePath: string): string {
   const relativePath = path.relative(workspaceDir, filePath).replace(/\\/g, "/");
   if (relativePath && relativePath !== ".." && !relativePath.startsWith("../")) {
@@ -822,27 +798,9 @@ async function collectDailyIngestionBatches(params: {
   const provenanceByPath = new Map(
     provenanceEntries.map((entry) => [entry.relativePath, entry.provenance]),
   );
-  const memoryDir = path.join(params.workspaceDir, "memory");
   const cutoffMs = calculateLookbackCutoffMs(params.nowMs, params.lookbackDays);
-  const entries = await fs.readdir(memoryDir, { withFileTypes: true }).catch((err: unknown) => {
-    if (extractErrorCode(err) === "ENOENT") {
-      return [] as Dirent[];
-    }
-    throw err;
-  });
-  const files = entries
-    .filter((entry) => entry.isFile())
-    .map((entry) => {
-      const file = parseDailyMemoryFileName(entry.name);
-      if (!file) {
-        return null;
-      }
-      if (!isDayWithinLookback(file.day, cutoffMs)) {
-        return null;
-      }
-      return file;
-    })
-    .filter((entry): entry is DailyMemoryFile => entry !== null)
+  const files = (await listWorkspaceDailyMemoryFiles(params.workspaceDir))
+    .filter((file) => isDayWithinLookback(file.day, cutoffMs))
     .toSorted(compareDailyMemoryFilesByNewestDay);
 
   const batches: DailyIngestionBatch[] = [];
@@ -852,8 +810,8 @@ async function collectDailyIngestionBatches(params: {
   const perFileCap = Math.max(6, Math.ceil(totalCap / Math.max(1, Math.max(files.length, 1))));
   let total = 0;
   for (const file of files) {
-    const relativePath = `memory/${file.fileName}`;
-    const filePath = path.join(memoryDir, file.fileName);
+    const relativePath = file.relativePath;
+    const filePath = file.absolutePath;
     const stat = await fs.stat(filePath).catch((err: unknown) => {
       if (extractErrorCode(err) === "ENOENT") {
         return null;

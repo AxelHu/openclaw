@@ -1,11 +1,10 @@
 // Memory Core plugin module implements rem harness behavior.
-import fs from "node:fs/promises";
-import path from "node:path";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
 import {
   resolveMemoryDeepDreamingConfig,
   resolveMemoryRemDreamingConfig,
 } from "openclaw/plugin-sdk/memory-core-host-status";
+import { listWorkspaceDailyMemoryFiles } from "./daily-memory-paths.js";
 import {
   filterRecallEntriesWithinLookback,
   previewRemDreaming,
@@ -18,8 +17,6 @@ import {
   readShortTermRecallEntries,
   type PromotionCandidate,
 } from "./short-term-promotion.js";
-
-const DAILY_MEMORY_FILE_NAME_RE = /^\d{4}-\d{2}-\d{2}(?:-[^/]+)?\.md$/i;
 
 type MemoryRemHarnessRemConfig = ReturnType<typeof resolveMemoryRemDreamingConfig>;
 type MemoryRemHarnessDeepConfig = ReturnType<typeof resolveMemoryDeepDreamingConfig>;
@@ -83,22 +80,12 @@ function createSkippedRemPreview(): RemDreamingPreview {
 }
 
 async function listWorkspaceDailyFiles(workspaceDir: string, limit?: number): Promise<string[]> {
-  const memoryDir = path.join(workspaceDir, "memory");
-  let entries: string[];
-  try {
-    const dirEntries = await fs.readdir(memoryDir, { withFileTypes: true });
-    entries = dirEntries
-      .filter((entry) => entry.isFile() && DAILY_MEMORY_FILE_NAME_RE.test(entry.name))
-      .map((entry) => entry.name);
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException | undefined)?.code === "ENOENT") {
-      return [];
-    }
-    throw err;
-  }
-  const files = entries
-    .map((name) => path.join(memoryDir, name))
-    .toSorted((left, right) => left.localeCompare(right));
+  const files = (await listWorkspaceDailyMemoryFiles(workspaceDir))
+    .toSorted(
+      (left, right) =>
+        left.day.localeCompare(right.day) || left.relativePath.localeCompare(right.relativePath),
+    )
+    .map((entry) => entry.absolutePath);
   if (typeof limit !== "number" || !Number.isFinite(limit) || limit <= 0 || files.length <= limit) {
     return files;
   }

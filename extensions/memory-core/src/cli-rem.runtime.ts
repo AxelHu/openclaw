@@ -5,6 +5,7 @@ import { resolvePreferredOpenClawTmpDir } from "openclaw/plugin-sdk/temp-path";
 import { resolveMemoryPluginConfig, withMemoryCommand } from "./cli-runtime-common.js";
 import { defaultRuntime, shortenHomePath, theme } from "./cli.host.runtime.js";
 import type { MemoryRemBackfillOptions, MemoryRemHarnessOptions } from "./cli.types.js";
+import { listDailyMemoryFilesUnderPath, parseDailyMemoryFileName } from "./daily-memory-paths.js";
 import { removeBackfillDiaryEntries, writeBackfillDiaryEntries } from "./dreaming-narrative.js";
 import { seedHistoricalDailyMemorySignals } from "./dreaming-phases.js";
 import type { MemoryCoreRuntimeHost } from "./memory/runtime-host.js";
@@ -466,29 +467,8 @@ export async function runMemoryRemBackfill(
     },
   });
 }
-const DAILY_MEMORY_FILE_NAME_RE = /^(\d{4}-\d{2}-\d{2})(?:-[^/]+)?\.md$/i;
 async function listHistoricalDailyFiles(inputPath: string): Promise<string[]> {
-  const resolvedPath = path.resolve(inputPath);
-  let stat;
-  try {
-    stat = await fs.stat(resolvedPath);
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException | undefined)?.code === "ENOENT") {
-      return [];
-    }
-    throw err;
-  }
-  if (stat.isFile()) {
-    return DAILY_MEMORY_FILE_NAME_RE.test(path.basename(resolvedPath)) ? [resolvedPath] : [];
-  }
-  if (!stat.isDirectory()) {
-    return [];
-  }
-  const entries = await fs.readdir(resolvedPath, { withFileTypes: true });
-  return entries
-    .filter((entry) => entry.isFile() && DAILY_MEMORY_FILE_NAME_RE.test(entry.name))
-    .map((entry) => path.join(resolvedPath, entry.name))
-    .toSorted((a, b) => path.basename(a).localeCompare(path.basename(b)));
+  return await listDailyMemoryFilesUnderPath(inputPath);
 }
 async function createHistoricalRemHarnessWorkspace(params: {
   inputPath: string;
@@ -532,8 +512,7 @@ async function createHistoricalRemHarnessWorkspace(params: {
   };
 }
 function extractIsoDayFromPath(filePath: string): string | null {
-  const match = path.basename(filePath).match(DAILY_MEMORY_FILE_NAME_RE);
-  return match?.[1] ?? null;
+  return parseDailyMemoryFileName(path.basename(filePath))?.day ?? null;
 }
 function normalizeRelativePath(baseDir: string, filePath: string): string {
   return path.relative(baseDir, filePath).replace(/\\/g, "/");

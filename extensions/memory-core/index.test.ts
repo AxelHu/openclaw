@@ -513,12 +513,12 @@ describe("buildMemoryFlushPlan", () => {
       nowMs: Date.UTC(2026, 1, 16, 15, 0, 0),
     });
 
-    expect(plan?.prompt).toContain("memory/2026-02-16.md");
+    expect(plan?.prompt).toContain("memory/daily/2026-02/2026-02-16.md");
     expect(plan?.prompt).toContain(
       "Current time: Monday, February 16th, 2026 - 10:00 AM (America/New_York)",
     );
     expect(plan?.prompt).toContain("Reference UTC: 2026-02-16 15:00 UTC");
-    expect(plan?.relativePath).toBe("memory/2026-02-16.md");
+    expect(plan?.relativePath).toBe("memory/daily/2026-02/2026-02-16.md");
   });
 
   it("appends one current time line to the built-in prompt", () => {
@@ -537,6 +537,8 @@ describe("buildMemoryFlushPlan", () => {
     expect(plan?.prompt).toContain("memory/");
     expect(plan?.prompt).toContain("MEMORY.md");
     expect(plan?.systemPrompt).toContain("MEMORY.md");
+    expect(plan?.prompt).toContain("压缩前记忆刷新");
+    expect(plan?.systemPrompt).toContain("压缩前的记忆刷新回合");
   });
 
   it("respects disable flag", () => {
@@ -609,8 +611,8 @@ describe("buildMemoryFlushPlan", () => {
   it("keeps overwrite guards in the default prompt", () => {
     const prompt = buildMemoryFlushPlan()?.prompt;
     expect(prompt).toMatch(/APPEND/i);
-    expect(prompt).toContain("do not overwrite");
-    expect(prompt).toContain("timestamped variant");
-    expect(prompt).toMatch(/memory\/\d{4}-\d{2}-\d{2}\.md/);
+    expect(prompt).toContain("不得覆盖");
+    expect(prompt).toContain("带时间戳");
+    expect(prompt).toMatch(/memory\/daily\/\d{4}-\d{2}\/\d{4}-\d{2}-\d{2}\.md/);
   });
 });

@@ -27,7 +27,7 @@ const RAW_SESSION_METADATA_RE =
 const RAW_CONVERSATION_SUMMARY_RE = /^(?:[-*+]\s*)?Conversation Summary:/i;
 const RAW_TRANSCRIPT_TURN_RE = /^(?:[-*+]\s*)?(?:user|assistant):\s/i;
 const MEMORY_FLUSH_PROMPT_RE =
-  /Save important context from this session to the daily memory file\.\s*STRICT RULES:/i;
+  /(?:Save important context from this session to the daily memory file\.\s*STRICT RULES:|(?:这是)?压缩前(?:的)?记忆刷新(?:回合)?[。.]?)/i;
 const PROMOTION_SCORE_METADATA_RE =
   /\[\s*score=\d+(?:\.\d+)?\s+(?:signals=\d+\s+)?recalls=\d+\s+avg=\d+(?:\.\d+)?\s+source=memory\//i;
 const DREAMING_DIFF_PREFIX_RE = /@@\s*-\d+(?:,\d+)?\s+[-*+]\s+/iy;
