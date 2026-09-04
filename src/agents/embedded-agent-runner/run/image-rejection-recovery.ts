@@ -99,10 +99,15 @@ function suppressPersistedImageFacts(message: RecoverableMessage): {
     return { metadata, suppressedIndexes };
   }
 
-  const suppressedSet = new Set(suppressedIndexes);
-  metadata.media = facts.map((fact, index) =>
-    suppressedSet.has(index) ? { ...fact, hydrationSuppressed: true } : fact,
-  );
+  for (const index of suppressedIndexes) {
+    const fact = facts[index];
+    if (fact) {
+      // readPersistedMediaFacts returns fresh normalized facts, so mutating the
+      // recovery copy cannot alter the original transcript message.
+      fact.hydrationSuppressed = true;
+    }
+  }
+  metadata.media = facts;
   const layout = readPersistedMediaImageLayout(message);
   const allSuppressedIndexes = [
     ...(layout?.suppressedFactIndexes ?? []),

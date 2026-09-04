@@ -5,11 +5,7 @@ import path from "node:path";
 import { __setFsSafeTestHooksForTest } from "@openclaw/fs-safe/test-hooks";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { resolveStateDir } from "../config/paths.js";
-import {
-  assertLocalMediaAllowed,
-  LocalMediaAccessError,
-  readLocalMediaFile,
-} from "./local-media-access.js";
+import { assertLocalMediaAllowed, readLocalMediaFile } from "./local-media-access.js";
 
 const { hoistedRoots } = vi.hoisted(() => ({ hoistedRoots: [] as string[] }));
 

@@ -5,9 +5,10 @@ import type { AcpElicitationHandler } from "@openclaw/acp-core/runtime/types";
 import { detectMime } from "@openclaw/media-core/mime";
 // Tests ACP dispatch wiring, command bypass, and runtime event handling.
 import { createRequireRecord } from "openclaw/plugin-sdk/test-fixtures";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DecisionReceiptV1 } from "../../../packages/gateway-protocol/src/index.js";
 import type { MediaUnderstandingSkipError } from "../../../packages/media-understanding-common/src/errors.js";
+import { useAutoCleanupTempDirTracker } from "../../../test/helpers/temp-dir.js";
 import type { AcpSessionResolution } from "../../acp/control-plane/manager.types.js";
 import { AcpRuntimeError } from "../../acp/runtime/errors.js";
 import type { AcpSessionStoreEntry } from "../../acp/runtime/session-meta.js";
@@ -49,6 +50,8 @@ import {
   createAcpTestConfig,
   createAcpTestReplyDispatcherFixture as createDispatcher,
 } from "./test-fixtures/acp-runtime.js";
+
+const testTempDirs = useAutoCleanupTempDirTracker(afterEach);
 
 const managerMocks = vi.hoisted(() => ({
   resolveSession: vi.fn<() => AcpSessionResolution>(),
@@ -2244,25 +2247,19 @@ describe("tryDispatchAcpReplyCore", () => {
   });
 
   it("hydrates canonical video media facts for direct ACP agent commands", async () => {
-    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "dispatch-acp-video-fact-"));
+    const tempDir = testTempDirs.make("dispatch-acp-video-fact-");
     const videoPath = path.join(tempDir, "clip.mp4");
     const videoBytes = Buffer.from([
       0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70, 0x6d, 0x70, 0x34, 0x32, 0x00, 0x00, 0x00,
       0x00, 0x6d, 0x70, 0x34, 0x32, 0x69, 0x73, 0x6f, 0x6d,
     ]);
-    try {
-      await fs.writeFile(videoPath, videoBytes);
-      const attachments = await resolveAgentMediaFactVideoAttachments(
-        [{ path: videoPath, contentType: "video/mp4", kind: "video" }],
-        tempDir,
-      );
+    await fs.writeFile(videoPath, videoBytes);
+    const attachments = await resolveAgentMediaFactVideoAttachments(
+      [{ path: videoPath, contentType: "video/mp4", kind: "video" }],
+      tempDir,
+    );
 
-      expect(attachments).toEqual([
-        { mediaType: "video/mp4", data: videoBytes.toString("base64") },
-      ]);
-    } finally {
-      await fs.rm(tempDir, { recursive: true, force: true });
-    }
+    expect(attachments).toEqual([{ mediaType: "video/mp4", data: videoBytes.toString("base64") }]);
   });
 
   it.each([

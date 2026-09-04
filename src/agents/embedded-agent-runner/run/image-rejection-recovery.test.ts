@@ -144,14 +144,16 @@ describe("sensitive image rejection recovery", () => {
       path: "/tmp/rejected.png",
       hydrationSuppressed: true,
     });
-    expect((user as unknown as { __openclaw?: Record<string, unknown> }).__openclaw).toMatchObject({
+    expect(
+      (user as unknown as { __openclaw?: Record<string, unknown> })["__openclaw"],
+    ).toMatchObject({
       mediaImageLayout: {
         slots: [{ kind: "offloaded", factIndex: 0 }],
         suppressedFactIndexes: [0],
       },
     });
     expect(
-      (user as unknown as { __openclaw?: Record<string, unknown> }).__openclaw,
+      (user as unknown as { __openclaw?: Record<string, unknown> })["__openclaw"],
     ).not.toHaveProperty("mediaImageBlockFactIndexes");
   });
 
