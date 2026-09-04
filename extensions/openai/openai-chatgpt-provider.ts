@@ -14,6 +14,10 @@ import {
   resolveOpenAICodexAuthIdentity,
 } from "openclaw/plugin-sdk/provider-auth";
 import {
+  resolveProviderHttpRequestConfig,
+  sanitizeConfiguredModelProviderRequest,
+} from "openclaw/plugin-sdk/provider-http";
+import {
   DEFAULT_CONTEXT_TOKENS,
   normalizeModelCompat,
   normalizeProviderId,
@@ -450,10 +454,27 @@ function buildOpenAICodexAuthConfigPatch(): NonNullable<ProviderAuthResult["conf
   };
 }
 
-async function refreshOpenAICodexOAuthCredential(cred: OAuthCredential) {
+async function refreshOpenAICodexOAuthCredential(
+  cred: OAuthCredential,
+  context?: Parameters<NonNullable<ProviderPlugin["refreshOAuthWithContext"]>>[1],
+) {
   try {
     const { refreshOpenAICodexToken } = await import("./openai-chatgpt-provider.runtime.js");
-    const refreshed = await refreshOpenAICodexToken(cred.refresh);
+    const providerConfig = context?.config?.models?.providers?.[PROVIDER_ID];
+    const requestConfig = resolveProviderHttpRequestConfig({
+      baseUrl: "https://auth.openai.com",
+      defaultBaseUrl: "https://auth.openai.com",
+      request: sanitizeConfiguredModelProviderRequest(providerConfig?.request),
+      provider: PROVIDER_ID,
+      api: "openai-chatgpt-responses",
+      capability: "other",
+      transport: "http",
+    });
+    const dispatcherPolicy =
+      requestConfig.dispatcherPolicy?.mode === "explicit-proxy" && requestConfig.allowPrivateNetwork
+        ? { ...requestConfig.dispatcherPolicy, allowPrivateProxy: true as const }
+        : requestConfig.dispatcherPolicy;
+    const refreshed = await refreshOpenAICodexToken(cred.refresh, { dispatcherPolicy });
     const identity = resolveOpenAICodexAuthIdentity({
       access: refreshed.access,
       email: cred.email,
@@ -626,6 +647,7 @@ export function buildOpenAICodexProviderHooks(): Pick<
   | "resolveUsageAuth"
   | "fetchUsageSnapshot"
   | "refreshOAuth"
+  | "refreshOAuthWithContext"
   | "augmentModelCatalog"
   | "resolveReasoningOutputMode"
 > {
@@ -670,6 +692,8 @@ export function buildOpenAICodexProviderHooks(): Pick<
     resolveUsageAuth: resolveOpenAIUsageAuth,
     fetchUsageSnapshot: fetchOpenAIUsage,
     refreshOAuth: async (cred) => await refreshOpenAICodexOAuthCredential(cred),
+    refreshOAuthWithContext: async (cred, context) =>
+      await refreshOpenAICodexOAuthCredential(cred, context),
     augmentModelCatalog: (ctx) => {
       const gpt54Template = findCatalogTemplate({
         entries: ctx.entries,

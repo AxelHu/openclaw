@@ -1180,11 +1180,13 @@ async function resolveOAuthCredentialForCodexAppServer(
       profileId,
       credential: overlaidOAuthCredential,
       forceRefresh: params.forceRefresh,
+      config: params.config,
     });
   }
   if (params.forceRefresh && !persistedOAuthCredential && overlaidOAuthCredential) {
     const refreshedRuntimeCredential = await refreshOAuthCredentialForRuntime({
       credential: overlaidOAuthCredential,
+      cfg: params.config,
     });
     if (!refreshedRuntimeCredential?.access?.trim()) {
       throw new Error(
@@ -1198,6 +1200,7 @@ async function resolveOAuthCredentialForCodexAppServer(
     store,
     profileId,
     agentDir: ownerAgentDir,
+    cfg: params.config,
     forceRefresh: params.forceRefresh && Boolean(persistedOAuthCredential),
   });
   const refreshed = useScopedCredential
@@ -1265,6 +1268,7 @@ async function resolveScopedOAuthCredential(params: {
   profileId: string;
   credential: OAuthCredential;
   forceRefresh: boolean;
+  config?: AuthProfileOrderConfig;
 }): Promise<OAuthCredential> {
   const existingRefresh = scopedOAuthRefreshQueues.get(params.store)?.get(params.profileId);
   if (existingRefresh) {
@@ -1282,7 +1286,10 @@ async function resolveScopedOAuthCredential(params: {
     if (!params.forceRefresh && hasUsableOAuthCredential(credential)) {
       return credential;
     }
-    const refreshed = await refreshOAuthCredentialForRuntime({ credential });
+    const refreshed = await refreshOAuthCredentialForRuntime({
+      credential,
+      cfg: params.config,
+    });
     if (!refreshed?.access?.trim()) {
       throw new Error(
         `Codex app-server auth profile "${params.profileId}" could not refresh. Sign in again with OpenClaw, then retry.`,

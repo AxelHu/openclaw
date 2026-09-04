@@ -28,6 +28,7 @@ type TokenResponseJson = {
 type TokenRequestOptions = {
   signal?: AbortSignal;
   timeoutMs?: number;
+  dispatcherPolicy?: Parameters<typeof fetchWithSsrFGuard>[0]["dispatcherPolicy"];
 };
 
 function formatMissingTokenResponseFields(
@@ -80,6 +81,7 @@ async function postTokenForm(
     },
     timeoutMs,
     signal: options.signal,
+    dispatcherPolicy: options.dispatcherPolicy,
     auditContext: "openai-chatgpt-oauth-token",
   });
   try {
@@ -187,7 +189,7 @@ export async function refreshOpenAIAccessToken(
         refresh_token: refreshToken,
         client_id: CLIENT_ID,
       }),
-      { signal: options.signal, timeoutMs },
+      { signal: options.signal, timeoutMs, dispatcherPolicy: options.dispatcherPolicy },
     );
     return await readOpenAITokenResponse(response, "refresh", refreshToken);
   } catch (error) {

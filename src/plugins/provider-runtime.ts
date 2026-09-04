@@ -795,7 +795,15 @@ export async function refreshProviderOAuthCredentialWithPlugin(params: {
   env?: NodeJS.ProcessEnv;
   context: OAuthCredential;
 }) {
-  return await resolveProviderRuntimePlugin(params)?.refreshOAuth?.(params.context);
+  const provider = resolveProviderRuntimePlugin(params);
+  if (provider?.refreshOAuthWithContext) {
+    return await provider.refreshOAuthWithContext(params.context, {
+      config: params.config,
+      workspaceDir: params.workspaceDir,
+      env: params.env,
+    });
+  }
+  return await provider?.refreshOAuth?.(params.context);
 }
 
 export async function buildProviderAuthDoctorHintWithPlugin(params: {

@@ -578,6 +578,14 @@ export type ProviderPlugin = {
    * core auth-profile code.
    */
   refreshOAuth?: (cred: OAuthCredential) => Promise<OAuthCredential>;
+  refreshOAuthWithContext?: (
+    cred: OAuthCredential,
+    context: {
+      config?: OpenClawConfig;
+      workspaceDir?: string;
+      env?: NodeJS.ProcessEnv;
+    },
+  ) => Promise<OAuthCredential>;
   /**
    * Provider-owned auth-doctor hint.
    *

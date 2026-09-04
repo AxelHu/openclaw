@@ -127,6 +127,8 @@ export async function runBoundedCodexAppServerTurn(
   const appServer = resolveCodexAppServerRuntimeOptions({
     pluginConfig: params.options.pluginConfig,
     managedCommandOrder: params.isolation === "private-stdio" ? "package-first" : undefined,
+    modelProvider: params.modelProvider,
+    config: params.config,
   });
   if (params.isolation === "configured-transport") {
     return await runBoundedCodexAppServerTurnInWorkspace(params, appServer, {

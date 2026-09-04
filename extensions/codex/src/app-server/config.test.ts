@@ -327,6 +327,51 @@ describe("Codex app-server config", () => {
     });
   });
 
+  it("inherits the configured OpenAI explicit proxy into Codex stdio children", () => {
+    const runtime = resolveRuntimeForTest({
+      modelProvider: "openai",
+      config: {
+        models: {
+          providers: {
+            openai: {
+              models: [],
+              request: {
+                proxy: { mode: "explicit-proxy", url: "http://127.0.0.1:1080" },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    expect(runtime.start.env).toEqual({
+      HTTP_PROXY: "http://127.0.0.1:1080",
+      HTTPS_PROXY: "http://127.0.0.1:1080",
+      http_proxy: "http://127.0.0.1:1080",
+      https_proxy: "http://127.0.0.1:1080",
+    });
+  });
+
+  it("does not leak the OpenAI proxy into non-OpenAI Codex runtime projections", () => {
+    const runtime = resolveRuntimeForTest({
+      modelProvider: "openrouter",
+      config: {
+        models: {
+          providers: {
+            openai: {
+              models: [],
+              request: {
+                proxy: { mode: "explicit-proxy", url: "http://127.0.0.1:1080" },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    expect(runtime.start.env).toBeUndefined();
+  });
+
   it("normalizes legacy service tiers without discarding the rest of the config", () => {
     const runtime = resolveRuntimeForTest({
       pluginConfig: {

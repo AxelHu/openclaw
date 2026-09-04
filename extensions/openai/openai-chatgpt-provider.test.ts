@@ -316,4 +316,46 @@ describe("OpenAI provider Codex transport hooks", () => {
       refresh: "new-refresh",
     });
   });
+
+  it("routes ChatGPT OAuth refresh through the configured OpenAI explicit proxy", async () => {
+    const provider = buildOpenAIProvider();
+    refreshOpenAICodexTokenMock.mockResolvedValueOnce({
+      access: "new-access",
+      refresh: "new-refresh",
+      expires: 1_700_000_000_000,
+    });
+
+    await provider.refreshOAuthWithContext?.(
+      {
+        type: "oauth",
+        provider: "openai",
+        access: "old-access",
+        refresh: "old-refresh",
+        expires: Date.now() - 60_000,
+      },
+      {
+        config: {
+          models: {
+            providers: {
+              openai: {
+                models: [],
+                request: {
+                  allowPrivateNetwork: true,
+                  proxy: { mode: "explicit-proxy", url: "http://127.0.0.1:1080" },
+                },
+              },
+            },
+          },
+        },
+      },
+    );
+
+    expect(refreshOpenAICodexTokenMock).toHaveBeenCalledWith("old-refresh", {
+      dispatcherPolicy: {
+        mode: "explicit-proxy",
+        proxyUrl: "http://127.0.0.1:1080",
+        allowPrivateProxy: true,
+      },
+    });
+  });
 });

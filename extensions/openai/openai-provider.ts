@@ -1053,6 +1053,7 @@ export function buildOpenAIProvider(): ProviderPlugin {
     resolveUsageAuth: codexHooks.resolveUsageAuth,
     fetchUsageSnapshot: codexHooks.fetchUsageSnapshot,
     refreshOAuth: codexHooks.refreshOAuth,
+    refreshOAuthWithContext: codexHooks.refreshOAuthWithContext,
     buildUnknownModelHint: ({ modelId }) => buildOpenAIUnknownModelHint(modelId),
     buildMissingAuthMessage: (ctx) => {
       if (normalizeProviderId(ctx.provider) !== PROVIDER_ID) {

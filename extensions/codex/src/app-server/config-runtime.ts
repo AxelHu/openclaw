@@ -307,6 +307,19 @@ export function resolveCodexAppServerRuntimeOptions(
   const managedComputerUsePluginNames = [
     ...new Set([DEFAULT_CODEX_COMPUTER_USE_PLUGIN_NAME, computerUseConfig.pluginName]),
   ];
+  const providerProxyUrl =
+    (params.modelProvider ?? "").trim().toLowerCase() === "openai" &&
+    params.config?.models?.providers?.openai?.request?.proxy?.mode === "explicit-proxy"
+      ? params.config.models.providers.openai.request.proxy.url?.trim()
+      : undefined;
+  const providerProxyEnv = providerProxyUrl
+    ? {
+        HTTP_PROXY: providerProxyUrl,
+        HTTPS_PROXY: providerProxyUrl,
+        http_proxy: providerProxyUrl,
+        https_proxy: providerProxyUrl,
+      }
+    : undefined;
 
   return {
     start: {
@@ -320,6 +333,7 @@ export function resolveCodexAppServerRuntimeOptions(
       ...(url ? { url } : {}),
       ...(authToken ? { authToken } : {}),
       headers,
+      ...(providerProxyEnv ? { env: providerProxyEnv } : {}),
       ...(transport === "stdio" && clearEnv.length > 0 ? { clearEnv } : {}),
     },
     connectionClass,
