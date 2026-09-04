@@ -179,6 +179,53 @@ function cronJobMatchesCurrentJobCapability(params: {
   );
 }
 
+/**
+ * A scheduled run executes in an ephemeral run session, but automation management belongs to
+ * the durable session/account that owns the running job. Restore that persisted management
+ * identity so the run can manage sibling automations through the same Gateway scope checks as
+ * its creator session. Trusted/operator jobs intentionally keep their ephemeral caller scope;
+ * they gain only the explicit current-job capability, never delegated operator authority.
+ */
+export function resolveCronManagementCallerScope(params: {
+  callerScope: CronCallerScope | undefined;
+  currentJob: CronJob | undefined;
+  defaultAgentId?: string;
+}): CronCallerScope | undefined {
+  const { callerScope, currentJob } = params;
+  if (!callerScope || !currentJob || !callerScope.currentJobId) {
+    return callerScope;
+  }
+  if (
+    !cronJobMatchesCurrentJobCapability({
+      job: currentJob,
+      callerScope,
+      defaultAgentId: params.defaultAgentId,
+    })
+  ) {
+    return callerScope;
+  }
+  const scheduledPolicy = currentJob.scheduledToolPolicy;
+  if (scheduledPolicy?.mode === "trusted") {
+    return callerScope;
+  }
+  const managementSessionKey =
+    (scheduledPolicy?.mode === "account" ? scheduledPolicy.ownerSessionKey.trim() : "") ||
+    currentJob.owner?.sessionKey?.trim() ||
+    currentJob.sessionKey?.trim();
+  if (!managementSessionKey) {
+    return callerScope;
+  }
+  const managementAccountId =
+    scheduledPolicy?.mode === "account"
+      ? normalizeAccountId(scheduledPolicy.ownerAccountId)
+      : normalizeAccountId(currentJob.owner?.accountId ?? callerScope.accountId);
+  return {
+    ...callerScope,
+    sessionKey: managementSessionKey,
+    accountId: managementAccountId,
+  };
+}
+
 export function cronJobMatchesCallerScope(params: {
   job: CronJob;
   callerScope: CronCallerScope | undefined;

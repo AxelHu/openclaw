@@ -284,42 +284,24 @@ describe("cron tool", () => {
     extractDeliveryInfoMock.mockReturnValue({ deliveryContext: undefined, threadId: undefined });
   });
 
-  it("allows scoped isolated cron runs to remove the current job", async () => {
-    // Self-removal scope lets a cron-triggered run clean up its own schedule
-    // without granting broad cron mutation access.
+  it("lets automation runs remove another caller-scoped job", async () => {
     const tool = createTestCronTool({
-      agentSessionKey: "main",
+      agentSessionKey: "agent:agent-123:cron:job-current:run:abc",
       selfRemoveOnlyJobId: "job-current",
     });
 
-    await tool.execute("call-self-remove", {
+    await tool.execute("call-remove-other", {
       action: "remove",
-      jobId: "job-current",
+      jobId: "job-other",
     });
 
-    const params = expectSingleGatewayCallMethod("cron.remove");
-    expect(params).toEqual({ id: "job-current" });
+    expectSingleGatewayCallMethod("cron.remove");
+    expect(readGatewayCall().params).toEqual({ id: "job-other" });
   });
 
-  it("denies scoped isolated cron runs from removing another job", async () => {
-    const tool = createTestCronTool({
-      agentSessionKey: "main",
-      selfRemoveOnlyJobId: "job-current",
-    });
-
-    await expect(
-      tool.execute("call-remove-other", {
-        action: "remove",
-        jobId: "job-other",
-      }),
-    ).rejects.toThrow("Automations tool is restricted to the current automation.");
-
-    expect(callGatewayMock).not.toHaveBeenCalled();
-  });
-
-  it("allows scoped isolated cron runs to read the current job run history", async () => {
+  it("lets automation runs read another caller-scoped job history", async () => {
     callGatewayMock.mockResolvedValueOnce({
-      entries: [{ jobId: "job-current", status: "ok" }],
+      entries: [{ jobId: "job-other", status: "ok" }],
       total: 1,
       offset: 0,
       limit: 50,
@@ -327,44 +309,32 @@ describe("cron tool", () => {
       nextOffset: null,
     });
     const tool = createTestCronTool({
-      agentSessionKey: "main",
+      agentSessionKey: "agent:agent-123:cron:job-current:run:abc",
       selfRemoveOnlyJobId: "job-current",
     });
 
-    const result = await tool.execute("call-self-runs", {
+    const result = await tool.execute("call-runs-other", {
       action: "runs",
-      jobId: "job-current",
+      jobId: "job-other",
     });
 
-    const params = expectSingleGatewayCallMethod("cron.runs");
-    expect(params).toEqual({ id: "job-current" });
-    expect(result.details).toEqual({
-      entries: [{ jobId: "job-current", status: "ok" }],
-      total: 1,
-      offset: 0,
-      limit: 50,
-      hasMore: false,
-      nextOffset: null,
-    });
+    expectSingleGatewayCallMethod("cron.runs");
+    expect(readGatewayCall().params).toEqual({ id: "job-other" });
+    expect(result.details).toMatchObject({ entries: [{ jobId: "job-other", status: "ok" }] });
   });
 
-  it.each([
-    ["another job", { action: "runs", jobId: "job-other" }],
-    ["missing job id", { action: "runs" }],
-  ])("denies scoped isolated cron runs from reading %s run history", async (_label, args) => {
-    const tool = createTestCronTool({
-      agentSessionKey: "main",
-      selfRemoveOnlyJobId: "job-current",
-    });
+  it("keeps normal missing-id validation inside automation runs", async () => {
+    const tool = createTestCronTool({ selfRemoveOnlyJobId: "job-current" });
 
-    await expect(tool.execute("call-runs-denied", args)).rejects.toThrow(
-      "Automations tool is restricted to the current automation.",
+    await expect(tool.execute("call-get-missing", { action: "get" })).rejects.toThrow(
+      "jobId required (id accepted for backward compatibility)",
     );
-
-    expect(callGatewayMock).not.toHaveBeenCalled();
+    await expect(tool.execute("call-runs-missing", { action: "runs" })).rejects.toThrow(
+      "jobId required (id accepted for backward compatibility)",
+    );
   });
 
-  it("allows scoped isolated cron runs to read cron scheduler status", async () => {
+  it("returns normal scheduler status inside automation runs", async () => {
     callGatewayMock.mockResolvedValueOnce({
       enabled: true,
       storePath: "/home/user/.openclaw/cron/jobs.json",
@@ -373,75 +343,45 @@ describe("cron tool", () => {
     });
     const tool = createTestCronTool({ selfRemoveOnlyJobId: "job-current" });
 
-    const result = await tool.execute("call-status", {
-      action: "status",
-      timeoutMs: 10_000,
-    });
-
-    const params = expectSingleGatewayCallMethod("cron.status");
-    expect(params).toStrictEqual({});
-    expect(result.details).toEqual({ enabled: true });
-  });
-
-  it("passes parsed string timeoutMs values through to gateway calls", async () => {
-    callGatewayMock.mockResolvedValueOnce({ enabled: true });
-    const tool = createTestCronTool();
-
-    await tool.execute("call-status-timeout", {
-      action: "status",
-      timeoutMs: "5000",
-    });
+    const result = await tool.execute("call-status", { action: "status" });
 
     expectSingleGatewayCallMethod("cron.status");
-    expect(readGatewayOpts(0)?.timeoutMs).toBe(5000);
+    expect(result.details).toEqual({
+      enabled: true,
+      storePath: "/home/user/.openclaw/cron/jobs.json",
+      jobs: 37,
+      nextWakeAtMs: 1_234,
+    });
   });
 
-  it("allows scoped isolated cron runs to get the current job", async () => {
-    callGatewayMock.mockResolvedValueOnce({ id: "job-current", name: "current" });
+  it("lets automation runs get another caller-scoped job", async () => {
+    callGatewayMock.mockResolvedValueOnce({ id: "job-other", name: "other" });
     const tool = createTestCronTool({
-      agentSessionKey: "main",
+      agentSessionKey: "agent:agent-123:cron:job-current:run:abc",
       selfRemoveOnlyJobId: "job-current",
     });
 
-    const result = await tool.execute("call-get", {
+    const result = await tool.execute("call-get-other", {
       action: "get",
-      jobId: "job-current",
+      jobId: "job-other",
     });
 
-    const params = expectSingleGatewayCallMethod("cron.get");
-    expect(params).toStrictEqual({ id: "job-current" });
-    expect(result.details).toEqual({ id: "job-current", name: "current" });
+    expectSingleGatewayCallMethod("cron.get");
+    expect(readGatewayCall().params).toEqual({ id: "job-other" });
+    expect(result.details).toEqual({ id: "job-other", name: "other" });
   });
 
-  it.each([
-    ["another job", { action: "get", jobId: "job-other" }],
-    ["missing job id", { action: "get" }],
-  ])("denies scoped isolated cron runs from getting %s", async (_label, args) => {
-    const tool = createTestCronTool({ selfRemoveOnlyJobId: "job-current" });
-
-    await expect(tool.execute("call-get-denied", args)).rejects.toThrow(
-      "Automations tool is restricted to the current automation.",
-    );
-
-    expect(callGatewayMock).not.toHaveBeenCalled();
-  });
-
-  it("allows scoped isolated cron runs to list only the current job", async () => {
+  it("lists all caller-scoped jobs inside automation runs", async () => {
     callGatewayMock.mockResolvedValueOnce({
       jobs: [
         { id: "job-current", name: "current" },
         { id: "job-other", name: "other" },
       ],
-      snapshotRevision: "self-list-one-page",
       total: 2,
       offset: 0,
       limit: 2,
       hasMore: false,
       nextOffset: null,
-      deliveryPreviews: {
-        "job-current": { label: "current", detail: "self" },
-        "job-other": { label: "other", detail: "hidden" },
-      },
     });
     const tool = createTestCronTool({
       agentSessionKey: "agent:agent-123:cron:job-current:run:abc",
@@ -451,230 +391,75 @@ describe("cron tool", () => {
     const result = await tool.execute("call-list", {
       action: "list",
       includeDisabled: true,
-    });
-
-    const params = expectSingleGatewayCallMethod("cron.list");
-    expect(params).toEqual({
-      includeDisabled: true,
-      compact: true,
-      agentId: "agent-123",
-      limit: 200,
+      limit: 2,
       offset: 0,
-    });
-    expect(result.details).toEqual({
-      jobs: [{ id: "job-current", name: "current" }],
-      total: 1,
-      offset: 0,
-      limit: 1,
-      hasMore: false,
-      nextOffset: null,
-      deliveryPreviews: {
-        "job-current": { label: "current", detail: "self" },
-      },
-    });
-  });
-
-  it("pages scoped isolated cron list until it finds the current job", async () => {
-    callGatewayMock
-      .mockResolvedValueOnce({
-        jobs: Array.from({ length: 200 }, (_, index) => ({
-          id: `job-old-${index}`,
-          name: `old ${index}`,
-        })),
-        snapshotRevision: "self-list-paged",
-        total: 201,
-        offset: 0,
-        limit: 200,
-        hasMore: true,
-        nextOffset: 200,
-        deliveryPreviews: {},
-      })
-      .mockResolvedValueOnce({
-        jobs: [{ id: "job-current", name: "current" }],
-        snapshotRevision: "self-list-paged",
-        total: 201,
-        offset: 200,
-        limit: 200,
-        hasMore: false,
-        nextOffset: null,
-        deliveryPreviews: {
-          "job-current": { label: "current", detail: "self" },
-        },
-      });
-    const tool = createTestCronTool({
-      agentSessionKey: "agent:agent-123:cron:job-current:run:abc",
-      selfRemoveOnlyJobId: "job-current",
-    });
-
-    const result = await tool.execute("call-list-paged", {
-      action: "list",
-      includeDisabled: true,
-    });
-
-    expect(callGatewayMock).toHaveBeenCalledTimes(2);
-    expect(readGatewayCall(0)).toEqual({
-      method: "cron.list",
-      params: {
-        includeDisabled: true,
-        compact: true,
-        agentId: "agent-123",
-        limit: 200,
-        offset: 0,
-      },
-    });
-    expect(readGatewayCall(1)).toEqual({
-      method: "cron.list",
-      params: {
-        includeDisabled: true,
-        compact: true,
-        agentId: "agent-123",
-        limit: 200,
-        offset: 200,
-      },
-    });
-    expect(result.details).toEqual({
-      jobs: [{ id: "job-current", name: "current" }],
-      total: 1,
-      offset: 0,
-      limit: 1,
-      hasMore: false,
-      nextOffset: null,
-      deliveryPreviews: {
-        "job-current": { label: "current", detail: "self" },
-      },
-    });
-  });
-
-  it("restarts the scoped list when the current job moves behind the page boundary", async () => {
-    const stableJobs = Array.from({ length: 199 }, (_, index) => ({
-      id: `stable-${index}`,
-      name: `stable ${index}`,
-    }));
-    callGatewayMock
-      .mockResolvedValueOnce({
-        jobs: [{ id: "stale-only", name: "stale" }, ...stableJobs],
-        snapshotRevision: "revision-a",
-        total: 201,
-        offset: 0,
-        limit: 200,
-        hasMore: true,
-        nextOffset: 200,
-      })
-      .mockResolvedValueOnce({
-        jobs: [],
-        snapshotRevision: "revision-b",
-        total: 200,
-        offset: 200,
-        limit: 200,
-        hasMore: false,
-        nextOffset: null,
-      })
-      .mockResolvedValueOnce({
-        jobs: [...stableJobs, { id: "job-current", name: "current" }],
-        snapshotRevision: "revision-b",
-        total: 200,
-        offset: 0,
-        limit: 200,
-        hasMore: false,
-        nextOffset: null,
-      });
-    const tool = createTestCronTool({ selfRemoveOnlyJobId: "job-current" });
-
-    const result = await tool.execute("call-list-boundary-churn", { action: "list" });
-
-    expect(callGatewayMock.mock.calls.map((call) => call[0].params.offset)).toEqual([0, 200, 0]);
-    expect(result.details).toEqual({
-      jobs: [{ id: "job-current", name: "current" }],
-      total: 1,
-      offset: 0,
-      limit: 1,
-      hasMore: false,
-      nextOffset: null,
-    });
-  });
-
-  it("rejects a scoped list after repeated snapshot churn", async () => {
-    callGatewayMock.mockImplementation(async ({ params }: { params: Record<string, unknown> }) => {
-      const callNumber = callGatewayMock.mock.calls.length;
-      const offset = params.offset as number;
-      if (offset === 0) {
-        return {
-          jobs: Array.from({ length: 200 }, (_, index) => ({ id: `job-${callNumber}-${index}` })),
-          snapshotRevision: `revision-${callNumber}-a`,
-          total: 201,
-          offset: 0,
-          limit: 200,
-          hasMore: true,
-          nextOffset: 200,
-        };
-      }
-      return {
-        jobs: [],
-        snapshotRevision: `revision-${callNumber}-b`,
-        total: 200,
-        offset: 200,
-        limit: 200,
-        hasMore: false,
-        nextOffset: null,
-      };
-    });
-    const tool = createTestCronTool({ selfRemoveOnlyJobId: "job-current" });
-
-    await expect(tool.execute("call-list-churn", { action: "list" })).rejects.toThrow(
-      "cron.list inventory changed repeatedly while reading current automation",
-    );
-    expect(callGatewayMock).toHaveBeenCalledTimes(8);
-  });
-
-  it("does not let requested pagination bypass the scoped current-job scan", async () => {
-    callGatewayMock.mockResolvedValueOnce({
-      jobs: [{ id: "job-current", name: "current" }],
-      snapshotRevision: "self-list-requested-pagination",
-      total: 1,
-      offset: 0,
-      limit: 200,
-      hasMore: false,
-      nextOffset: null,
-    });
-    const tool = createTestCronTool({
-      agentSessionKey: "agent:agent-123:cron:job-current:run:abc",
-      selfRemoveOnlyJobId: "job-current",
-    });
-
-    const result = await tool.execute("call-scoped-list-requested-pagination", {
-      action: "list",
-      limit: 1,
-      offset: 200,
     });
 
     expectSingleGatewayCallMethod("cron.list");
     expect(readGatewayCall().params).toEqual({
-      includeDisabled: false,
+      includeDisabled: true,
       compact: true,
       agentId: "agent-123",
-      limit: 200,
+      limit: 2,
       offset: 0,
     });
     expect(result.details).toMatchObject({
-      jobs: [{ id: "job-current", name: "current" }],
-      total: 1,
-      hasMore: false,
+      jobs: [
+        { id: "job-current", name: "current" },
+        { id: "job-other", name: "other" },
+      ],
+      total: 2,
     });
   });
 
+  it("lets automation runs self-update", async () => {
+    const tool = createTestCronTool({
+      agentSessionKey: "agent:agent-123:cron:job-current:run:abc",
+      selfRemoveOnlyJobId: "job-current",
+    });
+
+    await tool.execute("call-self-update", {
+      action: "update",
+      jobId: "job-current",
+      job: { enabled: false, description: "next phase" },
+    });
+
+    expectSingleGatewayCallMethod("cron.update");
+    expect(readGatewayCall().params).toMatchObject({
+      id: "job-current",
+      patch: { enabled: false, description: "next phase" },
+    });
+  });
+
+  it("lets automation runs update another caller-scoped job", async () => {
+    const tool = createTestCronTool({
+      agentSessionKey: "agent:agent-123:cron:job-current:run:abc",
+      selfRemoveOnlyJobId: "job-current",
+    });
+
+    await tool.execute("call-other-update", {
+      action: "update",
+      jobId: "job-other",
+      job: { enabled: false },
+    });
+
+    expectSingleGatewayCallMethod("cron.update");
+    expect(readGatewayCall().params).toMatchObject({ id: "job-other", patch: { enabled: false } });
+  });
+
   it.each([
-    ["add", { action: "add", job: buildReminderAgentTurnJob() }],
-    ["update", { action: "update", jobId: "job-current", job: { enabled: false } }],
-    ["run", { action: "run", jobId: "job-current" }],
-    ["wake", { action: "wake", text: "wake up" }],
-  ])("denies scoped isolated cron runs from using %s", async (_action, args) => {
-    const tool = createTestCronTool({ selfRemoveOnlyJobId: "job-current" });
+    ["add", { action: "add", job: buildReminderAgentTurnJob() }, "cron.add"],
+    ["run", { action: "run", jobId: "job-current" }, "cron.run"],
+    ["wake", { action: "wake", text: "wake up" }, "wake"],
+  ])("lets automation runs use %s", async (_action, args, expectedMethod) => {
+    const tool = createTestCronTool({
+      agentSessionKey: "agent:agent-123:cron:job-current:run:abc",
+      selfRemoveOnlyJobId: "job-current",
+    });
 
-    await expect(tool.execute("call-denied", args)).rejects.toThrow(
-      "Automations tool is restricted to the current automation.",
-    );
+    await tool.execute("call-automation-action", args);
 
-    expect(callGatewayMock).not.toHaveBeenCalled();
+    expectSingleGatewayCallMethod(expectedMethod);
   });
 
   it("filters cron list by the requester agent session", async () => {

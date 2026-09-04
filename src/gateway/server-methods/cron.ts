@@ -73,6 +73,7 @@ import {
   cronJobMatchesCallerScope,
   cronPatchSessionRefsMatchCaller,
   readCronCallerScope,
+  resolveCronManagementCallerScope,
   resolveCronScheduledToolPolicyForCaller,
   type CronCallerScope,
 } from "./cron-caller-scope.js";
@@ -89,6 +90,21 @@ import type {
 import { assertValidParams } from "./validation.js";
 
 type CronJobIdParams = { id?: string; jobId?: string };
+
+function readCronManagementCallerScope(
+  client: GatewayClient | null,
+  context: GatewayRequestContext,
+): CronCallerScope | undefined {
+  const callerScope = readCronCallerScope(client);
+  const currentJob = callerScope?.currentJobId
+    ? context.cron.getJob(callerScope.currentJobId)
+    : undefined;
+  return resolveCronManagementCallerScope({
+    callerScope,
+    currentJob,
+    defaultAgentId: context.cron.getDefaultAgentId(),
+  });
+}
 
 function resolveCronCreatorAuthorityCapture(
   callerScope: CronCallerScope | undefined,
@@ -127,7 +143,7 @@ function resolveCronMutationCommitGuard(
     }
     // The capability can expire, or the same id can acquire another owner while
     // this request waits for the cron lock. Re-read both at the commit owner.
-    const callerScope = readCronCallerScope(client);
+    const callerScope = readCronManagementCallerScope(client, context);
     const job = context.cron.getJob(jobScope.jobId);
     if (
       !callerScope ||
@@ -589,7 +605,7 @@ export const cronHandlers: GatewayRequestHandlers = {
       return;
     }
     const p = params as CronListParams;
-    const callerScope = readCronCallerScope(client);
+    const callerScope = readCronManagementCallerScope(client, context);
     const requestedAgentId = p.agentId ? normalizeAgentId(p.agentId) : undefined;
     if (callerScope && requestedAgentId && requestedAgentId !== callerScope.agentId) {
       respondInvalidCronParams(respond, "cron.list", "agentId outside caller scope");
@@ -685,7 +701,7 @@ export const cronHandlers: GatewayRequestHandlers = {
       respondMissingCronJobId(respond, "cron.get");
       return;
     }
-    const callerScope = readCronCallerScope(client);
+    const callerScope = readCronManagementCallerScope(client, context);
     const job = await context.cron.readJob(jobId);
     const cronVisibility = resolveCronSessionVisibility(client, context.getRuntimeConfig());
     if (
@@ -714,7 +730,7 @@ export const cronHandlers: GatewayRequestHandlers = {
       respondMissingCronJobId(respond, "cron.scratch.get");
       return;
     }
-    const callerScope = readCronCallerScope(client);
+    const callerScope = readCronManagementCallerScope(client, context);
     const job = await context.cron.readJob(jobId);
     if (
       !job ||
@@ -751,7 +767,7 @@ export const cronHandlers: GatewayRequestHandlers = {
       respondMissingCronJobId(respond, "cron.scratch.set");
       return;
     }
-    const callerScope = readCronCallerScope(client);
+    const callerScope = readCronManagementCallerScope(client, context);
     const job = await context.cron.readJob(jobId);
     if (
       !job ||
@@ -852,7 +868,7 @@ export const cronHandlers: GatewayRequestHandlers = {
     if (!assertValidParams(candidate, validateCronAddParams, "cron.add", respond)) {
       return;
     }
-    const callerScope = readCronCallerScope(client);
+    const callerScope = readCronManagementCallerScope(client, context);
     const operatorActor = callerScope ? undefined : resolveOperatorSessionCreation(client).actor;
     // Agent-tool clients own one exact signed session. Read that session's creator instead of
     // reclassifying spawn context as the automation creator; params never carry this provenance.
@@ -1028,7 +1044,7 @@ export const cronHandlers: GatewayRequestHandlers = {
       patch: Record<string, unknown>;
       expectedConfigRevision?: string;
     };
-    const callerScope = readCronCallerScope(client);
+    const callerScope = readCronManagementCallerScope(client, context);
     let captureRuntimeAuthority: (() => CronRuntimeAuthority | undefined) | undefined;
     try {
       captureRuntimeAuthority = resolveCronCreatorAuthorityCapture(callerScope);
@@ -1055,6 +1071,7 @@ export const cronHandlers: GatewayRequestHandlers = {
         job: currentJob,
         callerScope,
         defaultAgentId: context.cron.getDefaultAgentId(),
+        allowCurrentJob: true,
       })
     ) {
       respondCronJobNotFound(respond, jobId);
@@ -1114,6 +1131,7 @@ export const cronHandlers: GatewayRequestHandlers = {
               job: lockedJob,
               callerScope,
               defaultAgentId: context.cron.getDefaultAgentId(),
+              allowCurrentJob: true,
             })
           ) {
             throw new Error(`unknown cron job id: ${jobId}`);
@@ -1209,7 +1227,7 @@ export const cronHandlers: GatewayRequestHandlers = {
       respondMissingCronJobId(respond, "cron.remove");
       return;
     }
-    const callerScope = readCronCallerScope(client);
+    const callerScope = readCronManagementCallerScope(client, context);
     const job = await context.cron.readJob(jobId);
     if (
       !job ||
@@ -1268,7 +1286,7 @@ export const cronHandlers: GatewayRequestHandlers = {
       mode?: "due" | "force" | "if-enabled";
       expectedProcessInstanceId?: string;
     };
-    const callerScope = readCronCallerScope(client);
+    const callerScope = readCronManagementCallerScope(client, context);
     const jobId = resolveCronJobId(p);
     if (!jobId) {
       respondMissingCronJobId(respond, "cron.run");
@@ -1327,7 +1345,7 @@ export const cronHandlers: GatewayRequestHandlers = {
       return;
     }
     const p = params as CronRunsRequestParams;
-    const callerScope = readCronCallerScope(client);
+    const callerScope = readCronManagementCallerScope(client, context);
     const explicitScope = p.scope;
     const hasJobSelector = p.id !== undefined || p.jobId !== undefined;
     const jobId = resolveCronJobId(p);

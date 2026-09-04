@@ -2047,7 +2047,7 @@ describe("cron method validation", () => {
     );
   });
 
-  it("preserves only current-job self-management for a capped scheduled run", async () => {
+  it("restores the durable owner scope for a capped scheduled run", async () => {
     const ownerSessionKey = "agent:ops:discord:work:group:creator";
     const accountJob = createCronJob({
       agentId: "ops",
@@ -2076,7 +2076,7 @@ describe("cron method validation", () => {
     const list = await invokeCron("cron.list", { compact: true }, { context, client: runClient });
     expect(list.respond).toHaveBeenCalledWith(
       true,
-      expect.objectContaining({ total: 1 }),
+      expect.objectContaining({ total: 2 }),
       undefined,
     );
 
@@ -2088,10 +2088,11 @@ describe("cron method validation", () => {
       { id: siblingJob.id },
       { context, client: runClient },
     );
-    expectResponseError(siblingGet.respond, {
-      code: "INVALID_REQUEST",
-      messageIncludes: `cron job not found: ${siblingJob.id}`,
-    });
+    expect(siblingGet.respond).toHaveBeenCalledWith(
+      true,
+      expect.objectContaining({ id: siblingJob.id }),
+      undefined,
+    );
 
     const expiredRunClient = callerClient(
       "ops",
@@ -2136,17 +2137,20 @@ describe("cron method validation", () => {
       { id: accountJob.id, patch: { enabled: false } },
       { context, client: runClient },
     );
-    expectResponseError(update.respond, {
-      code: "INVALID_REQUEST",
-      messageIncludes: "Automation not found: cron-1",
-    });
+    expectCronSuccess(update.respond);
+    expect(context.cron.update).toHaveBeenCalledWith(accountJob.id, { enabled: false });
 
     const run = await invokeCron("cron.run", { id: accountJob.id }, { context, client: runClient });
-    expectResponseError(run.respond, {
-      code: "INVALID_REQUEST",
-      messageIncludes: "Automation not found: cron-1",
-    });
-    expect(context.cron.enqueueRun).not.toHaveBeenCalled();
+    expect(run.respond).toHaveBeenCalledWith(
+      true,
+      expect.objectContaining({ ok: true, enqueued: true }),
+      undefined,
+    );
+    expect(context.cron.enqueueRun).toHaveBeenCalledWith(
+      accountJob.id,
+      "force",
+      expect.objectContaining({ commitGuard: expect.any(Function) }),
+    );
   });
 
   it("keeps trusted scheduled authority operator-only", async () => {
@@ -2509,6 +2513,90 @@ describe("cron method validation", () => {
     expect(context.cron.update).toHaveBeenCalledWith("cron-1", { enabled: false });
     expect(context.cron.updateWithPrecondition.mock.calls[0]?.[3]).toBeUndefined();
     expectCronSuccess(respond);
+  });
+
+  it("allows the currently running automation to update itself through its live job capability", async () => {
+    const currentJob = createCronJob({
+      id: "cron-1",
+      agentId: "ops",
+      owner: {
+        agentId: "ops",
+        sessionKey: "agent:ops:owner-session",
+        accountId: "default",
+      },
+      scheduledToolPolicy: {
+        version: 1,
+        mode: "account",
+        ownerSessionKey: "agent:ops:owner-session",
+        ownerAccountId: "default",
+      },
+    });
+    const client = callerClient("ops", "default", "agent:ops:cron:cron-1:run:active", "cron-1");
+
+    const { context, respond } = await invokeCronUpdate(
+      { id: "cron-1", patch: { enabled: false, description: "next phase" } },
+      currentJob,
+      { client },
+    );
+
+    expect(context.cron.update).toHaveBeenCalledWith("cron-1", {
+      enabled: false,
+      description: "next phase",
+    });
+    expectCronSuccess(respond);
+  });
+
+  it("does not let current-job capability authorize a different job outside normal caller scope", async () => {
+    const otherJob = createCronJob({
+      id: "cron-other",
+      agentId: "ops",
+      owner: {
+        agentId: "ops",
+        sessionKey: "agent:ops:owner-session",
+        accountId: "default",
+      },
+      scheduledToolPolicy: {
+        version: 1,
+        mode: "account",
+        ownerSessionKey: "agent:ops:owner-session",
+        ownerAccountId: "default",
+      },
+    });
+    const client = callerClient(
+      "ops",
+      "default",
+      "agent:ops:cron:cron-current:run:active",
+      "cron-current",
+    );
+
+    const { context, respond } = await invokeCronUpdate(
+      { id: "cron-other", patch: { enabled: false } },
+      otherJob,
+      { client },
+    );
+
+    expect(context.cron.update).not.toHaveBeenCalled();
+    expectResponseError(respond, {
+      code: "INVALID_REQUEST",
+      messageIncludes: "Automation not found: cron-other",
+    });
+  });
+
+  it("does not let current-job capability cross an agent boundary", async () => {
+    const foreignJob = createCronJob({ id: "cron-1", agentId: "worker" });
+    const client = callerClient("ops", "default", "agent:ops:cron:cron-1:run:active", "cron-1");
+
+    const { context, respond } = await invokeCronUpdate(
+      { id: "cron-1", patch: { enabled: false } },
+      foreignJob,
+      { client },
+    );
+
+    expect(context.cron.update).not.toHaveBeenCalled();
+    expectResponseError(respond, {
+      code: "INVALID_REQUEST",
+      messageIncludes: "Automation not found: cron-1",
+    });
   });
 
   it("rejects agent-runtime edits that leave a tool-runtime job capless", async () => {

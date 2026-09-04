@@ -55,7 +55,6 @@ import {
   createCronToolSchema,
   CRON_TOOL_LIST_MAX_LIMIT,
 } from "./cron-tool-schema.js";
-import { listCronSelfJob } from "./cron-tool-self-list.js";
 import {
   assertCronCreatorAuthorityResolutionAvailable,
   assertNoCronShellExecution,
@@ -80,42 +79,8 @@ function readCronJobIdParam(params: Record<string, unknown>) {
   return readToolStringParam(params, "jobId") ?? readToolStringParam(params, "id");
 }
 
-const CRON_SELF_REMOVE_SCOPE_ERROR = "Automations tool is restricted to the current automation.";
-
 function readCronSelfRemoveOnlyJobId(opts: CronToolOptions | undefined) {
   return opts?.selfRemoveOnlyJobId?.trim() || undefined;
-}
-
-function isCronSelfIntrospectionAction(action: string) {
-  return action === "status" || action === "list";
-}
-
-function assertCronSelfRemoveScope(
-  opts: CronToolOptions | undefined,
-  action: string,
-  params: Record<string, unknown>,
-) {
-  const selfRemoveOnlyJobId = readCronSelfRemoveOnlyJobId(opts);
-  if (!selfRemoveOnlyJobId || isCronSelfIntrospectionAction(action)) {
-    return;
-  }
-  if (action === "next_check") {
-    const id = readCronJobIdParam(params);
-    if (!id || id === selfRemoveOnlyJobId) {
-      return;
-    }
-  }
-  if (action === "get" || action === "remove" || action === "runs") {
-    const id = readCronJobIdParam(params);
-    if (id && id === selfRemoveOnlyJobId) {
-      return;
-    }
-  }
-  throw new Error(CRON_SELF_REMOVE_SCOPE_ERROR);
-}
-
-function filterCronStatusResultForSelfScope(result: unknown): unknown {
-  return { enabled: isRecord(result) && result.enabled === true };
 }
 
 function formatCronTerminalPresentation(
@@ -208,7 +173,7 @@ DELIVERY {mode:"none"|"announce"|"webhook",channel?,to?,threadId?,bestEffort?,co
 
 FAILURE ALERTS: jobs with a failure route default to alerting after 2 consecutive execution failures with a 1h cooldown. Route order: job failureAlert fields, delivery.failureDestination over global cron.failureAlert destination fields, then primary announce. failureAlert:false disables execution/delivery alerts, not the auto-disable safety notice; a failureAlert object activates/tunes. bestEffort suppresses inherited execution alerts. Required completion-delivery failure uses only an alternate route, bypasses after, and shares the execution-alert cooldown from the first failure; it does not increment the execution streak.
 
-Job wakeMode (main jobs): "now"(default)|"next-heartbeat". Restricted automation-run sessions: self status/list/get/runs/remove + own next_check only. jobId canonical (id=compat). contextMessages 0-10 embeds recent chat lines into reminder text.`;
+Job wakeMode (main jobs): "now"(default)|"next-heartbeat". Automation-run sessions retain the normal caller-scoped Automations surface; Gateway owner/agent/account/session authority still limits which jobs are visible or mutable. next_check remains current-run-only. jobId canonical (id=compat). contextMessages 0-10 embeds recent chat lines into reminder text.`;
 }
 
 export function createCronTool(opts?: CronToolOptions, deps?: CronToolDeps): AnyAgentTool {
@@ -228,7 +193,6 @@ export function createCronTool(opts?: CronToolOptions, deps?: CronToolDeps): Any
       operationSignal?.throwIfAborted();
       const params = args as Record<string, unknown>;
       const action = readToolStringParam(params, "action", { required: true });
-      assertCronSelfRemoveScope(opts, action, params);
       const parsedGatewayOpts = readGatewayCallOptions(params);
       const gatewayOpts: GatewayCallOptions = {
         ...parsedGatewayOpts,
@@ -260,29 +224,20 @@ export function createCronTool(opts?: CronToolOptions, deps?: CronToolDeps): Any
         switch (action) {
           case "status": {
             const result = await callGateway("cron.status", gatewayOpts, {});
-            return jsonResult(
-              readCronSelfRemoveOnlyJobId(opts)
-                ? filterCronStatusResultForSelfScope(result)
-                : result,
-            );
+            return jsonResult(result);
           }
           case "list": {
-            const selfRemoveOnlyJobId = readCronSelfRemoveOnlyJobId(opts);
             const explicitAgentId = readCronToolAgentId(params.agentId);
             if (callerScope && explicitAgentId && explicitAgentId !== callerScope.agentId) {
               throw new Error("cron list agentId must match the calling agent");
             }
             const listAgentId = callerScope?.agentId ?? explicitAgentId;
             const includeDisabled = Boolean(params.includeDisabled);
-            const requestedLimit = selfRemoveOnlyJobId
-              ? undefined
-              : readPositiveIntegerParam(params, "limit", {
-                  max: CRON_TOOL_LIST_MAX_LIMIT,
-                  message: `limit must be a positive integer no greater than ${CRON_TOOL_LIST_MAX_LIMIT}`,
-                });
-            const requestedOffset = selfRemoveOnlyJobId
-              ? undefined
-              : readNonNegativeIntegerParam(params, "offset");
+            const requestedLimit = readPositiveIntegerParam(params, "limit", {
+              max: CRON_TOOL_LIST_MAX_LIMIT,
+              message: `limit must be a positive integer no greater than ${CRON_TOOL_LIST_MAX_LIMIT}`,
+            });
+            const requestedOffset = readNonNegativeIntegerParam(params, "offset");
             let useCompactList = true;
             const requestListPage = async (pageParams: Record<string, unknown>) => {
               for (;;) {
@@ -303,21 +258,11 @@ export function createCronTool(opts?: CronToolOptions, deps?: CronToolDeps): Any
                 }
               }
             };
-            if (!selfRemoveOnlyJobId) {
-              const result = await requestListPage({
-                ...(requestedLimit !== undefined ? { limit: requestedLimit } : {}),
-                ...(requestedOffset !== undefined ? { offset: requestedOffset } : {}),
-              });
-              return jsonResult(result);
-            }
-
-            return jsonResult(
-              await listCronSelfJob({
-                jobId: selfRemoveOnlyJobId,
-                pageSize: CRON_TOOL_LIST_MAX_LIMIT,
-                requestPage: requestListPage,
-              }),
-            );
+            const result = await requestListPage({
+              ...(requestedLimit !== undefined ? { limit: requestedLimit } : {}),
+              ...(requestedOffset !== undefined ? { offset: requestedOffset } : {}),
+            });
+            return jsonResult(result);
           }
           case "get": {
             const id = readCronJobIdParam(params);
@@ -636,6 +581,10 @@ export function createCronTool(opts?: CronToolOptions, deps?: CronToolDeps): Any
             const runId = opts?.runId?.trim();
             if (!jobId || !runId) {
               throw new Error("cron next_check is only available to the currently running job");
+            }
+            const requestedJobId = readCronJobIdParam(params);
+            if (requestedJobId && requestedJobId !== jobId) {
+              throw new Error("cron next_check can only target the currently running job");
             }
             const rawDuration = readToolStringParam(params, "in", { required: true });
             let delayMs: number;
