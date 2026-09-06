@@ -31,6 +31,79 @@ export function parseFeishuMarkdown(text: string): FeishuMarkdownNode {
   }) as FeishuMarkdownNode;
 }
 
+/** Count GFM table nodes, not pipe characters or fenced Markdown examples. */
+export function countFeishuMarkdownTables(text: string): number {
+  const pending = [parseFeishuMarkdown(text)];
+  let count = 0;
+  while (pending.length) {
+    const node = pending.pop()!;
+    if (node.type === "table") {
+      count += 1;
+    }
+    pending.push(...(node.children ?? []));
+  }
+  return count;
+}
+
+function splitFeishuMarkdownTables(text: string, maxTables?: number): string[] {
+  if (maxTables === undefined) {
+    return [text];
+  }
+  const tables: Array<{ end: number; lists: FeishuMarkdownNode[] }> = [];
+  const definitions: string[] = [];
+  let hasReferences = false;
+  const visit = (node: FeishuMarkdownNode, lists: FeishuMarkdownNode[]): void => {
+    const ancestors = node.type === "listItem" ? [...lists, node] : lists;
+    const start = node.position?.start.offset;
+    const end = node.position?.end.offset;
+    if (node.type === "table" && end !== undefined) {
+      tables.push({ end, lists: ancestors });
+    }
+    if (node.type === "definition" && start !== undefined && end !== undefined) {
+      definitions.push(text.slice(start, end));
+    }
+    if (node.type === "linkReference" || node.type === "imageReference") {
+      hasReferences = true;
+    }
+    for (const child of node.children ?? []) {
+      visit(child, ancestors);
+    }
+  };
+  visit(parseFeishuMarkdown(text), []);
+  if (tables.length <= maxTables) {
+    return [text];
+  }
+  const chunks: string[] = [];
+  let start = 0;
+  let reopen = "";
+  for (const [index, table] of tables.entries()) {
+    if ((index + 1) % maxTables !== 0 || index === tables.length - 1) {
+      continue;
+    }
+    chunks.push(reopen + text.slice(start, table.end));
+    // Without reopening list containers, an indented continuation becomes
+    // code instead of the remaining tables. Quote markers already remain in source.
+    reopen = table.lists
+      .filter((list) => (list.position?.end.offset ?? 0) > table.end)
+      .map((list) => {
+        const offset = list.position!.start.offset!;
+        const lineStart = text.lastIndexOf("\n", offset - 1) + 1;
+        const marker = /^(?:[-+*]|\d+[.)])[\t ]+/.exec(text.slice(offset))?.[0] ?? "";
+        return `${text.slice(lineStart, offset)}${marker.trimEnd()}\n`;
+      })
+      .join("");
+    start = table.end;
+  }
+  chunks.push(reopen + text.slice(start));
+  // Each independent message needs definitions for previously resolved links.
+  return hasReferences
+    ? chunks.map((chunk) => {
+        const missing = definitions.filter((definition) => !chunk.includes(definition));
+        return missing.length ? `${chunk}\n\n${missing.join("\n")}` : chunk;
+      })
+    : chunks;
+}
+
 function buildFeishuPostMentionElements(mentions?: MentionTarget[]): FeishuPostMessageElement[] {
   if (!mentions?.length) {
     return [];
@@ -187,6 +260,7 @@ export function chunkFeishuPostMarkdown(params: FeishuMarkdownChunkOptions): str
 export function chunkFeishuMarkdownByEnvelope(
   params: FeishuMarkdownChunkOptions & {
     contentBytes: (text: string, isFirst: boolean) => number;
+    maxTables?: number;
   },
 ): string[] {
   const { text } = params;
@@ -196,9 +270,10 @@ export function chunkFeishuMarkdownByEnvelope(
 
   const requestedLimit =
     Number.isFinite(params.limit) && params.limit > 0 ? Math.floor(params.limit) : text.length;
-  const initialChunks =
+  const initialChunks = (
     params.initialChunks ??
-    chunkFeishuMarkdownWithMode(text, requestedLimit, params.mode ?? "length");
+    chunkFeishuMarkdownWithMode(text, requestedLimit, params.mode ?? "length")
+  ).flatMap((chunk) => splitFeishuMarkdownTables(chunk, params.maxTables));
   const output: string[] = [];
   for (const initialChunk of initialChunks) {
     if (params.contentBytes(initialChunk, output.length === 0) <= FEISHU_POST_MAX_BYTES) {
@@ -213,7 +288,7 @@ export function chunkFeishuMarkdownByEnvelope(
         initialChunk,
         adaptiveLimit,
         params.mode ?? "length",
-      );
+      ).flatMap((chunk) => splitFeishuMarkdownTables(chunk, params.maxTables));
       let largestContentBytes = 0;
       let oversizedChunk: string | undefined;
 

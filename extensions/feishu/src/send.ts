@@ -13,6 +13,7 @@ import {
   assertFeishuPostWithinEnvelope,
   buildFeishuPostMessageContent,
   chunkFeishuMarkdownByEnvelope,
+  countFeishuMarkdownTables,
   materializeFeishuPostMarkdownSoftBreaks,
   type FeishuMarkdownChunkOptions,
 } from "./markdown.js";
@@ -665,8 +666,14 @@ export function chunkFeishuCardMarkdown(
     note?: string;
   },
 ): string[] {
+  // Four tables per Markdown element, five per card (including the note).
+  const noteTables = params.note ? countFeishuMarkdownTables(params.note) : 0;
+  if (noteTables > 4) {
+    throw new Error("Feishu card note exceeds the four-table Markdown limit");
+  }
   return chunkFeishuMarkdownByEnvelope({
     ...params,
+    maxTables: Math.min(4, 5 - noteTables),
     contentBytes: (text, isFirst) =>
       Buffer.byteLength(
         JSON.stringify(

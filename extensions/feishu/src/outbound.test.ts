@@ -2824,6 +2824,46 @@ describe("feishuOutbound.sendText replyToId forwarding", () => {
     ]);
   });
 
+  it.each([false, true])(
+    "retains short-table card receipts when second send fails=%s",
+    async (failSecond) => {
+      const text = Array.from(
+        { length: 6 },
+        (_, index) => `| item ${index} | result |\n| --- | --- |\n| value ${index} | ok |`,
+      ).join("\n\n");
+      sendStructuredCardFeishuMock.mockResolvedValueOnce({ messageId: "table_part_1" });
+      if (failSecond) {
+        sendStructuredCardFeishuMock.mockRejectedValueOnce(new Error("table part 2 failed"));
+      } else {
+        sendStructuredCardFeishuMock.mockResolvedValueOnce({ messageId: "table_part_2" });
+      }
+      const onDeliveryResult = vi.fn();
+      const delivery = sendText({
+        cfg: cardRenderConfig,
+        to: "chat_1",
+        text,
+        accountId: "main",
+        replyToId: "table_reply",
+        onDeliveryResult,
+      });
+      if (failSecond) {
+        await expect(delivery).rejects.toThrow("table part 2 failed");
+      } else {
+        await delivery;
+      }
+      expect(sendStructuredCardFeishuMock).toHaveBeenCalledTimes(2);
+      expect(sendMessageFeishuMock).not.toHaveBeenCalled();
+      expect(sendStructuredCardFeishuMock.mock.calls.map(([params]) => params.text).join("")).toBe(
+        text,
+      );
+      expect(sendStructuredCardFeishuMock.mock.calls[0]?.[0].replyToMessageId).toBe("table_reply");
+      expect(sendStructuredCardFeishuMock.mock.calls[1]?.[0].replyToMessageId).toBeUndefined();
+      expect(onDeliveryResult.mock.calls.map(([result]) => result.messageId)).toEqual(
+        failSecond ? ["table_part_1"] : ["table_part_1", "table_part_2"],
+      );
+    },
+  );
+
   it("stops text fanout immediately when accepted delivery cannot be persisted", async () => {
     const onDeliveryResult = vi.fn().mockRejectedValueOnce(new Error("progress write failed"));
 
