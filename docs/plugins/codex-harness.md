@@ -99,8 +99,8 @@ channel is the communication surface.
 
 - The official `@openclaw/codex` plugin installed. Include `codex` in
   `plugins.allow` if your config uses an allowlist.
-- Managed Codex app-server `0.151.0`. The plugin ships and manages
-  `@openai/codex` `0.151.0` by default, so a `codex` command on `PATH` does not
+- Managed Codex app-server `0.153.4`. The plugin ships and manages
+  `@openai/codex` `0.153.4` by default, so a `codex` command on `PATH` does not
   affect normal startup. Explicit custom, remote, and macOS desktop-owned
   app-servers must report a parseable semantic version of `0.149.0` or newer.
   Newer versions continue with a compatibility warning and normal runtime
@@ -114,6 +114,20 @@ channel is the communication surface.
 For auth precedence, environment isolation, custom app-server commands,
 model discovery, and the full config field list, see
 [Codex harness reference](/plugins/codex-harness-reference).
+
+## Managed model catalog verification (2026-09-07)
+
+An authenticated `model/list` probe of Codex `0.153.4` returned the public
+`gpt-6-astra` model with text and image input. Its advertised reasoning efforts
+were `low`, `medium`, `high`, `xhigh`, `max`, and `ultra`. Preserve explicit
+agent effort settings instead of relying on a catalog default. The catalog
+also advertised an optional priority service tier;
+ordinary mode did not select a priority tier.
+
+Upgrading the managed binary does not itself migrate an OpenClaw agent's
+explicit model selection. Retain each agent's existing reasoning effort and
+context budget when evaluating a new model, and verify the effective model on
+an actual turn rather than inferring it from binary version or catalog presence.
 
 ## Quickstart
 
