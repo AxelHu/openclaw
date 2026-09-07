@@ -70,6 +70,39 @@ describe("OpenAI provider policy artifact", () => {
     expect(openaiMiniProfile?.levels.map((level) => level.id)).toContain("xhigh");
   });
 
+  it.each([
+    ["openclaw", "openai-responses"],
+    ["openclaw", "openai-chatgpt-responses"],
+    ["auto", "openai-chatgpt-responses"],
+    ["codex", "openai-responses"],
+    ["codex", "openai-chatgpt-responses"],
+  ] as const)("retains advertised advanced efforts on %s / %s", (agentRuntime, api) => {
+    const levels = resolveThinkingProfile({
+      provider: "openai",
+      modelId: "gpt-future-observed",
+      agentRuntime,
+      api,
+      compat: { supportedReasoningEfforts: ["low", "medium", "high", " XHIGH ", "max"] },
+    })?.levels.map((level) => level.id);
+
+    expect(levels).toEqual(expect.arrayContaining(["high", "xhigh", "max"]));
+    expect(levels).not.toContain("ultra");
+  });
+
+  it.each([undefined, [], ["high"], ["xhigh"]])("requires advertised advanced tiers", (efforts) => {
+    const levels = resolveThinkingProfile({
+      provider: "openai",
+      modelId: "gpt-future-observed",
+      agentRuntime: "openclaw",
+      api: "openai-chatgpt-responses",
+      compat: { supportedReasoningEfforts: efforts },
+    })?.levels.map((level) => level.id);
+
+    expect(levels?.includes("xhigh")).toBe(efforts?.includes("xhigh") ?? false);
+    expect(levels).not.toContain("max");
+    expect(levels).not.toContain("ultra");
+  });
+
   it("exposes max for the GPT-5.6 series", () => {
     const solLevels = resolveThinkingProfile({
       provider: "openai",

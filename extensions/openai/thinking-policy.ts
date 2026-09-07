@@ -92,16 +92,19 @@ function buildOpenAIThinkingProfile(params: {
 }): ProviderThinkingProfile {
   const modelId = normalizeModelId(params.modelId);
   const agentRuntime = normalizeModelId(params.agentRuntime ?? "");
-  const codexEfforts = params.compat?.supportedReasoningEfforts?.map(normalizeModelId);
+  const catalogEfforts = params.compat?.supportedReasoningEfforts?.map(normalizeModelId);
   const resolvedCodexEfforts =
     params.api === "openai-chatgpt-responses"
-      ? resolveOpenAICodexReasoningEfforts(modelId, codexEfforts)
+      ? resolveOpenAICodexReasoningEfforts(modelId, catalogEfforts)
       : undefined;
   const knownCodexEfforts = resolveOpenAICodexReasoningEfforts(modelId, undefined);
   const isGpt56Variant = knownCodexEfforts !== undefined;
   const codexSupportsMax = (resolvedCodexEfforts ?? knownCodexEfforts)?.includes("max");
+  // Catalog capabilities also cover models newer than the built-in name list.
+  // Preserve their advertised advanced tiers without inventing logical Ultra.
   const supportsMax =
-    modelId.startsWith("gpt-5.6") && (agentRuntime !== "codex" || codexSupportsMax);
+    (modelId.startsWith("gpt-5.6") && (agentRuntime !== "codex" || codexSupportsMax)) ||
+    catalogEfforts?.includes("max");
   const codexSupportsUltra = (resolvedCodexEfforts ?? knownCodexEfforts)?.includes("ultra");
   // OpenClaw owns its logical Ultra orchestration. Native Codex capabilities
   // come only from the selected ChatGPT route's catalog metadata.
@@ -119,7 +122,8 @@ function buildOpenAIThinkingProfile(params: {
   const defaultLevel = isGpt56Variant ? "medium" : undefined;
   const fallbackLevels: ProviderThinkingProfile["levels"] = [
     ...OPENAI_THINKING_BASE_LEVELS,
-    ...(matchesExactOrPrefix(params.modelId, params.xhighModelIds)
+    ...(matchesExactOrPrefix(params.modelId, params.xhighModelIds) ||
+    catalogEfforts?.includes("xhigh")
       ? [{ id: "xhigh" as const }]
       : []),
     ...(supportsMax ? [{ id: "max" as const }] : []),
