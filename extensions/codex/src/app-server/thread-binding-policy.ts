@@ -37,7 +37,7 @@ export function resolveCodexGpt56MultiAgentVersion(
     }
     modelId = modelId.slice(slashIndex + 1);
   }
-  if (modelId === "gpt-5.6-sol" || modelId === "gpt-5.6-terra") {
+  if (modelId === "gpt-5.6-sol" || modelId === "gpt-5.6-terra" || modelId === "gpt-6-astra") {
     return "v2";
   }
   return modelId === "gpt-5.6-luna" ? "v1" : undefined;
