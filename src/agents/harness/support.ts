@@ -1,6 +1,7 @@
 import { normalizeProviderId } from "@openclaw/model-catalog-core/provider-id";
 import { normalizeOptionalString as readStringParam } from "@openclaw/normalization-core/string-coerce";
 import {
+  mergeModelProviderRouteOverridePresence,
   resolveMergedModelProviderConfig,
   resolveMergedModelProviderModels,
   resolveModelProviderRouteOverridePresence,
@@ -130,11 +131,11 @@ export function buildAgentHarnessSupportContext(params: {
       }
     : undefined;
   const requestTransportOverrides: ProviderRouteOverridePresence =
-    params.modelProvider?.requestTransportOverrides === "present" ||
-    configuredModelProvider?.requestTransportOverrides === "present" ||
-    hasConfiguredProviderRequestParams
-      ? "present"
-      : "none";
+    mergeModelProviderRouteOverridePresence(
+      params.modelProvider?.requestTransportOverrides,
+      configuredModelProvider?.requestTransportOverrides,
+      hasConfiguredProviderRequestParams ? "present" : "none",
+    );
   const modelProviderFacts =
     params.modelProvider || configuredModelProvider || hasConfiguredProviderRequestParams
       ? {

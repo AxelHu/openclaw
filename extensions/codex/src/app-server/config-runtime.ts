@@ -318,6 +318,10 @@ export function resolveCodexAppServerRuntimeOptions(
         HTTPS_PROXY: providerProxyUrl,
         http_proxy: providerProxyUrl,
         https_proxy: providerProxyUrl,
+        // Explicit provider proxy intent must not be bypassed by inherited NO_PROXY.
+        // Retain direct loopback access for the native tool/RPC endpoints only.
+        NO_PROXY: "localhost,127.0.0.1,::1",
+        no_proxy: "localhost,127.0.0.1,::1",
       }
     : undefined;
 

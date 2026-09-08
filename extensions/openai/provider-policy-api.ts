@@ -161,6 +161,8 @@ function codexCanReproduceRoute(
 ): boolean {
   // Official HTTP ChatGPT input normalizes to the native HTTPS candidate. Retain the source
   // protocol here so normalization cannot silently make an unreproducible route Codex-compatible.
+  // The environment-proxy projection is reproduced by Codex's scoped stdio launch;
+  // arbitrary request behavior and non-official endpoints remain incompatible.
   if (isHttpBaseUrl(sourceBaseUrl) || candidate.requestTransportOverrides === "present") {
     return false;
   }

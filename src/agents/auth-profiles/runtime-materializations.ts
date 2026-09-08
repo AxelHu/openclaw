@@ -1,5 +1,6 @@
 import { isDeepStrictEqual } from "node:util";
 import { normalizeProviderId } from "@openclaw/model-catalog-core/provider-id";
+import type { ProviderRouteOverridePresence } from "../../plugin-sdk/provider-model-types.js";
 import { resolveSharedAuthStorePath } from "./path-resolve.js";
 import { resolveAuthProfileDatabasePath } from "./sqlite.js";
 
@@ -9,7 +10,7 @@ export type RuntimeAuthMaterialization = Readonly<{
   modelId: string;
   modelApi: string;
   modelBaseUrl: string;
-  requestTransportOverrides: "none" | "present";
+  requestTransportOverrides: ProviderRouteOverridePresence;
   authMode: string;
   runtimeOwnerId: string;
   authProfileId?: string;
@@ -52,7 +53,7 @@ export function recordRuntimeAuthMaterialization(params: {
   modelId: string;
   modelApi: string;
   modelBaseUrl: string;
-  requestTransportOverrides: "none" | "present";
+  requestTransportOverrides: ProviderRouteOverridePresence;
   authMode: string;
   runtimeOwnerId: string;
   authProfileId?: string;

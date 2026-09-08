@@ -10,6 +10,7 @@ import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
 import { resolvePluginConfigObject } from "openclaw/plugin-sdk/plugin-config-runtime";
 import type { PluginRuntime } from "openclaw/plugin-sdk/plugin-runtime";
 import { runHostPreparedIsolatedCompletion } from "openclaw/plugin-sdk/simple-completion-runtime";
+import { readCodexPluginConfig } from "./src/app-server/config-parsing.js";
 import { readCodexRuntimeModelId } from "./src/app-server/model-runtime.js";
 import type { CodexAppServerBindingStore } from "./src/app-server/session-binding.js";
 import type { CodexSessionCatalogControlFactory } from "./src/session-catalog-types.js";
@@ -183,6 +184,25 @@ export function createCodexAppServerAgentHarness(
           reason: "Codex cannot reproduce authored request transport overrides",
           fallbackRuntime: "openclaw",
         };
+      }
+      if (ctx.modelProvider?.requestTransportOverrides === "environment-proxy") {
+        const config = readCodexPluginConfig(resolveAttemptPluginConfig(options.resolveConfig?.()));
+        // Only a newly spawned stdio server inherits the provider's proxy environment.
+        // Connecting to an external Unix/WebSocket server cannot establish that contract.
+        const clearsProxy = config.appServer?.clearEnv?.some((key) =>
+          ["http_proxy", "https_proxy", "no_proxy"].includes(key.trim().toLowerCase()),
+        );
+        if (
+          provider !== "openai" ||
+          (config.appServer?.transport ?? "stdio") !== "stdio" ||
+          clearsProxy
+        ) {
+          return {
+            supported: false,
+            reason: "Codex proxy transport requires a local stdio launch",
+            fallbackRuntime: "openclaw",
+          };
+        }
       }
       const preparedAuth = ctx.modelProvider?.preparedAuth;
       const runtimePolicy = ctx.modelProvider?.runtimePolicy;

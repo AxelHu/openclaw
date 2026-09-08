@@ -32,6 +32,29 @@ describe("OpenAI provider policy artifact", () => {
     },
   );
 
+  it.each(["openai-responses", "openai-chatgpt-responses"] as const)(
+    "retains Codex compatibility for a reproducible proxy with %s",
+    (api) => {
+      const result = resolveModelRoutes({
+        provider: "openai",
+        modelId: "gpt-6-astra",
+        configuredProvider: { api },
+        requestTransportOverrides: "environment-proxy",
+        env: {},
+      });
+      expect(result).toMatchObject({
+        kind: "routes",
+        defaultRuntimeId: "codex",
+        routes: [
+          {
+            requestTransportOverrides: "environment-proxy",
+            runtimePolicy: { compatibleIds: ["openclaw", "codex"] },
+          },
+        ],
+      });
+    },
+  );
+
   it("normalizes the legacy Codex model alias at the provider boundary", () => {
     expect(normalizeModelCatalogId({ provider: " OpenAI ", modelId: "openai/GPT-5.4-CODEX" })).toBe(
       "gpt-5.4",

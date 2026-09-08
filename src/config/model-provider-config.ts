@@ -137,18 +137,62 @@ function hasRequestCompatOverrides(compat: ModelDefinitionConfig["compat"]): boo
       return value !== true;
     }
     if (key === "supportedReasoningEfforts") {
+      // An optional native "none" tier does not disable the advertised reasoning tiers.
       return !(
         Array.isArray(value) &&
         value.length > 0 &&
+        value.some((effort) => effort !== "none") &&
         value.every(
           (effort) =>
             typeof effort === "string" &&
-            /^(minimal|low|medium|high|xhigh|max|ultra)$/u.test(effort),
+            /^(none|minimal|low|medium|high|xhigh|max|ultra)$/u.test(effort),
         )
       );
     }
     return true;
   });
+}
+
+/** Combines prepared/configured facts without erasing stronger request requirements. */
+export function mergeModelProviderRouteOverridePresence(
+  ...values: (ProviderRouteOverridePresence | undefined)[]
+): ProviderRouteOverridePresence {
+  return values.includes("present")
+    ? "present"
+    : values.includes("environment-proxy")
+      ? "environment-proxy"
+      : "none";
+}
+
+function isEnvironmentProxyOnly(request: ModelProviderConfig["request"]): boolean {
+  if (
+    !request ||
+    request.allowPrivateNetwork !== true ||
+    Object.keys(request).some((key) => key !== "proxy" && key !== "allowPrivateNetwork")
+  ) {
+    return false;
+  }
+  const proxy = request.proxy;
+  if (
+    proxy?.mode !== "explicit-proxy" ||
+    Object.keys(proxy).some((key) => key !== "mode" && key !== "url")
+  ) {
+    return false;
+  }
+  try {
+    const url = new URL(proxy.url);
+    return (
+      url.protocol === "http:" &&
+      ["127.0.0.1", "localhost", "[::1]"].includes(url.hostname) &&
+      !url.username &&
+      !url.password &&
+      !url.search &&
+      !url.hash &&
+      url.pathname === "/"
+    );
+  } catch {
+    return false;
+  }
 }
 
 /** Projects authored request behavior without exposing values or local commands. */
@@ -162,10 +206,15 @@ export function resolveModelProviderRouteOverridePresence(params: {
   if (!providerConfig) {
     return "none";
   }
+  const requestOverrides: ProviderRouteOverridePresence = hasNonEmptyRecord(providerConfig.request)
+    ? isEnvironmentProxyOnly(providerConfig.request)
+      ? "environment-proxy"
+      : "present"
+    : "none";
   if (
     readRecord(providerConfig.localService) !== undefined ||
     hasNonEmptyRecord(providerConfig.headers) ||
-    hasNonEmptyRecord(providerConfig.request) ||
+    requestOverrides === "present" ||
     hasNonEmptyRecord(providerConfig.params) ||
     typeof providerConfig.authHeader === "boolean" ||
     typeof providerConfig.timeoutSeconds === "number"
@@ -173,7 +222,7 @@ export function resolveModelProviderRouteOverridePresence(params: {
     return "present";
   }
   if (!params.modelId) {
-    return "none";
+    return requestOverrides;
   }
   const canonicalize = (modelId: string) => {
     const normalized = normalizeModelId(params.provider, modelId);
@@ -190,7 +239,7 @@ export function resolveModelProviderRouteOverridePresence(params: {
       hasNonEmptyRecord(configuredModel.params) ||
       hasRequestCompatOverrides(configuredModel.compat))
     ? "present"
-    : "none";
+    : requestOverrides;
 }
 
 /** Resolves the provider entry produced by models-config key normalization. */

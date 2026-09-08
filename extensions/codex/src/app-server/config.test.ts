@@ -349,6 +349,8 @@ describe("Codex app-server config", () => {
       HTTPS_PROXY: "http://127.0.0.1:1080",
       http_proxy: "http://127.0.0.1:1080",
       https_proxy: "http://127.0.0.1:1080",
+      NO_PROXY: "localhost,127.0.0.1,::1",
+      no_proxy: "localhost,127.0.0.1,::1",
     });
   });
 

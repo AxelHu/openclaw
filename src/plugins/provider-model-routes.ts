@@ -1,6 +1,7 @@
 /** Generic adapter for provider-owned model route public artifacts. */
 import { normalizeProviderId } from "@openclaw/model-catalog-core/provider-id";
 import {
+  mergeModelProviderRouteOverridePresence,
   resolveMergedModelProviderConfig,
   resolveMergedModelProviderModels,
   resolveModelProviderRouteOverridePresence,
@@ -106,26 +107,24 @@ export function createProviderModelRoutesResolver(params: {
       ([modelId, model]) => [modelId, projectConfiguredModelRoute(model)] as const,
     ),
   );
-  const providerRouteOverridePresence =
-    params.requestTransportOverrides === "present"
-      ? "present"
-      : resolveModelProviderRouteOverridePresence({
-          provider,
-          authoredConfig,
-        });
+  const providerRouteOverridePresence = mergeModelProviderRouteOverridePresence(
+    params.requestTransportOverrides,
+    resolveModelProviderRouteOverridePresence({ provider, authoredConfig }),
+  );
   const routeOverridePresenceByModel = new Map(
     [...configuredModels.keys()].map(
       (modelId) =>
         [
           modelId,
-          params.requestTransportOverrides === "present"
-            ? "present"
-            : resolveModelProviderRouteOverridePresence({
-                provider,
-                modelId,
-                authoredConfig,
-                canonicalizeModelId,
-              }),
+          mergeModelProviderRouteOverridePresence(
+            params.requestTransportOverrides,
+            resolveModelProviderRouteOverridePresence({
+              provider,
+              modelId,
+              authoredConfig,
+              canonicalizeModelId,
+            }),
+          ),
         ] as const,
     ),
   );

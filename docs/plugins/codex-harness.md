@@ -32,7 +32,10 @@ repaired by `openclaw doctor --fix`.
 With provider/model runtime policy unset or `auto`, the `openai/*` prefix alone
 never selects this harness. OpenAI may select Codex implicitly only for an
 exact official HTTPS Platform Responses or ChatGPT Responses route with no
-authored provider request override. Valid model-scoped `params.fastMode` /
+unsupported authored provider request override. A plain loopback HTTP proxy with
+`request.allowPrivateNetwork: true` is reproduced by the local stdio launch; it
+remains a distinct transport requirement rather than being treated as absent.
+Valid model-scoped `params.fastMode` /
 `params.fast_mode` values and valid cutoff keys are typed agent-runtime
 controls, so they do not count as authored provider request params or select a
 runtime by themselves. See
@@ -875,10 +878,15 @@ fail-closed rule:
 
 With Codex forced, OpenClaw fails early if the plugin is disabled, the app-server
 is too old or cannot start, or route/auth support is rejected without a declared
-fallback. Authored request overrides may instead use the
+fallback. Unsupported authored request overrides may instead use the
 [selection-time OpenClaw fallback](/concepts/agent-runtimes#runtime-selection)
-that preserves the exact request. Once Codex starts, its failures are not replayed
-through OpenClaw.
+that preserves the exact request. The proxy-only exception requires a local stdio
+process, an explicitly allowed plain loopback HTTP proxy, and no additional
+request behavior. Unix/WebSocket connections or `appServer.clearEnv` entries
+that remove proxy variables cannot establish that contract and retain the
+fallback. Proxy variables are scoped to the spawned process; inherited
+`NO_PROXY` cannot bypass the explicit provider proxy except for loopback traffic.
+Once Codex starts, its failures are not replayed through OpenClaw.
 
 ## App-server policy
 
@@ -1550,9 +1558,12 @@ configs. Select an `openai/gpt-*` model, enable
 
 **OpenClaw uses the built-in harness instead of Codex:** confirm the effective
 route is an exact official HTTPS Platform Responses or ChatGPT Responses route,
-has no authored provider request override, and that the Codex plugin is installed
-and enabled. Affirmative reasoning support and native reasoning-effort metadata
-do not count as request overrides. Headers, request parameters, timeouts, and
+has no unsupported authored provider request override, and that the Codex plugin
+is installed and enabled. A plain loopback HTTP proxy with
+`request.allowPrivateNetwork: true` is supported by the local stdio launch without
+changing the configured proxy. Affirmative reasoning support and native
+reasoning-effort metadata (including an optional `none` tier alongside reasoning
+tiers) do not count as payload overrides. Headers, request parameters, timeouts, and
 payload compatibility switches still do: Codex declares an OpenClaw fallback
 that preserves the exact request, including for explicit runtime selections.
 Other unsupported routes/authentication and missing explicit harnesses fail

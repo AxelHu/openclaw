@@ -1,3 +1,4 @@
+import { mergeModelProviderRouteOverridePresence } from "../config/model-provider-config.js";
 import type {
   ProviderModelRouteAuthRequirement,
   ProviderModelRouteCandidate,
@@ -268,11 +269,9 @@ function resolveDeferredRouteSupport(
     return [normalizedId];
   });
   return {
-    requestTransportOverrides: resolution.routes.some(
-      (route) => route.requestTransportOverrides === "present",
-    )
-      ? "present"
-      : "none",
+    requestTransportOverrides: mergeModelProviderRouteOverridePresence(
+      ...resolution.routes.map((route) => route.requestTransportOverrides),
+    ),
     runtimePolicy: { compatibleIds },
   };
 }

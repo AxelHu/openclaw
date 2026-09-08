@@ -1,4 +1,5 @@
 import { vi } from "vitest";
+import type { ProviderRouteOverridePresence } from "../plugin-sdk/provider-model-types.js";
 import { createEmptyPluginRegistry } from "../plugins/registry-empty.js";
 import type { OpenClawTestState } from "../test-utils/openclaw-test-state.js";
 import type { AuthStorageData } from "./sessions/auth-storage.js";
@@ -243,7 +244,7 @@ vi.mock("./auth-profiles/runtime-materializations.js", () => ({
     modelId: string;
     modelApi: string;
     modelBaseUrl: string;
-    requestTransportOverrides: "none" | "present";
+    requestTransportOverrides: ProviderRouteOverridePresence;
     authMode: string;
     runtimeOwnerId: string;
     authProfileId?: string;

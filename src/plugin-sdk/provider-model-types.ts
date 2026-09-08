@@ -18,7 +18,9 @@ export type ProviderModelRouteSource = {
 
 /** A concrete provider route. Order expresses provider default, never credential precedence. */
 export type ProviderModelRouteAuthRequirement = "api-key" | "subscription";
-export type ProviderRouteOverridePresence = "none" | "present";
+// environment-proxy preserves an explicitly opted-in, plain loopback HTTP proxy.
+// It is not "none": runtimes must reproduce it or decline the route.
+export type ProviderRouteOverridePresence = "none" | "environment-proxy" | "present";
 export type ProviderModelRouteRuntimePolicy = {
   /** Agent runtime ids that can reproduce this route without losing transport behavior. */
   compatibleIds: readonly string[];

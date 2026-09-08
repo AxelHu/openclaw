@@ -398,6 +398,67 @@ describe("Codex agent harness supports()", () => {
     expect(!result.supported ? result.reason : undefined).toContain("prepared provider route");
   });
 
+  it("accepts a declared proxy-only route on a managed stdio process", () => {
+    expect(
+      harness.supports({
+        provider: "openai",
+        modelId: "gpt-6-astra",
+        requestedRuntime: "codex",
+        modelProvider: {
+          api: "openai-chatgpt-responses",
+          baseUrl: "https://chatgpt.com/backend-api",
+          requestTransportOverrides: "environment-proxy",
+          request: {
+            allowPrivateNetwork: true,
+            proxy: { mode: "explicit-proxy", url: "http://127.0.0.1:1080" },
+          },
+          runtimePolicy: { compatibleIds: ["openclaw", "codex"] },
+        },
+      }),
+    ).toMatchObject({ supported: true });
+  });
+
+  it.each(["websocket", "unix"])(
+    "does not promise proxy environment inheritance on %s",
+    (transport) => {
+      const external = createCodexAppServerAgentHarness({
+        bindingStore: testCodexAppServerBindingStore,
+        pluginConfig: { appServer: { transport } },
+      });
+      expect(
+        external.supports({
+          provider: "openai",
+          modelId: "gpt-6-astra",
+          requestedRuntime: "codex",
+          modelProvider: {
+            api: "openai-chatgpt-responses",
+            baseUrl: "https://chatgpt.com/backend-api",
+            requestTransportOverrides: "environment-proxy",
+            runtimePolicy: { compatibleIds: ["openclaw", "codex"] },
+          },
+        }),
+      ).toMatchObject({ supported: false, fallbackRuntime: "openclaw" });
+    },
+  );
+
+  it("does not override explicit removal of proxy variables", () => {
+    const cleared = createCodexAppServerAgentHarness({
+      bindingStore: testCodexAppServerBindingStore,
+      pluginConfig: { appServer: { clearEnv: ["HTTPS_PROXY"] } },
+    });
+    expect(
+      cleared.supports({
+        provider: "openai",
+        modelId: "gpt-6-astra",
+        requestedRuntime: "codex",
+        modelProvider: {
+          requestTransportOverrides: "environment-proxy",
+          runtimePolicy: { compatibleIds: ["openclaw", "codex"] },
+        },
+      }),
+    ).toMatchObject({ supported: false, fallbackRuntime: "openclaw" });
+  });
+
   it("rejects authored request overrides defensively", () => {
     const result = harness.supports({
       provider: "openai",

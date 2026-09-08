@@ -63,6 +63,14 @@ describe("resolveModelProviderRouteOverridePresence", () => {
       { supportsReasoningEffort: true, supportedReasoningEfforts: ["low", "high"] },
       "none",
     ],
+    [
+      "native reasoning metadata with optional none",
+      {
+        supportsReasoningEffort: true,
+        supportedReasoningEfforts: ["none", "low", "high", "xhigh"],
+      },
+      "none",
+    ],
     ["disabled reasoning", { supportsReasoningEffort: false }, "present"],
     ["malformed reasoning support", { supportsReasoningEffort: "true" }, "present"],
     ["empty effort list", { supportedReasoningEfforts: [] }, "present"],

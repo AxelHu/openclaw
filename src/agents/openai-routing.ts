@@ -4,6 +4,7 @@
  * Custom OpenAI-compatible base URLs intentionally bypass Codex-runtime defaults.
  */
 import { normalizeProviderId } from "@openclaw/model-catalog-core/provider-id";
+import { mergeModelProviderRouteOverridePresence } from "../config/model-provider-config.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import type { ProviderRouteOverridePresence } from "../plugin-sdk/provider-model-types.js";
 import {
@@ -64,10 +65,10 @@ export function resolveOpenAIImplicitAgentRuntime(params: {
     modelId,
     agentId,
   });
-  const requestTransportOverrides =
-    params.requestTransportOverrides === "present" || hasConfiguredProviderRequestParams
-      ? "present"
-      : "none";
+  const requestTransportOverrides = mergeModelProviderRouteOverridePresence(
+    params.requestTransportOverrides,
+    hasConfiguredProviderRequestParams ? "present" : "none",
+  );
   const resolution = resolveOpenAIModelRoutes({
     provider: params.provider,
     modelId,
