@@ -135,9 +135,18 @@ Two secret-free provider-owned facts describe the selected route:
   compatible with that concrete route. An absent policy means the provider did
   not declare route-level compatibility; it is not permission to assume support.
 - `requestTransportOverrides: "none"` means no authored provider/model request
-  override must be reproduced. `"present"` means authored headers, auth
-  transport, proxy, TLS, local-service, private-network behavior, or request
-  parameters exist. The fact does not expose those values.
+  override must be reproduced. `"environment-proxy"` identifies an explicitly
+  allowed plain loopback HTTP proxy without other request overrides. It is not
+  equivalent to `"none"`: a harness must reproduce the proxy or decline the route.
+  `"present"` retains other authored headers, auth transport, proxy, TLS,
+  local-service, private-network behavior, or request parameters. These facts
+  do not expose configuration values.
+
+The Codex harness supports `"environment-proxy"` only for a local stdio launch
+whose proxy environment variables have not been explicitly cleared. Unix and
+WebSocket connections cannot establish that environment-inheritance contract.
+When combining prepared and configured facts, retain the strongest requirement:
+`"present"` before `"environment-proxy"` before `"none"`.
 
 Return `{ supported: false, reason }` when the harness cannot reproduce the
 prepared transport. Do not infer support by reading raw config after selection.
@@ -167,7 +176,7 @@ const myHarness: AgentHarnessV2 = {
   supports(ctx) {
     const routeSupportsHarness =
       ctx.modelProvider?.runtimePolicy?.compatibleIds.includes("my-harness") === true;
-    const canReproduceRequest = ctx.modelProvider?.requestTransportOverrides !== "present";
+    const canReproduceRequest = ctx.modelProvider?.requestTransportOverrides === "none";
     return ctx.provider === "my-provider" && routeSupportsHarness && canReproduceRequest
       ? { supported: true, priority: 100 }
       : { supported: false, reason: "effective route is not harness-compatible" };

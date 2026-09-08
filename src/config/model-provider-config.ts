@@ -140,7 +140,6 @@ function hasRequestCompatOverrides(compat: ModelDefinitionConfig["compat"]): boo
       // An optional native "none" tier does not disable the advertised reasoning tiers.
       return !(
         Array.isArray(value) &&
-        value.length > 0 &&
         value.some((effort) => effort !== "none") &&
         value.every(
           (effort) =>
