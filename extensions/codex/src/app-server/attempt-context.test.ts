@@ -195,7 +195,7 @@ describe("Codex app-server attempt context", () => {
         agentSessionKey: "agent:marketing-agent:session-1",
         sandboxed: true,
       });
-      expect(context.memoryCollaborationInstructions).toContain(
+      expect(context.memoryDeveloperInstructions).toContain(
         "agent=marketing-agent session=agent:marketing-agent:session-1",
       );
     } finally {

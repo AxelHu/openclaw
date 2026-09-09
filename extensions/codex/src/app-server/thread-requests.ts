@@ -32,6 +32,7 @@ import {
 } from "./thread-model-selection.js";
 import { buildDeveloperInstructions } from "./thread-prompt.js";
 import { applyCodexManagedShellEnvironment } from "./thread-shell-environment.js";
+import { CODEX_RETAIN_HOST_CONTEXT_CONFIG } from "./turn-instructions.js";
 import { resolveCodexWebSearchPlan, type CodexNativeWebSearchSupport } from "./web-search.js";
 
 export const CODEX_RING_ZERO_BASE_INSTRUCTIONS = "";
@@ -344,6 +345,7 @@ export function buildCodexRuntimeThreadConfig(
         CODEX_CODE_MODE_DISABLED_THREAD_CONFIG,
         CODEX_GOAL_CONTINUATION_DISABLED_THREAD_CONFIG,
         CODEX_NATIVE_UPDATE_PLAN_DISABLED_THREAD_CONFIG,
+        CODEX_RETAIN_HOST_CONTEXT_CONFIG,
       ),
       "Codex disabled code mode config",
     );
@@ -359,6 +361,7 @@ export function buildCodexRuntimeThreadConfig(
         configured,
         CODEX_GOAL_CONTINUATION_DISABLED_THREAD_CONFIG,
         CODEX_NATIVE_UPDATE_PLAN_DISABLED_THREAD_CONFIG,
+        CODEX_RETAIN_HOST_CONTEXT_CONFIG,
         { "features.code_mode_only": true },
       ),
       "Codex code mode only config",
@@ -371,6 +374,7 @@ export function buildCodexRuntimeThreadConfig(
       configured,
       CODEX_GOAL_CONTINUATION_DISABLED_THREAD_CONFIG,
       CODEX_NATIVE_UPDATE_PLAN_DISABLED_THREAD_CONFIG,
+      CODEX_RETAIN_HOST_CONTEXT_CONFIG,
     ),
     "Codex code mode config",
   );
@@ -729,10 +733,7 @@ export function resolveCodexThreadApprovalsReviewer(
 export function codexThreadSandboxOrPermissions(
   appServer: Pick<CodexAppServerRuntimeOptions, "networkProxy" | "sandbox">,
 ): Pick<CodexThreadStartParams, "sandbox"> {
-  if (appServer.networkProxy) {
-    return {};
-  }
-  return { sandbox: appServer.sandbox };
+  return appServer.networkProxy ? {} : { sandbox: appServer.sandbox };
 }
 
 function resolveCodexThreadEnvironmentSelection(options: {

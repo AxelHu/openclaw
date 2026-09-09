@@ -20,6 +20,10 @@ import type { CodexAttemptResources } from "./run-attempt-resources.js";
 import type { CodexAttemptTurnState } from "./run-attempt-turn-state.js";
 import { buildTurnStartParams } from "./thread-lifecycle.js";
 import { buildCodexUserPromptMessage } from "./transcript-mirror.js";
+import {
+  buildCodexTurnSupplementalInstructions,
+  injectCodexTurnSupplementalInstructions,
+} from "./turn-instructions.js";
 
 export async function prepareCodexAttemptTurnRequest(
   resources: CodexAttemptResources,
@@ -119,28 +123,43 @@ export async function prepareCodexAttemptTurnRequest(
       ...(usesSupervisionConnection
         ? {}
         : { model: resourceState.thread.model, modelProvider: resourceState.thread.modelProvider }),
-      turnScopedDeveloperInstructions: workspaceBootstrapContext.turnScopedDeveloperInstructions,
-      skillsCollaborationInstructions: context.skillsCollaborationInstructions,
-      memoryCollaborationInstructions: workspaceBootstrapContext.memoryCollaborationInstructions,
       preserveNativeTurnSettings: usesSupervisionConnection,
     });
     codexModelCallDiagnostics.setRequestPayloadBytes(utf8JsonByteLength(turnStartParams));
     state.latestStartupErrorNotification = undefined;
     state.rateLimitsRevisionBeforeLastTurnStart = readCodexRateLimitsRevision(resourceState.client);
-    activeTurnRoute.armTurn();
-    void emitCodexAppServerEvent(params, {
-      stream: "codex_app_server.lifecycle",
-      data: {
-        phase: "turn_starting",
-        threadId: resourceState.thread.threadId,
-        model: params.modelId,
-        effort: turnStartParams.effort,
-        collaborationEffort: turnStartParams.collaborationMode?.settings.reasoning_effort,
-        serviceTier: turnStartParams.serviceTier,
-      },
-    });
     let acceptedTurnId: string | undefined;
+    let turnStartDispatched = false;
     try {
+      await injectCodexTurnSupplementalInstructions({
+        client: resourceState.client,
+        threadId: resourceState.thread.threadId,
+        bindingStore: connection.bindingStore,
+        bindingIdentity: connection.bindingIdentity,
+        transient: resourceState.thread.lifecycle.transient,
+        instructions: buildCodexTurnSupplementalInstructions(runtimeParams, {
+          turnScopedDeveloperInstructions:
+            workspaceBootstrapContext.turnScopedDeveloperInstructions,
+          skillsDeveloperInstructions: context.skillsDeveloperInstructions,
+          memoryDeveloperInstructions: workspaceBootstrapContext.memoryDeveloperInstructions,
+        }),
+        timeoutMs: params.timeoutMs,
+        signal: runAbortController.signal,
+      });
+      runAbortController.signal.throwIfAborted();
+      activeTurnRoute.armTurn();
+      void emitCodexAppServerEvent(params, {
+        stream: "codex_app_server.lifecycle",
+        data: {
+          phase: "turn_starting",
+          threadId: resourceState.thread.threadId,
+          model: params.modelId,
+          effort: turnStartParams.effort,
+          collaborationEffort: turnStartParams.collaborationMode?.settings.reasoning_effort,
+          serviceTier: turnStartParams.serviceTier,
+        },
+      });
+      turnStartDispatched = true;
       const startedTurn = assertCodexTurnStartResponse(
         await resourceState.client.request("turn/start", turnStartParams, {
           timeoutMs: params.timeoutMs,
@@ -151,7 +170,10 @@ export async function prepareCodexAttemptTurnRequest(
       throwIfTurnStartAcceptedAfterAbort();
       return startedTurn;
     } catch (error) {
-      if (acceptedTurnId || isCodexAppServerIndeterminateRequestCancellationError(error)) {
+      if (
+        acceptedTurnId ||
+        (turnStartDispatched && isCodexAppServerIndeterminateRequestCancellationError(error))
+      ) {
         // Codex serializes start/interrupt per thread; an empty id interrupts
         // the accepted native turn even when local cancellation hid its response.
         try {
@@ -189,10 +211,10 @@ export async function prepareCodexAttemptTurnRequest(
     const nativeTurnCompleted = await waitForActiveNativeTurnCompletion();
     if (nativeTurnCompleted) {
       await resourceState.turnRoute?.drain();
-    } else if (!runAbortController.signal.aborted) {
-      embeddedAgentLog.warn(
-        "codex app-server active native turn did not complete before turn/start wait timed out",
-        { threadId: resourceState.thread.threadId },
+    } else {
+      runAbortController.signal.throwIfAborted();
+      throw new Error(
+        "Codex native turn is still active; refusing to append another turn's supplemental context",
       );
     }
   }

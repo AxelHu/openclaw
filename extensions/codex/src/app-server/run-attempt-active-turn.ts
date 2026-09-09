@@ -200,6 +200,13 @@ export async function activateCodexAttemptTurn(
         computerContextEpoch.value += 1;
         delete computerContextEpoch.frameToolCallId;
         delete computerContextEpoch.frameImageIdentity;
+        // Native retention has its own finite budget. Reassert one complete
+        // snapshot on the next OpenClaw turn after a compaction boundary.
+        await bindingStore.mutate(bindingIdentity, {
+          kind: "patch",
+          threadId: resourceState.thread.threadId,
+          patch: { supplementalContextFingerprint: undefined },
+        });
         try {
           await compactionPlanState.restore({
             client: resourceState.client,

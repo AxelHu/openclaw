@@ -215,6 +215,13 @@ const threadBindingSchema = z
     // Freeze OpenClaw-carried AGENTS.md at thread creation; bootstrap refreshes
     // must not mutate the inherited policy of a resumed native session.
     agentWorkspaceDeveloperInstructions: optionalNonBlankStringSchema,
+    // Receipt for the complete OpenClaw supplement on this exact native thread.
+    // Optional JSON state is ignored by older readers and needs no DB migration.
+    supplementalContextFingerprint: z
+      .string()
+      .regex(/^[a-f0-9]{64}$/)
+      .optional()
+      .catch(undefined),
     model: optionalStringSchema,
     // Codex App Server owns selection for supervised and adopted threads. Keep
     // this marker across resumes so OpenClaw never substitutes a default or fallback.

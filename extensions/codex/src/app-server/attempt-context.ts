@@ -77,7 +77,7 @@ type CodexWorkspaceBootstrapContext = CodexBootstrapContext & {
   promptContext?: string;
   threadDeveloperInstructions?: string;
   turnScopedDeveloperInstructions?: string;
-  memoryCollaborationInstructions?: string;
+  memoryDeveloperInstructions?: string;
 };
 
 /** Reads mirrored Codex session history for harness hooks. */
@@ -284,7 +284,7 @@ export async function buildCodexWorkspaceBootstrapContext(params: {
       turnScopedDeveloperInstructions: renderCodexWorkspaceCollaborationDeveloperInstructions(
         turnScopedDeveloperInstructionFiles,
       ),
-      memoryCollaborationInstructions: shouldInjectCodexOpenClawPromptContext(params.params)
+      memoryDeveloperInstructions: shouldInjectCodexOpenClawPromptContext(params.params)
         ? await renderCodexWorkspaceMemoryCollaborationInstructions({
             files: memoryReferenceFiles,
             toolNames: params.memoryToolNames,
@@ -609,7 +609,7 @@ function shouldInjectCodexOpenClawPromptContext(params: EmbeddedRunAttemptParams
 }
 
 /** Renders loaded OpenClaw skill prompts as Codex collaboration instructions. */
-export function renderCodexSkillsCollaborationInstructions(params: {
+export function renderCodexSkillsDeveloperInstructions(params: {
   attempt: EmbeddedRunAttemptParams;
   skillsPrompt?: string;
 }): string | undefined {

@@ -83,6 +83,7 @@ export function buildStartedCodexThreadBinding(input: {
       : {}),
     lifecycle: {
       action: "started",
+      ...(context.preserveExistingBinding ? { transient: true as const } : {}),
       ...(context.rotatedContextEngineBinding ? { rotatedContextEngineBinding: true } : {}),
     },
   };

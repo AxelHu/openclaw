@@ -51,6 +51,7 @@ import {
   startOrResumeThread as startOrResumeThreadImpl,
 } from "./thread-lifecycle.js";
 import { attestCodexRestrictedToolSurfaceMcpServersDisabled } from "./thread-requests.js";
+import { buildCodexTurnSupplementalInstructions } from "./turn-instructions.js";
 
 type CodexThreadLifecycleTimingLogger = NonNullable<
   NonNullable<Parameters<typeof startOrResumeThreadImpl>[0]["timing"]>["log"]
@@ -1535,6 +1536,7 @@ describe("Codex app-server native code mode config", () => {
       "features.code_mode": true,
       "features.code_mode_only": false,
       "features.goals": false,
+      "features.retain_client_developer_messages": true,
       "tools.update_plan.enabled": false,
       "features.apply_patch_streaming_events": true,
       suppress_unstable_features_warning: true,
@@ -1683,6 +1685,7 @@ describe("Codex app-server native code mode config", () => {
       "features.code_mode": true,
       "features.code_mode_only": false,
       "features.goals": false,
+      "features.retain_client_developer_messages": true,
       "tools.update_plan.enabled": false,
       "features.apply_patch_streaming_events": true,
       suppress_unstable_features_warning: true,
@@ -1839,6 +1842,7 @@ describe("Codex app-server native code mode config", () => {
       "features.code_mode": true,
       "features.code_mode_only": true,
       "features.goals": false,
+      "features.retain_client_developer_messages": true,
       "tools.update_plan.enabled": false,
       "features.apply_patch_streaming_events": true,
       suppress_unstable_features_warning: true,
@@ -1864,6 +1868,7 @@ describe("Codex app-server native code mode config", () => {
       "features.code_mode": true,
       "features.code_mode_only": true,
       "features.goals": false,
+      "features.retain_client_developer_messages": true,
       "tools.update_plan.enabled": false,
       "features.apply_patch_streaming_events": true,
       suppress_unstable_features_warning: true,
@@ -1947,6 +1952,7 @@ describe("Codex app-server native code mode config", () => {
       "features.code_mode": true,
       "features.code_mode_only": false,
       "features.goals": false,
+      "features.retain_client_developer_messages": true,
       "tools.update_plan.enabled": false,
       "features.apply_patch_streaming_events": true,
       suppress_unstable_features_warning: true,
@@ -1975,6 +1981,7 @@ describe("Codex app-server native code mode config", () => {
       "features.code_mode": false,
       "features.code_mode_only": false,
       "features.goals": false,
+      "features.retain_client_developer_messages": true,
       "tools.update_plan.enabled": false,
       "features.standalone_web_search": false,
       web_search: "disabled",
@@ -1997,6 +2004,7 @@ describe("Codex app-server native code mode config", () => {
       "features.code_mode": false,
       "features.code_mode_only": false,
       "features.goals": false,
+      "features.retain_client_developer_messages": true,
       "tools.update_plan.enabled": false,
       "features.standalone_web_search": false,
       web_search: "disabled",
@@ -2028,6 +2036,7 @@ describe("Codex app-server native code mode config", () => {
       "features.code_mode": true,
       "features.code_mode_only": false,
       "features.goals": false,
+      "features.retain_client_developer_messages": true,
       "tools.update_plan.enabled": false,
       "features.apply_patch_streaming_events": true,
       suppress_unstable_features_warning: true,
@@ -2064,6 +2073,7 @@ describe("Codex app-server native code mode config", () => {
       "features.code_mode": true,
       "features.code_mode_only": false,
       "features.goals": false,
+      "features.retain_client_developer_messages": true,
       "tools.update_plan.enabled": false,
       "features.apply_patch_streaming_events": true,
       suppress_unstable_features_warning: true,
@@ -2260,33 +2270,30 @@ describe("Codex app-server turn input image sanitizing", () => {
     });
   });
 
-  it("attaches turn-scoped developer instructions without changing thread config", () => {
-    const request = buildTurnStartParams(createAttemptParams({ provider: "openai" }), {
+  it("keeps host supplements out of native collaboration-mode settings", () => {
+    const params = createAttemptParams({ provider: "openai" });
+    const request = buildTurnStartParams(params, {
       threadId: "thread-1",
       cwd: "/repo",
       appServer: createAppServerOptions() as never,
+    });
+    const supplement = buildCodexTurnSupplementalInstructions(params, {
       turnScopedDeveloperInstructions: "SOUL.md turn-only context",
     });
-
-    expect(request.collaborationMode?.settings.developer_instructions).toContain(
-      "# Collaboration Mode: Default",
-    );
-    expect(request.collaborationMode?.settings.developer_instructions).toContain(
-      "SOUL.md turn-only context",
-    );
+    expect(request.collaborationMode?.settings.developer_instructions).toBeNull();
+    expect(supplement).toContain("SOUL.md turn-only context");
+    expect(supplement).not.toContain("# Collaboration Mode: Default");
   });
 
-  it("places memory collaboration instructions before skills", () => {
-    const request = buildTurnStartParams(createAttemptParams({ provider: "openai" }), {
-      threadId: "thread-1",
-      cwd: "/repo",
-      appServer: createAppServerOptions() as never,
-      turnScopedDeveloperInstructions: "SOUL.md turn-only context",
-      memoryCollaborationInstructions: "MEMORY.md pointer",
-      skillsCollaborationInstructions: "<available_skills>",
-    });
-    const developerInstructions = request.collaborationMode?.settings.developer_instructions ?? "";
-
+  it("places current memory instructions before the current skills catalog", () => {
+    const developerInstructions = buildCodexTurnSupplementalInstructions(
+      createAttemptParams({ provider: "openai" }),
+      {
+        turnScopedDeveloperInstructions: "SOUL.md turn-only context",
+        memoryDeveloperInstructions: "MEMORY.md pointer",
+        skillsDeveloperInstructions: "<available_skills>",
+      },
+    );
     expect(developerInstructions.indexOf("SOUL.md turn-only context")).toBeLessThan(
       developerInstructions.indexOf("MEMORY.md pointer"),
     );
@@ -2360,6 +2367,7 @@ describe("Codex app-server turn params", () => {
         "features.code_mode": true,
         "features.code_mode_only": false,
         "features.goals": false,
+        "features.retain_client_developer_messages": true,
         "tools.update_plan.enabled": false,
         "features.apply_patch_streaming_events": true,
         suppress_unstable_features_warning: true,
@@ -2406,39 +2414,35 @@ describe("Codex app-server turn params", () => {
     expect(heartbeatCollaborationMode.settings.reasoning_effort).toBe("medium");
     expect(heartbeatCollaborationMode.settings.developer_instructions).toBeNull();
 
-    const workspaceInstructions = buildTurnCollaborationMode(params, {
+    const workspaceInstructions = buildCodexTurnSupplementalInstructions(params, {
       turnScopedDeveloperInstructions: "Turn-only workspace instructions.",
-    }).settings.developer_instructions;
+    });
     expect(workspaceInstructions).toContain("Turn-only workspace instructions.");
-    expect(workspaceInstructions).toContain("# Collaboration Mode: Default");
+    expect(workspaceInstructions).not.toContain("# Collaboration Mode: Default");
     expect(workspaceInstructions).not.toContain("This is an OpenClaw heartbeat turn");
     expect(workspaceInstructions).not.toContain("### Heartbeats");
   });
 
-  it("uses turn-scoped collaboration instructions for cron Codex turns", () => {
+  it("keeps cron execution instructions separate from native mode settings", () => {
     const params = createAttemptParams({ provider: "codex" });
     params.modelId = "gpt-5.4-codex";
     params.thinkLevel = "medium";
     params.trigger = "cron";
 
-    const cronCollaborationMode = buildTurnCollaborationMode(params, {
+    const cronCollaborationMode = buildTurnCollaborationMode(params);
+    expect(cronCollaborationMode.settings.developer_instructions).toBeNull();
+    const cronInstructions = buildCodexTurnSupplementalInstructions(params, {
       turnScopedDeveloperInstructions: "Turn-only workspace instructions.",
     });
     expect(cronCollaborationMode.mode).toBe("default");
     expect(cronCollaborationMode.settings.model).toBe("gpt-5.4-codex");
     expect(cronCollaborationMode.settings.reasoning_effort).toBe("medium");
-    expect(cronCollaborationMode.settings.developer_instructions).toContain(
-      "This is an OpenClaw cron automation turn",
-    );
-    expect(cronCollaborationMode.settings.developer_instructions).toContain(
+    expect(cronInstructions).toContain("This is an OpenClaw cron automation turn");
+    expect(cronInstructions).toContain(
       "If it asks you to run an exact command, run that command before doing any investigation",
     );
-    expect(cronCollaborationMode.settings.developer_instructions).toContain(
-      "Use context already provided by the runtime",
-    );
-    expect(cronCollaborationMode.settings.developer_instructions).toContain(
-      "Turn-only workspace instructions.",
-    );
+    expect(cronInstructions).toContain("Use context already provided by the runtime");
+    expect(cronInstructions).toContain("Turn-only workspace instructions.");
   });
 });
 

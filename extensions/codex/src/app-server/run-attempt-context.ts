@@ -14,7 +14,7 @@ import {
   buildCodexWorkspaceBootstrapContext,
   getCodexWorkspaceMemoryToolNames,
   readMirroredSessionHistoryMessages,
-  renderCodexSkillsCollaborationInstructions,
+  renderCodexSkillsDeveloperInstructions,
 } from "./attempt-context.js";
 import {
   resolveCodexContextEngineProjectionMaxChars,
@@ -176,7 +176,7 @@ export async function prepareCodexAttemptContext(
       sandboxed: sandbox?.enabled === true,
     }),
   });
-  const skillsCollaborationInstructions = renderCodexSkillsCollaborationInstructions({
+  const skillsDeveloperInstructions = renderCodexSkillsDeveloperInstructions({
     attempt: runtimeParams,
     skillsPrompt: params.skillsSnapshot?.prompt,
   });
@@ -216,7 +216,7 @@ export async function prepareCodexAttemptContext(
     agentWorkspaceDeveloperInstructions,
     baseDeveloperInstructions,
     openClawPromptContext,
-    skillsCollaborationInstructions,
+    skillsDeveloperInstructions,
     promptState,
     codexContextProjectionMaxChars,
     codexContinuityProjectionMaxChars,

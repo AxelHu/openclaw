@@ -21,6 +21,8 @@ import type { CodexNativeWebSearchSupport } from "./web-search.js";
 
 type CodexAppServerThreadLifecycle = {
   action: "started" | "resumed" | "forked";
+  /** Lifecycle-owned transient start; its existing session binding stays untouched. */
+  transient?: true;
   rotatedContextEngineBinding?: boolean;
   activeTurnIds?: string[];
 };
