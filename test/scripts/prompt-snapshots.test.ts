@@ -192,7 +192,7 @@ describe("happy path prompt snapshots", () => {
     expect(telegram).toContain("### Tools: Dynamic Tool Catalog");
   });
 
-  it("uses normal Codex collaboration instructions for every scheduled heartbeat", async () => {
+  it("keeps native collaboration modes separate from supplemental heartbeat context", async () => {
     const [direct, group, heartbeat] = await Promise.all([
       materializeCodexPromptSnapshot("telegram-direct"),
       materializeCodexPromptSnapshot("discord-group"),
@@ -202,10 +202,10 @@ describe("happy path prompt snapshots", () => {
     const agentSoulHeading = "## OpenClaw Agent Soul";
 
     expect(direct).toContain('"collaborationMode": {');
-    expect(direct).toContain('"developer_instructions": "# Collaboration Mode: Default');
+    expect(direct).toContain('"developer_instructions": null');
     expect(direct).toContain(agentSoulHeading);
     expect(group).toContain('"collaborationMode": {');
-    expect(group).toContain('"developer_instructions": "# Collaboration Mode: Default');
+    expect(group).toContain('"developer_instructions": null');
     expect(group).toContain(agentSoulHeading);
     expect(direct).not.toContain(heartbeatPhrase);
     expect(group).not.toContain(heartbeatPhrase);
@@ -213,8 +213,13 @@ describe("happy path prompt snapshots", () => {
     expect(group).not.toContain("This is an OpenClaw heartbeat turn.");
 
     expect(heartbeat).toContain('"collaborationMode": {');
-    expect(heartbeat).toContain('"developer_instructions": "# Collaboration Mode: Default');
+    expect(heartbeat).toContain('"developer_instructions": null');
     expect(heartbeat).toContain(agentSoulHeading);
+    for (const prompt of [direct, group, heartbeat]) {
+      expect(prompt).toContain("### Developer: OpenClaw Supplemental Snapshot");
+      expect(prompt).toContain("thread/inject_items developer ResponseItem");
+      expect(prompt).toContain("<openclaw_turn_context revision=");
+    }
     const openClawRuntimeInstructions = renderedPromptSection(
       heartbeat,
       "### Developer: OpenClaw Runtime Instructions",

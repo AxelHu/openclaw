@@ -338,6 +338,7 @@ describe("OpenAI provider Codex transport hooks", () => {
           models: {
             providers: {
               openai: {
+                baseUrl: "",
                 models: [],
                 request: {
                   allowPrivateNetwork: true,

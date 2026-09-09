@@ -110,8 +110,8 @@ describe("Feishu Markdown card table budget", () => {
       limit: 50000,
       header: { title: "标题".repeat(30) },
       note: "备注",
-      firstChunkMentions: [{ openId: "ou_first", name: "甲" }],
-      chunkMentions: [{ openId: "ou_bot", name: "乙" }],
+      firstChunkMentions: [{ openId: "ou_first", name: "甲", key: "@_user_1" }],
+      chunkMentions: [{ openId: "ou_bot", name: "乙", key: "@_user_2" }],
     });
     expect(chunks.length).toBeGreaterThan(2);
     expect(chunks.every((chunk) => allTables(parseFeishuMarkdown(chunk)).length <= 4)).toBe(true);

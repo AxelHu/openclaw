@@ -112,6 +112,7 @@ type CodexPromptSnapshotApi = {
     turnScopedDeveloperInstructions?: string;
   }) => {
     developerInstructions: string;
+    turnSupplementalInstructions: string;
     threadStartParams: Record<string, unknown>;
     threadResumeParams: Record<string, unknown>;
     turnStartParams: Record<string, unknown> & {
@@ -255,7 +256,7 @@ const CODEX_WORKSPACE_TURN_SCOPED_DEVELOPER_CONTEXT_FILES = [
 ] as const;
 
 const CODEX_WORKSPACE_BOOTSTRAP_PROMPT_CONTEXT = [
-  "OpenClaw loaded these user-editable workspace files for the current turn. Codex loads AGENTS.md natively. SOUL.md, IDENTITY.md, and USER.md are provided as turn-scoped collaboration instructions so native Codex subagents do not inherit them. Those files are not repeated here.",
+  "OpenClaw loaded these user-editable workspace files for the current turn. Codex loads AGENTS.md natively. SOUL.md, IDENTITY.md, and USER.md are provided as independent supplemental developer instructions so native Codex subagents do not inherit them. Those files are not repeated here.",
   "",
   "# Project Context",
   "",
@@ -715,6 +716,7 @@ function renderModelBoundPromptLayers(params: {
       ? params.codexSnapshot.threadStartParams.config.instructions
       : "";
   const openClawDeveloperInstructions = params.codexSnapshot.developerInstructions;
+  const openClawSupplementalInstructions = params.codexSnapshot.turnSupplementalInstructions;
   const codexCollaborationModeInstructions =
     typeof params.codexSnapshot.turnStartParams.collaborationMode?.settings
       ?.developer_instructions === "string"
@@ -726,6 +728,7 @@ function renderModelBoundPromptLayers(params: {
     CODEX_YOLO_PERMISSION_INSTRUCTIONS,
     codexConfigInstructions,
     openClawDeveloperInstructions,
+    openClawSupplementalInstructions,
     codexCollaborationModeInstructions,
     turnInputText,
   ]
@@ -736,7 +739,7 @@ function renderModelBoundPromptLayers(params: {
   return [
     "## Reconstructed Model-Bound Prompt Layers",
     "",
-    "This is the deterministic model-bound layer stack OpenClaw can snapshot for the Codex happy path. It uses a pinned Codex `gpt-5.5` prompt fixture generated from Codex's model catalog/cache shape, then adds the Codex permission developer text, Codex thread config instructions when present, OpenClaw developer instructions, turn-scoped collaboration-mode instructions when OpenClaw provides them, turn input with OpenClaw runtime context, and the OpenClaw dynamic tool catalog. Codex can still add runtime-owned context such as native workspace `AGENTS.md`, environment context, memories, app/plugin instructions, and built-in collaboration-mode instructions inside the Codex runtime.",
+    "This is the deterministic model-bound layer stack OpenClaw can snapshot for the Codex happy path. It uses a pinned Codex `gpt-5.5` prompt fixture generated from Codex's model catalog/cache shape, then adds the Codex permission developer text, Codex thread config instructions when present, OpenClaw developer instructions, independent OpenClaw supplemental developer snapshots, turn input with OpenClaw runtime context, and the OpenClaw dynamic tool catalog. Codex can still add runtime-owned context such as native workspace `AGENTS.md`, environment context, memories, app/plugin instructions, and built-in collaboration-mode instructions inside the Codex runtime.",
     "",
     "### Layer Metadata",
     "",
@@ -758,8 +761,10 @@ function renderModelBoundPromptLayers(params: {
             "extensions/codex app-server turn/start input OpenClaw runtime context",
           developerInstructionsFrom:
             "extensions/codex app-server thread/start developerInstructions",
-          collaborationModeDeveloperInstructionsFrom:
-            "extensions/codex app-server turn/start collaborationMode.settings.developer_instructions",
+          supplementalDeveloperInstructionsFrom:
+            "extensions/codex app-server thread/inject_items developer ResponseItem",
+          nativeCollaborationModeFrom:
+            "Codex model catalog; turn/start selects native mode, model, and effort",
           userInputFrom: "extensions/codex app-server turn/start input",
           dynamicToolsFrom: params.scenario.toolSnapshotFile,
         },
@@ -779,6 +784,7 @@ function renderModelBoundPromptLayers(params: {
         codexPermissionDeveloperInstructions: textStats(CODEX_YOLO_PERMISSION_INSTRUCTIONS),
         codexWorkspaceBootstrapConfigInstructions: textStats(codexConfigInstructions),
         openClawDeveloperInstructions: textStats(openClawDeveloperInstructions),
+        openClawSupplementalInstructions: textStats(openClawSupplementalInstructions),
         codexCollaborationModeDeveloperInstructions: textStats(codexCollaborationModeInstructions),
         userInputText: textStats(turnInputText),
         dynamicToolsJson: textStats(params.dynamicToolsJson),
@@ -802,6 +808,10 @@ function renderModelBoundPromptLayers(params: {
     "### Developer: OpenClaw Runtime Instructions",
     "",
     markdownFence("text", openClawDeveloperInstructions),
+    "",
+    "### Developer: OpenClaw Supplemental Snapshot",
+    "",
+    markdownFence("text", openClawSupplementalInstructions),
     "",
     "### Developer: Codex Collaboration Mode Instructions",
     "",
@@ -885,7 +895,7 @@ function renderScenarioSnapshot(
     "",
     ...scenario.notes.map((note) => `- ${note}`),
     "- This captures the OpenClaw-owned Codex app-server inputs and reconstructs the stable Codex model/permission layers from committed Codex prompt fixtures.",
-    "- This also simulates Codex workspace bootstrap routing: `AGENTS.md` through native project-doc discovery, `SOUL.md`, `IDENTITY.md`, and `USER.md` as turn-scoped collaboration instructions, and `MEMORY.md` in turn input.",
+    "- This also simulates Codex workspace bootstrap routing: `AGENTS.md` through native project-doc discovery, `SOUL.md`, `IDENTITY.md`, and `USER.md` as independent supplemental developer instructions, and `MEMORY.md` in turn input.",
     "",
     "## Scenario Metadata",
     "",

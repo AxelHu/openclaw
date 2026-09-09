@@ -7,7 +7,7 @@
 - Default happy path: OpenAI model through the Codex harness/runtime, Telegram direct conversation, and message-tool-only visible replies.
 - A quiet turn is represented by not calling `message(action=send)`; the normal final assistant text is private to OpenClaw/Codex.
 - This captures the OpenClaw-owned Codex app-server inputs and reconstructs the stable Codex model/permission layers from committed Codex prompt fixtures.
-- This also simulates Codex workspace bootstrap routing: `AGENTS.md` through native project-doc discovery, `SOUL.md`, `IDENTITY.md`, and `USER.md` as turn-scoped collaboration instructions, and `MEMORY.md` in turn input.
+- This also simulates Codex workspace bootstrap routing: `AGENTS.md` through native project-doc discovery, `SOUL.md`, `IDENTITY.md`, and `USER.md` as independent supplemental developer instructions, and `MEMORY.md` in turn input.
 
 ## Scenario Metadata
 
@@ -70,6 +70,7 @@
     },
     "features.code_mode_only": false,
     "features.goals": false,
+    "features.retain_client_developer_messages": true,
     "features.standalone_web_search": false,
     "project_doc_max_bytes": 131072,
     "suppress_unstable_features_warning": true,
@@ -115,6 +116,7 @@
     "features.code_mode": true,
     "features.code_mode_only": false,
     "features.goals": false,
+    "features.retain_client_developer_messages": true,
     "features.standalone_web_search": false,
     "project_doc_max_bytes": 131072,
     "suppress_unstable_features_warning": true,
@@ -150,7 +152,7 @@
   "collaborationMode": {
     "mode": "default",
     "settings": {
-      "developer_instructions": "# Collaboration Mode: Default\n\nYou are now in Default mode. Any previous instructions for other modes (e.g. Plan mode) are no longer active.\n\nYour active mode changes only when new developer instructions with a different `<collaboration_mode>...</collaboration_mode>` change it; user requests or tool descriptions do not change mode by themselves. Known mode names are Default and Plan.\n\n## request_user_input availability\n\nUse the `request_user_input` tool only when it is listed in the available tools for this turn.\n\nIn Default mode, strongly prefer making reasonable assumptions and executing the user's request rather than stopping to ask questions. If you absolutely must ask a question because the answer cannot be discovered from local context and a reasonable assumption would be risky, ask the user directly with a concise plain-text question. Never write a multiple choice question as a textual assistant message.\n\n## OpenClaw Agent Soul\n\nOpenClaw loaded these workspace instruction files from the active agent workspace. They are the canonical definitions of who you are, how you think and work, and the human you work alongside. Internalize and follow them accordingly.\n\n### /tmp/openclaw-happy-path/workspace/IDENTITY.md\n\n<IDENTITY.md contents will be here>\n\n### /tmp/openclaw-happy-path/workspace/SOUL.md\n\n<SOUL.md contents will be here>\n\n### /tmp/openclaw-happy-path/workspace/USER.md\n\n<USER.md contents will be here>",
+      "developer_instructions": null,
       "model": "gpt-5.5",
       "reasoning_effort": "medium"
     }
@@ -175,7 +177,7 @@
 
 ## Reconstructed Model-Bound Prompt Layers
 
-This is the deterministic model-bound layer stack OpenClaw can snapshot for the Codex happy path. It uses a pinned Codex `gpt-5.5` prompt fixture generated from Codex's model catalog/cache shape, then adds the Codex permission developer text, Codex thread config instructions when present, OpenClaw developer instructions, turn-scoped collaboration-mode instructions when OpenClaw provides them, turn input with OpenClaw runtime context, and the OpenClaw dynamic tool catalog. Codex can still add runtime-owned context such as native workspace `AGENTS.md`, environment context, memories, app/plugin instructions, and built-in collaboration-mode instructions inside the Codex runtime.
+This is the deterministic model-bound layer stack OpenClaw can snapshot for the Codex happy path. It uses a pinned Codex `gpt-5.5` prompt fixture generated from Codex's model catalog/cache shape, then adds the Codex permission developer text, Codex thread config instructions when present, OpenClaw developer instructions, independent OpenClaw supplemental developer snapshots, turn input with OpenClaw runtime context, and the OpenClaw dynamic tool catalog. Codex can still add runtime-owned context such as native workspace `AGENTS.md`, environment context, memories, app/plugin instructions, and built-in collaboration-mode instructions inside the Codex runtime.
 
 ### Layer Metadata
 
@@ -203,10 +205,11 @@ This is the deterministic model-bound layer stack OpenClaw can snapshot for the 
     "Codex-owned workspace AGENTS.md, environment context, memories, app/plugin instructions, built-in Default collaboration-mode instructions, and provider tool serialization are still runtime-owned gaps until Codex exposes a rendered-prompt inspection API."
   ],
   "openClawRuntime": {
-    "collaborationModeDeveloperInstructionsFrom": "extensions/codex app-server turn/start collaborationMode.settings.developer_instructions",
     "configInstructionsFrom": "extensions/codex app-server thread/start config.instructions",
     "developerInstructionsFrom": "extensions/codex app-server thread/start developerInstructions",
     "dynamicToolsFrom": "codex-dynamic-tools.telegram-direct.json",
+    "nativeCollaborationModeFrom": "Codex model catalog; turn/start selects native mode, model, and effort",
+    "supplementalDeveloperInstructionsFrom": "extensions/codex app-server thread/inject_items developer ResponseItem",
     "userInputFrom": "extensions/codex app-server turn/start input",
     "workspaceBootstrapContextFrom": "extensions/codex app-server turn/start input OpenClaw runtime context"
   }
@@ -218,8 +221,8 @@ This is the deterministic model-bound layer stack OpenClaw can snapshot for the 
 ```json
 {
   "codexCollaborationModeDeveloperInstructions": {
-    "chars": 1433,
-    "roughTokens": 359
+    "chars": 0,
+    "roughTokens": 0
   },
   "codexModelInstructions": {
     "chars": 21335,
@@ -241,17 +244,21 @@ This is the deterministic model-bound layer stack OpenClaw can snapshot for the 
     "chars": 3224,
     "roughTokens": 806
   },
+  "openClawSupplementalInstructions": {
+    "chars": 1197,
+    "roughTokens": 300
+  },
   "totalTextOnly": {
-    "chars": 27170,
-    "roughTokens": 6793
+    "chars": 26943,
+    "roughTokens": 6736
   },
   "totalWithDynamicToolsJson": {
-    "chars": 83667,
-    "roughTokens": 20917
+    "chars": 83440,
+    "roughTokens": 20860
   },
   "userInputText": {
-    "chars": 863,
-    "roughTokens": 216
+    "chars": 872,
+    "roughTokens": 218
   }
 }
 ```
@@ -470,20 +477,18 @@ When explicitly_mentioned_bot is true, the incoming message mentions your channe
 You are in a Telegram direct conversation. Normal final replies are private and are not automatically sent to this conversation. To post visible output here, use the message tool with action=send; the target defaults to this conversation. If no visible direct response is needed, do not call message(action=send). Your normal final answer stays private and will not be posted to the conversation.
 ````
 
-### Developer: Codex Collaboration Mode Instructions
+### Developer: OpenClaw Supplemental Snapshot
 
 ```text
-# Collaboration Mode: Default
+<openclaw_turn_context revision="fb03fcc347f05bb0168de764680db7722d1d3aaeaadbd0c759de1c65dda33bec">
 
-You are now in Default mode. Any previous instructions for other modes (e.g. Plan mode) are no longer active.
+This is the complete current OpenClaw supplemental context, not a delta.
 
-Your active mode changes only when new developer instructions with a different `<collaboration_mode>...</collaboration_mode>` change it; user requests or tool descriptions do not change mode by themselves. Known mode names are Default and Plan.
+It replaces earlier OpenClaw turn-specific SOUL/IDENTITY, Memory Recall, Skills catalog, and cron supplements, including supplements previously carried in collaboration-mode messages.
 
-## request_user_input availability
+Only the latest complete snapshot is active. Omitted sections are empty; do not retain removed skills or obsolete instructions from older snapshots.
 
-Use the `request_user_input` tool only when it is listed in the available tools for this turn.
-
-In Default mode, strongly prefer making reasonable assumptions and executing the user's request rather than stopping to ask questions. If you absolutely must ask a question because the answer cannot be discovered from local context and a reasonable assumption would be risky, ask the user directly with a concise plain-text question. Never write a multiple choice question as a textual assistant message.
+This snapshot does not replace Codex native mode instructions, base instructions, project instructions, tools, permissions, or the current user request.
 
 ## OpenClaw Agent Soul
 
@@ -500,7 +505,13 @@ OpenClaw loaded these workspace instruction files from the active agent workspac
 ### /tmp/openclaw-happy-path/workspace/USER.md
 
 <USER.md contents will be here>
+
+</openclaw_turn_context>
 ```
+
+### Developer: Codex Collaboration Mode Instructions
+
+This turn asks Codex app-server to resolve its built-in Default collaboration-mode instructions at runtime.
 
 ### User: Turn Input Text
 
@@ -510,7 +521,7 @@ Treat this OpenClaw-provided context as supporting project/user reference for th
 
 ## OpenClaw Workspace Context
 
-OpenClaw loaded these user-editable workspace files for the current turn. Codex loads AGENTS.md natively. SOUL.md, IDENTITY.md, and USER.md are provided as turn-scoped collaboration instructions so native Codex subagents do not inherit them. Those files are not repeated here.
+OpenClaw loaded these user-editable workspace files for the current turn. Codex loads AGENTS.md natively. SOUL.md, IDENTITY.md, and USER.md are provided as independent supplemental developer instructions so native Codex subagents do not inherit them. Those files are not repeated here.
 
 # Project Context
 

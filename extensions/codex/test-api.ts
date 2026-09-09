@@ -20,11 +20,13 @@ import {
   buildThreadStartParams,
   buildTurnStartParams,
 } from "./src/app-server/thread-lifecycle.js";
+import { buildCodexTurnSupplementalInstructions } from "./src/app-server/turn-instructions.js";
 
 export { CODEX_APP_SERVER_VERSION } from "./src/app-server/version.js";
 
 type CodexHarnessPromptSnapshot = {
   developerInstructions: string;
+  turnSupplementalInstructions: string;
   threadStartParams: ReturnType<typeof buildThreadStartParams>;
   threadResumeParams: ReturnType<typeof buildThreadResumeParams>;
   turnStartParams: ReturnType<typeof buildTurnStartParams>;
@@ -61,6 +63,9 @@ export function buildCodexHarnessPromptSnapshot(params: {
   );
   return {
     developerInstructions,
+    turnSupplementalInstructions: buildCodexTurnSupplementalInstructions(params.attempt, {
+      turnScopedDeveloperInstructions: params.turnScopedDeveloperInstructions,
+    }),
     threadStartParams: buildThreadStartParams(params.attempt, {
       cwd: params.cwd,
       dynamicTools: params.dynamicTools,
@@ -79,7 +84,6 @@ export function buildCodexHarnessPromptSnapshot(params: {
       cwd: params.cwd,
       appServer: params.appServer,
       promptText: params.promptText,
-      turnScopedDeveloperInstructions: params.turnScopedDeveloperInstructions,
     }),
   };
 }

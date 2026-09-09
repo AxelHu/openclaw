@@ -334,6 +334,7 @@ describe("Codex app-server config", () => {
         models: {
           providers: {
             openai: {
+              baseUrl: "",
               models: [],
               request: {
                 proxy: { mode: "explicit-proxy", url: "http://127.0.0.1:1080" },
@@ -361,6 +362,7 @@ describe("Codex app-server config", () => {
         models: {
           providers: {
             openai: {
+              baseUrl: "",
               models: [],
               request: {
                 proxy: { mode: "explicit-proxy", url: "http://127.0.0.1:1080" },

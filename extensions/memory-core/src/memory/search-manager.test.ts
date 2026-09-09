@@ -19,7 +19,9 @@ const qmdManager = vi.hoisted(() => ({
   probeEmbeddingAvailability: vi.fn(async () => ({ ok: true })),
   probeVectorAvailability: vi.fn(async () => true),
 }));
-const resolveQmdBridgeConfig = vi.hoisted(() => vi.fn(() => null));
+const resolveQmdBridgeConfig = vi.hoisted(() =>
+  vi.fn<typeof import("./qmd-bridge-manager.js").resolveQmdBridgeConfig>(() => null),
+);
 const createQmdBridgeMemoryManager = vi.hoisted(() => vi.fn(async () => qmdManager));
 const closeAllQmdBridgeMemoryManagers = vi.hoisted(() => vi.fn(async () => {}));
 const closeQmdBridgeMemoryManagersForAgent = vi.hoisted(() => vi.fn(async () => {}));
@@ -70,7 +72,18 @@ describe("builtin memory search manager", () => {
 
   it("routes to the QMD bridge when explicitly enabled", async () => {
     const cfg = {} as OpenClawConfig;
-    resolveQmdBridgeConfig.mockReturnValue({ enabled: true });
+    resolveQmdBridgeConfig.mockReturnValue({
+      enabled: true,
+      serverName: "qmd",
+      startDaemon: false,
+      searchMode: "query",
+      rerank: false,
+      maxResults: 5,
+      timeoutMs: 1000,
+      maxSnippetChars: 1000,
+      collectionPrefix: "fixture",
+      collectionOverrides: {},
+    });
 
     const result = await getMemorySearchManager({ cfg, agentId: "main", purpose: "status" });
 
