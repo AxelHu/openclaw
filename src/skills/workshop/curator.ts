@@ -21,6 +21,7 @@ import {
   type SkillExperienceReviewStatus,
 } from "./collection-review-state.js";
 import { parseSkillProposalRow } from "./store-sqlite-record.js";
+import { appendSkillUsageRecord, prepareSkillUsageRecord } from "./usage-journal.js";
 
 const log = createSubsystemLogger("skills/curator");
 
@@ -174,7 +175,7 @@ export function getSkillCuratorStatus(
 }
 
 function recordSkillUsage(
-  event: Pick<DiagnosticSkillUsedEvent, "agentId" | "skillName" | "skillSource" | "ts"> & {
+  event: DiagnosticSkillUsedEvent & {
     skillFile?: string;
   },
   options: OpenClawStateDatabaseOptions = {},
@@ -187,7 +188,11 @@ function recordSkillUsage(
   }
   const skillFile = canonicalizePath(path.resolve(rawSkillFile));
   const skillKey = canonicalSkillKey(event.skillName);
+  const record = prepareSkillUsageRecord(event, skillFile, skillKey);
   runOpenClawStateWriteTransaction(({ db }) => {
+    if (!appendSkillUsageRecord(db, record)) {
+      return;
+    }
     const kysely = getNodeSqliteKysely<CuratorDatabase>(db);
     executeSqliteQuerySync(
       db,

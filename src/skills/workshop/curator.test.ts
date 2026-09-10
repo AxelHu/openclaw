@@ -118,6 +118,61 @@ describe("skill curator usage tracking", () => {
     ).toEqual({ use_count: 3 });
   });
 
+  it("atomically journals successful activations and deduplicates replay without leaking paths", async () => {
+    const database = openOpenClawStateDatabase({ env: testState.env });
+    const skillFile = testState.path("skills", "observed", "SKILL.md");
+    const unregister = registerSkillUsageTracking({ env: testState.env });
+    const event = {
+      type: "skill.used",
+      skillName: "observed",
+      skillSource: "workspace",
+      activation: "read",
+      runId: "fixture-run",
+      toolCallId: "one-call",
+      agentId: "one-agent",
+      toolName: "read",
+    } as const;
+    try {
+      emitTrustedSkillUsedDiagnosticEvent(event, { skillUsage: { skillFile } });
+      emitTrustedSkillUsedDiagnosticEvent(event, { skillUsage: { skillFile } });
+      emitTrustedSkillUsedDiagnosticEvent(
+        { ...event, toolCallId: "two-call" },
+        { skillUsage: { skillFile } },
+      );
+      await waitForDiagnosticEventsDrained();
+      const rows = database.db
+        .prepare(
+          "SELECT payload_json FROM diagnostic_events WHERE scope = 'skill-usage.v2' AND event_key <> 'recording-state' ORDER BY sequence",
+        )
+        .all();
+      expect(rows).toHaveLength(2);
+      const first = JSON.parse(String(rows[0]?.payload_json));
+      expect(first).toMatchObject({
+        schemaVersion: 2,
+        skillName: "observed",
+        activation: "read",
+        agentId: "one-agent",
+      });
+      expect(first.skillIdentity).toMatch(/^[a-f0-9]{64}$/u);
+      expect(JSON.stringify(rows)).not.toContain(skillFile);
+      expect(JSON.stringify(rows)).not.toContain("fixture-run");
+      expect(
+        database.db
+          .prepare("SELECT use_count FROM skill_usage WHERE skill_file = ?")
+          .get(skillFile),
+      ).toEqual({ use_count: 2 });
+      expect(
+        database.db
+          .prepare(
+            "SELECT count(*) AS count FROM diagnostic_events WHERE scope = 'skill-usage.v2' AND event_key = 'recording-state'",
+          )
+          .get(),
+      ).toEqual({ count: 1 });
+    } finally {
+      unregister();
+    }
+  });
+
   it("reports live usage for existing applied workshop skills and excludes missing files", async () => {
     const proposal = await proposeCreateSkill({
       workspaceDir: testState.workspaceDir,

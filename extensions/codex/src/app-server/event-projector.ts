@@ -520,6 +520,9 @@ export class CodexAppServerEventProjector {
     if (
       !context ||
       item?.type !== "commandExecution" ||
+      item.status !== "completed" ||
+      item.exitCode !== 0 ||
+      this.completedItemIds.has(item.id) ||
       typeof item.command !== "string" ||
       !item.command.trim()
     ) {

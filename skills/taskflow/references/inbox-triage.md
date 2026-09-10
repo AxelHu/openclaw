@@ -1,8 +1,4 @@
----
-name: taskflow-inbox-triage
-description: "Example TaskFlow pattern for inbox triage, intent routing, waiting on replies, and later summaries."
-metadata: { "openclaw": { "emoji": "📥" } }
----
+> TaskFlow 的可选示例。示例中的 Slack 投递、分类器和调度不构成执行授权；只复用当前任务实际需要的结构。
 
 # TaskFlow inbox triage
 

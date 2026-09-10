@@ -146,4 +146,4 @@ Use the flow runtime for state and task linkage. Keep decisions in the authoring
 
 - See `skills/taskflow/examples/inbox-triage.lobster`
 - See `skills/taskflow/examples/pr-intake.lobster`
-- See `skills/taskflow-inbox-triage/SKILL.md` for a concrete routing pattern
+- See [the optional inbox-triage example](references/inbox-triage.md) for a concrete routing pattern; it is reference material, not a separate skill

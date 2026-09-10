@@ -1582,6 +1582,67 @@ describe("before_tool_call loop detection behavior", () => {
     });
   });
 
+  it.each([
+    {
+      label: "diagnostics delegated",
+      toolName: "read",
+      result: { content: [{ type: "text", text: "skill body" }] },
+      expected: 1,
+    },
+    {
+      label: "structured read error",
+      toolName: "read",
+      result: { content: [], isError: true },
+      expected: 0,
+    },
+    {
+      label: "failed shell",
+      toolName: "exec",
+      result: { content: [], details: { status: "completed", exitCode: 1 } },
+      expected: 0,
+    },
+    {
+      label: "running shell",
+      toolName: "exec",
+      result: { content: [], details: { status: "running", processId: "fixture" } },
+      expected: 0,
+    },
+    {
+      label: "completed shell",
+      toolName: "exec",
+      result: { content: [], details: { status: "completed", exitCode: 0 } },
+      expected: 1,
+    },
+  ])("records successful inner skill reads with $label", async ({ toolName, result, expected }) => {
+    const skillFile = "/fixture/skills/example/SKILL.md";
+    const tool = wrapToolWithBeforeToolCallHook(
+      asAgentTool({ name: toolName, execute: vi.fn().mockResolvedValue(result) }),
+      {
+        agentId: "fixture",
+        runId: "inner-skill-observation",
+        workspaceDir: "/fixture",
+        loopDetection: { enabled: false },
+        skillUsagePaths: [
+          { readPath: skillFile, skillFile, skillName: "example", skillSource: "workspace" },
+        ],
+      },
+      { emitDiagnostics: false },
+    );
+    await withSkillUsageDiagnosticEvents(async (emitted, privateData, flush) => {
+      await tool.execute(
+        "inner-call",
+        toolName === "read" ? { path: skillFile } : { command: `cat ${skillFile}` },
+      );
+      await flush();
+      expect(emitted.filter((e) => e.type === "skill.used")).toHaveLength(expected);
+      expect(emitted.filter((e) => e.type.startsWith("tool.execution."))).toHaveLength(0);
+      expect(consumeRunSkillUsage("inner-skill-observation")).toHaveLength(expected);
+      if (expected) {
+        expect(privateData[0]?.skillUsage?.skillFile).toBe(skillFile);
+      }
+    });
+  });
+
   it("matches home-compacted skill instruction paths from prompts", async () => {
     const skillBaseDir = path.join(os.homedir(), ".openclaw", "skills", "home-skill");
     const skillFilePath = path.join(skillBaseDir, "SKILL.md");
@@ -1666,7 +1727,10 @@ describe("before_tool_call loop detection behavior", () => {
   it("records exact resolved skill instruction reads performed through shell tools", async () => {
     const firstFile = path.join(os.homedir(), ".openclaw", "skills", "first", "SKILL.md");
     const secondFile = path.join(os.homedir(), ".openclaw", "skills", "second", "SKILL.md");
-    const execute = vi.fn().mockResolvedValue({ content: [{ type: "text", text: "skills" }] });
+    const execute = vi.fn().mockResolvedValue({
+      content: [{ type: "text", text: "skills" }],
+      details: { status: "completed", exitCode: 0 },
+    });
     const tool = wrapToolWithBeforeToolCallHook(asAgentTool({ name: "bash", execute }), {
       agentId: "main",
       sessionKey: "session-key",

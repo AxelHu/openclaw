@@ -14,7 +14,6 @@ import {
 } from "../infra/diagnostic-trace-context.js";
 import { pruneMapToMaxSize } from "../infra/map-size.js";
 import { getPluginToolMeta } from "../plugins/tool-metadata.js";
-import { recordRunSkillUsage } from "../skills/runtime/run-usage.js";
 import { copyBeforeToolCallWrapperMetadata } from "./agent-tool-metadata.js";
 import {
   copyAgentToolSourceExecutionGuard,
@@ -26,9 +25,8 @@ import {
 } from "./agent-tools.before-tool-call.decision.js";
 import {
   buildToolContentPrivateData,
-  emitSkillUsedDiagnostic,
   emitToolBlockedSecurityEvent,
-  findSkillUsageMatches,
+  recordSuccessfulSkillUsageForToolCall,
   reconcileLoopCallExecutionParams,
   recordLoopOutcome,
   rememberPendingTerminalPresentation,
@@ -90,6 +88,8 @@ import {
   formatToolExecutionErrorMessage,
   isTrustedToolExecutionPreflightError,
   protectNetworkToolExecutionError,
+  isToolResultError,
+  readToolResultDetails,
   registerTrustedToolNoStartError,
 } from "./tool-result-error.js";
 import type { AnyAgentTool } from "./tools/common.js";
@@ -577,29 +577,23 @@ export function wrapToolWithBeforeToolCallHook(
           toolCallId,
           toolCallOrdinal,
         });
-        const skillMatches = findSkillUsageMatches({
-          toolName: normalizedToolName,
-          toolParams: executeParams,
-          ctx,
-        });
-        for (const skillMatch of skillMatches) {
-          recordRunSkillUsage({
-            runId: ctx?.runId,
-            name: skillMatch.skillName,
-            source: skillMatch.skillSource,
-            activation: skillMatch.activation,
-            ...(skillMatch.skillFile ? { skillFile: skillMatch.skillFile } : {}),
+        const details = readToolResultDetails(result);
+        const shell = normalizedToolName === "bash" || normalizedToolName === "exec";
+        // Inner code-mode calls may delegate ordinary diagnostics to their owner.
+        // Accounting still belongs here, but a pending/failed shell is not a read.
+        if (
+          !("isError" in result && result.isError === true) &&
+          !isToolResultError(result) &&
+          (!shell || (details?.status === "completed" && details.exitCode === 0))
+        ) {
+          recordSuccessfulSkillUsageForToolCall({
+            ctx,
+            toolName: normalizedToolName,
+            toolParams: executeParams,
+            toolCallId,
           });
         }
         if (hookOptions.emitDiagnostics) {
-          for (const skillMatch of skillMatches) {
-            emitSkillUsedDiagnostic({
-              ctx,
-              match: skillMatch,
-              toolName: normalizedToolName,
-              toolCallId,
-            });
-          }
           const terminalEvent = resolveToolResultTerminalDiagnostic(result, durationMs);
           emitTrustedDiagnosticEventWithPrivateData(
             {
