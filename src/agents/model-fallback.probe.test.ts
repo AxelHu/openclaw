@@ -30,7 +30,7 @@ vi.mock("./auth-profiles/store.js", () => ({
 vi.mock("./auth-profiles/usage.js", () => ({
   getSoonestCooldownExpiry: vi.fn(),
   isProfileInCooldown: vi.fn(),
-  maybeReprobeWhamBlockedProfiles: vi.fn(),
+  maybeRecoverProviderBlockedProfiles: vi.fn(),
   resolveProfilesUnavailableReason: vi.fn(),
 }));
 

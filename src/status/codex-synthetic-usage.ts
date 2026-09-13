@@ -107,6 +107,10 @@ function mergeUsageSnapshots(precedence: Precedence<ProviderUsageSnapshot>): Pro
   return {
     ...secondary,
     ...preferred,
+    quotaAvailable: preferred.quotaAvailable,
+    // Never pair fresh recovery evidence with identity from another snapshot.
+    accountId: preferred.accountId,
+    accountEmail: preferred.accountEmail,
     windows: preferred.windows.length > 0 ? preferred.windows : secondary.windows,
     ...(billing ? { billing } : {}),
     ...(preferred.summary?.trim()

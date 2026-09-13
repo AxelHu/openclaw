@@ -206,6 +206,8 @@ export async function prepareEmbeddedRunRuntime(input: {
     preparedAuthAttempts,
   } = preparedAuthPlan;
   let { activePreparedAuthPlan } = preparedAuthPlan;
+  const allowTransientCooldownProbe =
+    params.allowTransientCooldownProbe === true || preparedAuthPlan.allowTransientCooldownProbe;
   preparedThinkingCapabilityReady = true;
   applyResolvedRuntimeModel(runtimeModel);
   const genericCompactionRecoveryAllowed = !pluginHarnessOwnsTransport;
@@ -347,7 +349,7 @@ export async function prepareEmbeddedRunRuntime(input: {
     initialThinkLevel,
     attemptedThinking,
     fallbackConfigured: input.fallbackConfigured,
-    allowTransientCooldownProbe: params.allowTransientCooldownProbe === true,
+    allowTransientCooldownProbe,
     authProfileFailurePolicy: params.authProfileFailurePolicy,
     authProfileStateMode: params.authProfileStateMode,
     runId: params.runId,
@@ -393,7 +395,7 @@ export async function prepareEmbeddedRunRuntime(input: {
     profileCandidates,
     lockedProfileId,
     modelId,
-    allowTransientCooldownProbe: params.allowTransientCooldownProbe === true,
+    allowTransientCooldownProbe,
   });
   let didTransientCooldownProbe = false;
   const advancePluginHarnessAuthAttempt = async (): Promise<boolean> => {

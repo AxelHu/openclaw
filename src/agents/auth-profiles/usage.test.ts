@@ -1,3 +1,4 @@
+import { expectDefined } from "@openclaw/normalization-core";
 import { MAX_DATE_TIMESTAMP_MS } from "@openclaw/normalization-core/number-coercion";
 /**
  * Usage-state and failure cooldown tests for auth profiles.
@@ -17,6 +18,7 @@ import {
   markAuthProfileBlockedUntil,
   markAuthProfileFailure,
   markInlineProviderApiKeyFailure,
+  maybeRecoverCodexRateLimitBlockedProfiles,
   maybeReprobeWhamBlockedProfiles,
   resolveProfilesUnavailableReason,
   resolveProfileUnusableUntilForDisplay,
@@ -25,6 +27,7 @@ import { testing as authProfileUsageTesting } from "./usage.test-support.js";
 
 // Mirrors the module-local WHAM half-open reprobe interval contract (45 minutes).
 const WHAM_HALF_OPEN_REPROBE_INTERVAL_MS = 45 * 60 * 1000;
+const CODEX_RATE_LIMIT_REPROBE_FAILURE_INTERVAL_MS = 5 * 60 * 1000;
 
 const storeMocks = vi.hoisted(() => ({
   resolvePersistedAuthProfileOwnerAgentDir: vi.fn(
@@ -34,11 +37,15 @@ const storeMocks = vi.hoisted(() => ({
   updateAuthProfileStoreWithLock: vi.fn().mockResolvedValue(null),
 }));
 const fetchMock = vi.hoisted(() => vi.fn());
+const providerUsageMock = vi.hoisted(() => vi.fn());
 
 vi.mock("./store.js", () => ({
   resolvePersistedAuthProfileOwnerAgentDir: storeMocks.resolvePersistedAuthProfileOwnerAgentDir,
   updateAuthProfileStoreWithLock: storeMocks.updateAuthProfileStoreWithLock,
   saveAuthProfileStore: storeMocks.saveAuthProfileStore,
+}));
+vi.mock("../../infra/provider-usage.js", () => ({
+  loadProviderUsageSummary: providerUsageMock,
 }));
 
 beforeEach(() => {
@@ -49,6 +56,7 @@ beforeEach(() => {
   storeMocks.saveAuthProfileStore.mockReset();
   storeMocks.updateAuthProfileStoreWithLock.mockReset();
   fetchMock.mockReset();
+  providerUsageMock.mockReset();
   vi.stubGlobal("fetch", fetchMock);
   storeMocks.updateAuthProfileStoreWithLock.mockResolvedValue({ version: 1, profiles: {} });
   authProfileUsageTesting.setDepsForTest({
@@ -76,6 +84,7 @@ function makeStore(usageStats: AuthProfileStore["usageStats"]): AuthProfileStore
         refresh: "codex-refresh-token",
         expires: 4_102_444_800_000,
         accountId: "acct_test_123",
+        email: "owner@example.test",
       },
       "openrouter:default": { type: "api_key", provider: "openrouter", key: "sk-or-test" },
       "kilocode:default": { type: "api_key", provider: "kilocode", key: "sk-kc-test" },
@@ -1402,6 +1411,581 @@ describe("markAuthProfileFailure — WHAM-aware Codex cooldowns", () => {
       expect(storeMocks.updateAuthProfileStoreWithLock).toHaveBeenCalledTimes(2);
     });
     expect(store.usageStats?.["openai:default"]?.blockedUntil).toBe(newerUntil);
+  });
+
+  it.each([
+    { name: "healthy profile", stats: {} },
+    {
+      name: "short block",
+      stats: {
+        blockedUntil: 1_700_000_060_000,
+        blockedSource: "codex_rate_limits",
+        blockedReason: "subscription_limit",
+      },
+    },
+    {
+      name: "disabled profile",
+      stats: {
+        blockedUntil: 1_700_086_400_000,
+        blockedSource: "codex_rate_limits",
+        blockedReason: "subscription_limit",
+        disabledUntil: 1_700_086_400_000,
+      },
+    },
+    {
+      name: "other model",
+      stats: {
+        blockedUntil: 1_700_086_400_000,
+        blockedSource: "codex_rate_limits",
+        blockedReason: "subscription_limit",
+        blockedScope: "model",
+        blockedModel: "model-b",
+      },
+    },
+  ])("does not probe a $name", async ({ stats }) => {
+    const store = makeStore({ "openai:default": stats as ProfileUsageStats });
+    await maybeRecoverCodexRateLimitBlockedProfiles({
+      store,
+      profileIds: ["openai:default"],
+      now: 1_700_000_000_000,
+      forModel: "model-a",
+    });
+    expect(providerUsageMock).not.toHaveBeenCalled();
+    expect(storeMocks.updateAuthProfileStoreWithLock).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    "missing evidence",
+    "missing identity",
+    "missing workspace",
+    "other workspace",
+    "request error",
+    "newer failure",
+    "changed account",
+  ])("does not unlock on %s", async (scenario) => {
+    const now = 1_700_000_000_000;
+    const blockedUntil = now + 86_400_000;
+    const store = makeStore({
+      "openai:default": {
+        blockedUntil,
+        blockedSource: "codex_rate_limits",
+        blockedReason: "subscription_limit",
+        lastFailureAt: now - 1,
+      },
+    });
+    mockLockedUpdatesForStore(store);
+    providerUsageMock.mockImplementation(async () => {
+      if (scenario === "request error") {
+        throw new Error("network unavailable");
+      }
+      if (scenario === "newer failure") {
+        expectDefined(store.usageStats?.["openai:default"], "OpenAI usage stats").lastFailureAt =
+          now + 1;
+      }
+      if (scenario === "changed account") {
+        const profile = expectDefined(store.profiles["openai:default"], "OpenAI profile");
+        if (profile.type === "oauth") {
+          profile.accountId = "replacement-account";
+        }
+      }
+      return {
+        updatedAt: now,
+        providers: [
+          {
+            provider: "openai",
+            displayName: "OpenAI",
+            windows: [{ label: "Week", usedPercent: 0 }],
+            quotaAvailable: scenario === "missing evidence" ? undefined : true,
+            accountId:
+              scenario === "missing workspace"
+                ? undefined
+                : scenario === "other workspace"
+                  ? "other-workspace"
+                  : "acct_test_123",
+            accountEmail: scenario === "missing identity" ? undefined : "owner@example.test",
+          },
+        ],
+      };
+    });
+    await maybeRecoverCodexRateLimitBlockedProfiles({ store, profileIds: ["openai:default"], now });
+    expect(store.usageStats?.["openai:default"]?.blockedUntil).toBe(blockedUntil);
+    expect(store.usageStats?.["openai:default"]?.lastProbeAt).toBe(now);
+    await maybeRecoverCodexRateLimitBlockedProfiles({
+      store,
+      profileIds: ["openai:default"],
+      now: now + 60_000,
+    });
+    expect(providerUsageMock).toHaveBeenCalledOnce();
+  });
+
+  it("deduplicates recovery across inherited snapshots and releases both callers", async () => {
+    const now = 1_700_000_000_000;
+    const store = makeStore({
+      "openai:default": {
+        blockedUntil: now + 86_400_000,
+        blockedSource: "codex_rate_limits",
+        blockedReason: "subscription_limit",
+      },
+    });
+    const child = structuredClone(store);
+    mockLockedUpdatesForStore(store);
+    storeMocks.resolvePersistedAuthProfileOwnerAgentDir.mockReturnValue("/shared-owner");
+    let release!: () => void;
+    const wait = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    providerUsageMock.mockImplementation(async () => {
+      await wait;
+      return {
+        updatedAt: now,
+        providers: [
+          {
+            provider: "openai",
+            displayName: "OpenAI",
+            windows: [{ label: "Week", usedPercent: 1 }],
+            quotaAvailable: true,
+            accountId: "acct_test_123",
+            accountEmail: "owner@example.test",
+          },
+        ],
+      };
+    });
+    const first = maybeRecoverCodexRateLimitBlockedProfiles({
+      store,
+      profileIds: ["openai:default"],
+      agentDir: "/first",
+      now,
+    });
+    await vi.waitFor(() => expect(providerUsageMock).toHaveBeenCalledOnce());
+    const second = maybeRecoverCodexRateLimitBlockedProfiles({
+      store: child,
+      profileIds: ["openai:default"],
+      agentDir: "/second",
+      now,
+    });
+    release();
+    await Promise.all([first, second]);
+    expect(providerUsageMock).toHaveBeenCalledOnce();
+    expect(store.usageStats?.["openai:default"]?.blockedUntil).toBeUndefined();
+    expect(child.usageStats?.["openai:default"]?.blockedUntil).toBeUndefined();
+    expect(child.usageStats?.["openai:default"]).not.toBe(store.usageStats?.["openai:default"]);
+  });
+
+  it.each([
+    "newer before join",
+    "account before join",
+    "newer after join",
+    "account after join",
+    "cooldown after join",
+  ])("does not overwrite a joining snapshot with %s", async (scenario) => {
+    const now = 1_700_000_000_000;
+    const store = makeStore({
+      "openai:default": {
+        blockedUntil: now + 86_400_000,
+        blockedSource: "codex_rate_limits",
+        blockedReason: "subscription_limit",
+        lastFailureAt: now - 1,
+      },
+    });
+    const child = structuredClone(store);
+    const mutateChild = () => {
+      const stats = expectDefined(child.usageStats?.["openai:default"], "child OpenAI usage stats");
+      if (scenario.startsWith("account")) {
+        const profile = expectDefined(child.profiles["openai:default"], "child OpenAI profile");
+        if (profile.type === "oauth") {
+          profile.accountId = "replacement-account";
+        }
+      } else if (scenario.startsWith("cooldown")) {
+        stats.cooldownUntil = now + 60_000;
+        stats.errorCount = 2;
+      } else {
+        stats.lastFailureAt = now + 1;
+        stats.blockedUntil = now + 2 * 86_400_000;
+      }
+    };
+    mockLockedUpdatesForStore(store);
+    storeMocks.resolvePersistedAuthProfileOwnerAgentDir.mockReturnValue("/shared-owner");
+    let release!: () => void;
+    const wait = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    providerUsageMock.mockImplementation(async () => {
+      await wait;
+      return {
+        updatedAt: now,
+        providers: [
+          {
+            provider: "openai",
+            displayName: "OpenAI",
+            windows: [],
+            quotaAvailable: true,
+            accountId: "acct_test_123",
+            accountEmail: "owner@example.test",
+          },
+        ],
+      };
+    });
+    const first = maybeRecoverCodexRateLimitBlockedProfiles({
+      store,
+      profileIds: ["openai:default"],
+      agentDir: "/first",
+      now,
+    });
+    await vi.waitFor(() => expect(providerUsageMock).toHaveBeenCalledOnce());
+    if (scenario.endsWith("before join")) {
+      mutateChild();
+    }
+    const second = maybeRecoverCodexRateLimitBlockedProfiles({
+      store: child,
+      profileIds: ["openai:default"],
+      agentDir: "/second",
+      now,
+    });
+    if (scenario.endsWith("after join")) {
+      mutateChild();
+    }
+    const expected = structuredClone(child);
+    release();
+    await Promise.all([first, second]);
+    expect(providerUsageMock).toHaveBeenCalledOnce();
+    expect(store.usageStats?.["openai:default"]?.blockedUntil).toBeUndefined();
+    expect(child).toEqual(expected);
+  });
+
+  it("accepts native token refresh without confusing it with an account switch", async () => {
+    const now = 1_700_000_000_000;
+    const store = makeStore({
+      "openai:default": {
+        blockedUntil: now + 86_400_000,
+        blockedSource: "codex_rate_limits",
+        blockedReason: "subscription_limit",
+      },
+    });
+    mockLockedUpdatesForStore(store);
+    providerUsageMock.mockImplementation(async () => {
+      const profile = expectDefined(store.profiles["openai:default"], "OpenAI profile");
+      if (profile.type === "oauth") {
+        profile.access = "refreshed-test-token";
+      }
+      return {
+        updatedAt: now,
+        providers: [
+          {
+            provider: "openai",
+            displayName: "OpenAI",
+            windows: [],
+            quotaAvailable: true,
+            accountId: "acct_test_123",
+            accountEmail: "owner@example.test",
+          },
+        ],
+      };
+    });
+    await maybeRecoverCodexRateLimitBlockedProfiles({ store, profileIds: ["openai:default"], now });
+    expect(store.usageStats?.["openai:default"]?.blockedUntil).toBeUndefined();
+  });
+
+  it("preserves a newer failure when a negative quota response arrives", async () => {
+    const now = 1_700_000_000_000;
+    const store = makeStore({
+      "openai:default": {
+        blockedUntil: now + 86_400_000,
+        blockedSource: "codex_rate_limits",
+        blockedReason: "subscription_limit",
+      },
+    });
+    mockLockedUpdatesForStore(store);
+    providerUsageMock.mockImplementation(async () => {
+      expectDefined(store.usageStats?.["openai:default"], "OpenAI usage stats").lastFailureAt =
+        now + 1;
+      return {
+        updatedAt: now,
+        providers: [
+          {
+            provider: "openai",
+            displayName: "OpenAI",
+            windows: [],
+            quotaAvailable: false,
+            accountId: "acct_test_123",
+            accountEmail: "owner@example.test",
+          },
+        ],
+      };
+    });
+    await maybeRecoverCodexRateLimitBlockedProfiles({ store, profileIds: ["openai:default"], now });
+    expect(store.usageStats?.["openai:default"]?.lastFailureAt).toBe(now + 1);
+  });
+
+  it("revalidates a long Codex rate-limit block and clears it when provider usage recovered", async () => {
+    const now = 1_700_000_000_000;
+    const store = makeStore({
+      "openai:default": {
+        blockedUntil: now + 4 * 24 * 60 * 60 * 1000,
+        blockedReason: "subscription_limit",
+        blockedSource: "codex_rate_limits",
+        blockedModel: "model-a",
+        blockedScope: "model",
+        lastFailureAt: now - 60_000,
+        failureCounts: { rate_limit: 1 },
+      },
+    });
+    providerUsageMock.mockResolvedValue({
+      updatedAt: now,
+      providers: [
+        {
+          provider: "openai",
+          displayName: "OpenAI",
+          quotaAvailable: true,
+          plan: "pro",
+          accountId: "acct_test_123",
+          accountEmail: "owner@example.test",
+          windows: [{ label: "168h", usedPercent: 1, resetAt: now + 7 * 24 * 60 * 60 * 1000 }],
+        },
+      ],
+    });
+    mockLockedUpdatesForStore(store);
+
+    await maybeRecoverCodexRateLimitBlockedProfiles({
+      store,
+      profileIds: ["openai:default"],
+      forModel: "model-a",
+      now,
+    });
+
+    expect(providerUsageMock).toHaveBeenCalledOnce();
+    expect(providerUsageMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        timeoutMs: 5_000,
+        auth: [
+          {
+            provider: "openai",
+            token: "codex-app-server",
+            hookProvider: "codex",
+            authProfileId: "openai:default",
+          },
+        ],
+      }),
+    );
+    expect(storeMocks.updateAuthProfileStoreWithLock).toHaveBeenCalledTimes(2);
+    expect(store.usageStats?.["openai:default"]?.blockedUntil).toBeUndefined();
+    expect(store.usageStats?.["openai:default"]?.blockedReason).toBeUndefined();
+    expect(store.usageStats?.["openai:default"]?.blockedSource).toBeUndefined();
+    expect(store.usageStats?.["openai:default"]?.blockedModel).toBeUndefined();
+    expect(store.usageStats?.["openai:default"]?.blockedScope).toBeUndefined();
+    expect(store.usageStats?.["openai:default"]?.lastProbeAt).toBe(now);
+  });
+
+  it("keeps Codex rate-limit recovery quiet inside the 45-minute half-open interval", async () => {
+    const now = 1_700_000_000_000;
+    const store = makeStore({
+      "openai:default": {
+        blockedUntil: now + 4 * 24 * 60 * 60 * 1000,
+        blockedReason: "subscription_limit",
+        blockedSource: "codex_rate_limits",
+        blockedModel: "model-a",
+        blockedScope: "model",
+        lastProbeAt: now - WHAM_HALF_OPEN_REPROBE_INTERVAL_MS + 1,
+        codexRateLimitProbeStatus: "blocked",
+      },
+    });
+
+    await maybeRecoverCodexRateLimitBlockedProfiles({
+      store,
+      profileIds: ["openai:default"],
+      forModel: "model-a",
+      now,
+    });
+
+    expect(providerUsageMock).not.toHaveBeenCalled();
+    expect(storeMocks.updateAuthProfileStoreWithLock).not.toHaveBeenCalled();
+  });
+
+  it("revalidates a legacy recent Codex probe marker once when no outcome was persisted", async () => {
+    const now = 1_700_000_000_000;
+    const store = makeStore({
+      "openai:default": {
+        blockedUntil: now + 4 * 24 * 60 * 60 * 1000,
+        blockedReason: "subscription_limit",
+        blockedSource: "codex_rate_limits",
+        blockedModel: "model-a",
+        blockedScope: "model",
+        lastProbeAt: now - 1_000,
+      },
+    });
+    providerUsageMock.mockResolvedValue({
+      updatedAt: now,
+      providers: [
+        {
+          provider: "openai",
+          displayName: "OpenAI",
+          quotaAvailable: true,
+          accountId: "acct_test_123",
+          accountEmail: "owner@example.test",
+          windows: [{ label: "168h", usedPercent: 3, resetAt: now + 7 * 24 * 60 * 60 * 1000 }],
+        },
+      ],
+    });
+    mockLockedUpdatesForStore(store);
+
+    await maybeRecoverCodexRateLimitBlockedProfiles({
+      store,
+      profileIds: ["openai:default"],
+      forModel: "model-a",
+      now,
+    });
+
+    expect(providerUsageMock).toHaveBeenCalledOnce();
+    expect(store.usageStats?.["openai:default"]?.blockedUntil).toBeUndefined();
+    expect(store.usageStats?.["openai:default"]?.codexRateLimitProbeStatus).toBeUndefined();
+  });
+
+  it("retries an unknown Codex usage probe after 5 minutes without polling healthy profiles", async () => {
+    const now = 1_700_000_000_000;
+    const store = makeStore({
+      "openai:default": {
+        blockedUntil: now + 4 * 24 * 60 * 60 * 1000,
+        blockedReason: "subscription_limit",
+        blockedSource: "codex_rate_limits",
+        blockedModel: "model-a",
+        blockedScope: "model",
+      },
+    });
+    providerUsageMock.mockResolvedValue({
+      updatedAt: now,
+      providers: [
+        {
+          provider: "openai",
+          displayName: "OpenAI",
+          windows: [],
+          error: "Timeout",
+        },
+      ],
+    });
+    mockLockedUpdatesForStore(store);
+
+    await maybeRecoverCodexRateLimitBlockedProfiles({
+      store,
+      profileIds: ["openai:default"],
+      forModel: "model-a",
+      now,
+    });
+    expect(store.usageStats?.["openai:default"]?.codexRateLimitProbeStatus).toBe("unknown");
+
+    providerUsageMock.mockClear();
+    storeMocks.updateAuthProfileStoreWithLock.mockClear();
+    await maybeRecoverCodexRateLimitBlockedProfiles({
+      store,
+      profileIds: ["openai:default"],
+      forModel: "model-a",
+      now: now + CODEX_RATE_LIMIT_REPROBE_FAILURE_INTERVAL_MS - 1,
+    });
+    expect(providerUsageMock).not.toHaveBeenCalled();
+
+    providerUsageMock.mockResolvedValue({
+      updatedAt: now + CODEX_RATE_LIMIT_REPROBE_FAILURE_INTERVAL_MS,
+      providers: [
+        {
+          provider: "openai",
+          displayName: "OpenAI",
+          quotaAvailable: true,
+          accountId: "acct_test_123",
+          accountEmail: "owner@example.test",
+          windows: [{ label: "168h", usedPercent: 3 }],
+        },
+      ],
+    });
+    await maybeRecoverCodexRateLimitBlockedProfiles({
+      store,
+      profileIds: ["openai:default"],
+      forModel: "model-a",
+      now: now + CODEX_RATE_LIMIT_REPROBE_FAILURE_INTERVAL_MS,
+    });
+    expect(providerUsageMock).toHaveBeenCalledOnce();
+    expect(store.usageStats?.["openai:default"]?.blockedUntil).toBeUndefined();
+  });
+
+  it("preserves a genuine Codex block instead of extending it from display windows", async () => {
+    const now = 1_700_000_000_000;
+    const originalUntil = now + 4 * 24 * 60 * 60 * 1000;
+    const currentReset = now + 2 * 60 * 60 * 1000;
+    const store = makeStore({
+      "openai:default": {
+        blockedUntil: originalUntil,
+        blockedReason: "subscription_limit",
+        blockedSource: "codex_rate_limits",
+        blockedModel: "model-a",
+        blockedScope: "model",
+        lastFailureAt: now - 60_000,
+        failureCounts: { rate_limit: 1 },
+      },
+    });
+    providerUsageMock.mockResolvedValue({
+      updatedAt: now,
+      providers: [
+        {
+          provider: "openai",
+          displayName: "OpenAI",
+          quotaAvailable: false,
+          accountId: "acct_test_123",
+          accountEmail: "owner@example.test",
+          windows: [{ label: "168h", usedPercent: 100, resetAt: currentReset }],
+        },
+      ],
+    });
+    mockLockedUpdatesForStore(store);
+
+    await maybeRecoverCodexRateLimitBlockedProfiles({
+      store,
+      profileIds: ["openai:default"],
+      forModel: "model-a",
+      now,
+    });
+
+    expect(store.usageStats?.["openai:default"]?.blockedUntil).toBe(originalUntil);
+    expect(store.usageStats?.["openai:default"]?.blockedSource).toBe("codex_rate_limits");
+    expect(store.usageStats?.["openai:default"]?.blockedModel).toBe("model-a");
+    expect(store.usageStats?.["openai:default"]?.blockedScope).toBe("model");
+    expect(store.usageStats?.["openai:default"]?.codexRateLimitProbeStatus).toBe("blocked");
+  });
+
+  it("does not clear a Codex rate-limit block from another OpenAI account snapshot", async () => {
+    const now = 1_700_000_000_000;
+    const blockedUntil = now + 4 * 24 * 60 * 60 * 1000;
+    const store = makeStore({
+      "openai:default": {
+        blockedUntil,
+        blockedReason: "subscription_limit",
+        blockedSource: "codex_rate_limits",
+        blockedModel: "model-a",
+        blockedScope: "model",
+      },
+    });
+    providerUsageMock.mockResolvedValue({
+      updatedAt: now,
+      providers: [
+        {
+          provider: "openai",
+          displayName: "OpenAI",
+          quotaAvailable: true,
+          accountId: "acct_test_123",
+          accountEmail: "other@example.test",
+          windows: [{ label: "168h", usedPercent: 1, resetAt: now + 7 * 24 * 60 * 60 * 1000 }],
+        },
+      ],
+    });
+    mockLockedUpdatesForStore(store);
+
+    await maybeRecoverCodexRateLimitBlockedProfiles({
+      store,
+      profileIds: ["openai:default"],
+      forModel: "model-a",
+      now,
+    });
+
+    expect(providerUsageMock).toHaveBeenCalledOnce();
+    expect(store.usageStats?.["openai:default"]?.blockedUntil).toBe(blockedUntil);
+    expect(store.usageStats?.["openai:default"]?.lastProbeAt).toBe(now);
+    expect(store.usageStats?.["openai:default"]?.codexRateLimitProbeStatus).toBe("unknown");
   });
 
   it.each([

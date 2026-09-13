@@ -41,6 +41,9 @@ const AUTH_COOLDOWN_CLASSIFICATIONS = new Set<AuthProfileCooldownClassification>
 ]);
 const AUTH_BLOCKED_REASONS = new Set<AuthProfileBlockedReason>(["subscription_limit"]);
 const AUTH_BLOCKED_SOURCES = new Set<AuthProfileBlockedSource>(["codex_rate_limits", "wham"]);
+const CODEX_RATE_LIMIT_PROBE_STATUSES = new Set<
+  NonNullable<ProfileUsageStats["codexRateLimitProbeStatus"]>
+>(["probing", "blocked", "unknown"]);
 
 function normalizeEnumValue<T extends string>(value: unknown, allowed: Set<T>): T | undefined {
   if (typeof value !== "string") {
@@ -136,6 +139,10 @@ function normalizeUsageStatsEntry(raw: unknown): ProfileUsageStats | undefined {
     failureCounts: normalizeFailureCounts(raw.failureCounts),
     lastFailureAt: asFiniteNumber(raw.lastFailureAt),
     lastProbeAt: asFiniteNumber(raw.lastProbeAt),
+    codexRateLimitProbeStatus: normalizeEnumValue(
+      raw.codexRateLimitProbeStatus,
+      CODEX_RATE_LIMIT_PROBE_STATUSES,
+    ),
   };
   for (const key of Object.keys(stats) as Array<keyof ProfileUsageStats>) {
     if (stats[key] === undefined) {

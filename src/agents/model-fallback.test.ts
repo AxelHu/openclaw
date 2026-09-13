@@ -202,7 +202,7 @@ const authRuntimeMock = vi.hoisted(() => {
       resolveAuthProfileOrder: (params: { store: AuthProfileStore; provider: string }) =>
         params.store.order?.[params.provider] ?? getProfileIds(params.store, params.provider),
       resolveAuthProfileEligibility,
-      maybeReprobeWhamBlockedProfiles: vi.fn(),
+      maybeRecoverProviderBlockedProfiles: vi.fn(),
       isProfileInCooldown,
       resolveProfilesUnavailableReason: (params: {
         store: AuthProfileStore;

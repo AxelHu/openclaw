@@ -60,6 +60,7 @@ import {
   shouldDiscardDeferredSessionSuspension,
   throwFallbackFailureSummary,
 } from "./model-fallback-attempt.js";
+import { recoverCandidateAuthProfiles } from "./model-fallback-auth-recovery.js";
 import { resolveModelCandidateChain } from "./model-fallback-candidates.js";
 import {
   markProbeAttempt,
@@ -301,35 +302,30 @@ async function runWithModelFallbackInternal<T>(
 
     let candidateAuthProfileIds: string[] | undefined;
     let userLockedAuthProfileEligible = false;
+    let recoverySuggestedRealProbe = false;
     if (authRuntime && authStore) {
-      userLockedAuthProfileEligible =
-        userLockedAuthProfileId !== undefined &&
-        authRuntime.resolveAuthProfileEligibility({
+      if (candidateHarnessAuth.skipsProviderAuthCooldown) {
+        userLockedAuthProfileEligible =
+          userLockedAuthProfileId !== undefined &&
+          authRuntime.resolveAuthProfileEligibility({
+            cfg: params.cfg,
+            store: authStore,
+            provider: candidate.provider,
+            profileId: userLockedAuthProfileId,
+          }).eligible;
+      } else {
+        const recovery = await recoverCandidateAuthProfiles({
+          authRuntime,
+          authStore,
           cfg: params.cfg,
-          store: authStore,
           provider: candidate.provider,
-          profileId: userLockedAuthProfileId,
-        }).eligible;
-      if (!candidateHarnessAuth.skipsProviderAuthCooldown) {
-        const orderedProfileIds = authRuntime.resolveAuthProfileOrder({
-          cfg: params.cfg,
-          store: authStore,
-          provider: candidate.provider,
-          forModel: candidate.model,
-        });
-        candidateAuthProfileIds =
-          userLockedAuthProfileEligible && userLockedAuthProfileId
-            ? [
-                userLockedAuthProfileId,
-                ...orderedProfileIds.filter((profileId) => profileId !== userLockedAuthProfileId),
-              ]
-            : orderedProfileIds;
-        authRuntime.maybeReprobeWhamBlockedProfiles({
-          store: authStore,
-          profileIds: candidateAuthProfileIds,
+          model: candidate.model,
           agentDir: params.agentDir,
-          forModel: candidate.model,
+          userLockedProfileId: userLockedAuthProfileId,
         });
+        candidateAuthProfileIds = recovery.profileIds;
+        userLockedAuthProfileEligible = recovery.userLockedProfileEligible;
+        recoverySuggestedRealProbe = recovery.suggestRealProbe;
       }
     }
     const candidateAuthScope = resolveFallbackAuthScope({
@@ -398,6 +394,7 @@ async function runWithModelFallbackInternal<T>(
           authRuntime,
           authStore,
           profileIds,
+          forcePrimaryProbe: recoverySuggestedRealProbe,
         });
         const authMode =
           decision.reason === "billing" ||

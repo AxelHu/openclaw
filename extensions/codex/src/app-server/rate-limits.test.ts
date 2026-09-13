@@ -294,6 +294,105 @@ describe("buildCodexAppServerUsageSnapshot", () => {
   });
 });
 
+describe("Codex recovery evidence", () => {
+  it("preserves the backend-observed account ID from the same snapshot", () => {
+    const result = buildCodexAppServerUsageSnapshot({
+      accountId: "workspace-a",
+      rateLimits: {
+        limitId: "codex",
+        primary: { usedPercent: 1 },
+      },
+    });
+    expect(result.accountId).toBe("workspace-a");
+    expect(result.quotaAvailable).toBe(true);
+  });
+
+  it("does not invent a missing backend account ID", () => {
+    const result = buildCodexAppServerUsageSnapshot({
+      accountId: null,
+      rateLimits: {
+        limitId: "codex",
+        primary: { usedPercent: 1 },
+      },
+    });
+    expect(result.accountId).toBeUndefined();
+  });
+
+  it.each([
+    {
+      name: "healthy weekly pool",
+      value: { rateLimitsByLimitId: { codex: { primary: { usedPercent: 1 } } } },
+      expected: true,
+    },
+    {
+      name: "unknown usage with a future reset",
+      value: { rateLimitsByLimitId: { codex: { primary: { resetsAt: 2_000_000_000 } } } },
+      expected: undefined,
+    },
+    {
+      name: "missing windows",
+      value: { rateLimitsByLimitId: { codex: { primary: null } } },
+      expected: undefined,
+    },
+    {
+      name: "negative usage",
+      value: { rateLimitsByLimitId: { codex: { primary: { usedPercent: -1 } } } },
+      expected: undefined,
+    },
+    {
+      name: "non-finite usage",
+      value: { rateLimitsByLimitId: { codex: { primary: { usedPercent: Number.NaN } } } },
+      expected: undefined,
+    },
+    {
+      name: "only an extra pool",
+      value: { rateLimitsByLimitId: { extra: { primary: { usedPercent: 0 } } } },
+      expected: undefined,
+    },
+    {
+      name: "exhausted extra pool",
+      value: {
+        rateLimitsByLimitId: {
+          codex: { primary: { usedPercent: 1 } },
+          extra: { primary: { usedPercent: 100 } },
+        },
+      },
+      expected: false,
+    },
+    {
+      name: "partial secondary window",
+      value: {
+        rateLimits: {
+          limitId: "codex",
+          primary: { usedPercent: 1 },
+          secondary: { resetsAt: 2_000_000_000 },
+        },
+      },
+      expected: undefined,
+    },
+    {
+      name: "explicit credit restriction",
+      value: {
+        rateLimits: {
+          limitId: "codex",
+          primary: { usedPercent: 1 },
+          rateLimitReachedType: "workspace_owner_credits_depleted",
+        },
+      },
+      expected: false,
+    },
+    {
+      name: "explicit spend control",
+      value: {
+        rateLimits: { limitId: "codex", primary: { usedPercent: 1 }, spendControlReached: true },
+      },
+      expected: false,
+    },
+  ])("does not misclassify $name", ({ value, expected }) => {
+    expect(buildCodexAppServerUsageSnapshot(value).quotaAvailable).toBe(expected);
+  });
+});
+
 describe("Codex rate limit blocking resets", () => {
   it("keeps subscriptions blocked until all exhausted windows reset", () => {
     const nowMs = 1_700_000_000_000;

@@ -12,10 +12,8 @@ import {
   createPreparedRuntimeModelMaterializer,
   providerUsesCredentialScopedModelMetadata,
 } from "../../runtime-plan/credential-scoped-model.js";
-import {
-  prepareAgentRuntimeAuth,
-  type PreparedAgentRuntimeAuthAttempt,
-} from "../../runtime-plan/prepare-auth.js";
+import { prepareAgentRuntimeAuthWithRecovery } from "../../runtime-plan/prepare-auth-recovery.js";
+import type { PreparedAgentRuntimeAuthAttempt } from "../../runtime-plan/prepare-auth.js";
 import { resolveModelAsync } from "../model.js";
 import type { RunEmbeddedAgentParams } from "./params.js";
 
@@ -136,9 +134,11 @@ export async function prepareEmbeddedRunAuthPlan(params: {
     externalCliAuthScope.ignoreAutoPreferredProfile && !lockedProfileId
       ? undefined
       : requestedProfileId;
-  const createAuthPreparation = () => {
+  const createAuthPreparation = (
+    allowTransientCooldownProbe = runParams.allowTransientCooldownProbe === true,
+  ) => {
     const harness = params.getAgentHarness();
-    return prepareAgentRuntimeAuth({
+    return prepareAgentRuntimeAuthWithRecovery({
       provider: params.provider,
       modelId: params.modelId,
       modelApi: params.model.api,
@@ -156,7 +156,7 @@ export async function prepareEmbeddedRunAuthPlan(params: {
       harnessRuntime: harness.id,
       harnessAuthBootstrap: harness.authBootstrap,
       allowHarnessAuthProfileForwarding: true,
-      allowTransientCooldownProbe: runParams.allowTransientCooldownProbe === true,
+      allowTransientCooldownProbe,
       resolveProviderPreferredProfileId: (context) =>
         resolveProviderAuthProfileId({
           provider: params.provider,
@@ -197,7 +197,10 @@ export async function prepareEmbeddedRunAuthPlan(params: {
         }),
     });
 
-  let resolvedAuthPreparation = createAuthPreparation();
+  let resolvedAuthPreparation = await createAuthPreparation();
+  let allowTransientCooldownProbe =
+    runParams.allowTransientCooldownProbe === true ||
+    resolvedAuthPreparation.transientCooldownProbeGranted === true;
   let preparedAuthAttempts = resolvedAuthPreparation.attempts;
   let activePreparedAuthPlan = resolvedAuthPreparation.plan;
   params.applyResolvedRuntimeModel(await materializeAuthPlan(activePreparedAuthPlan));
@@ -209,7 +212,9 @@ export async function prepareEmbeddedRunAuthPlan(params: {
   );
   if (finalizedHarness.id !== params.getAgentHarness().id) {
     params.setAgentHarness(finalizedHarness);
-    resolvedAuthPreparation = createAuthPreparation();
+    resolvedAuthPreparation = await createAuthPreparation(allowTransientCooldownProbe);
+    allowTransientCooldownProbe =
+      allowTransientCooldownProbe || resolvedAuthPreparation.transientCooldownProbeGranted === true;
     preparedAuthAttempts = resolvedAuthPreparation.attempts;
     activePreparedAuthPlan = resolvedAuthPreparation.plan;
     params.applyResolvedRuntimeModel(await materializeAuthPlan(activePreparedAuthPlan));
@@ -235,5 +240,6 @@ export async function prepareEmbeddedRunAuthPlan(params: {
     materializeAuthPlanUncached,
     preparedAuthAttempts,
     activePreparedAuthPlan,
+    allowTransientCooldownProbe,
   };
 }

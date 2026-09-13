@@ -4,6 +4,8 @@ export { ensureAuthProfileStore, loadAuthProfileStoreForRuntime } from "./auth-p
 export {
   getSoonestCooldownExpiry,
   isProfileInCooldown,
+  maybeRecoverCodexRateLimitBlockedProfiles,
+  maybeRecoverProviderBlockedProfiles,
   maybeReprobeWhamBlockedProfiles,
   resolveProfilesUnavailableReason,
 } from "./auth-profiles/usage.js";

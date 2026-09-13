@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from "node:util";
 /**
  * Auth profile usage accounting and cooldown mutation.
  * Records failures under the store lock, applies WHAM usage probes for OpenAI
@@ -14,6 +15,7 @@ import {
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { cancelUnreadResponseBody } from "../../infra/http-body.js";
 import { createSubsystemLogger } from "../../logging/subsystem.js";
+import { buildCodexSyntheticUsageAuth } from "../../status/codex-synthetic-usage.js";
 import { readProviderJsonResponse } from "../provider-http-errors.js";
 import { resolveProviderRequestHeaders } from "../provider-request-config.js";
 import { notifyAuthProfileFailureHook, setAuthProfileFailureHook } from "./failure-hook.js";
@@ -80,6 +82,7 @@ const testing = {
   },
   resetWhamReprobeStateForTest() {
     whamReprobesInFlight.clear();
+    codexRateLimitReprobesInFlight.clear();
   },
 };
 if (process.env.VITEST || process.env.NODE_ENV === "test") {
@@ -157,6 +160,13 @@ const WHAM_TOKEN_EXPIRED_COOLDOWN_MS = 12 * 60 * 60 * 1000;
 const WHAM_DEAD_ACCOUNT_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 const WHAM_HALF_OPEN_REPROBE_INTERVAL_MS = 45 * 60 * 1000;
 const whamReprobesInFlight = new Map<string, Promise<void>>();
+const CODEX_RATE_LIMIT_REPROBE_INTERVAL_MS = 45 * 60 * 1000;
+const CODEX_RATE_LIMIT_REPROBE_FAILURE_INTERVAL_MS = 5 * 60 * 1000;
+const CODEX_RATE_LIMIT_REPROBE_TIMEOUT_MS = 5_000;
+const codexRateLimitReprobesInFlight = new Map<
+  string,
+  Promise<CodexRateLimitReprobeResult | undefined>
+>();
 
 type WhamUsageWindow = {
   limit_window_seconds?: number;
@@ -213,7 +223,7 @@ function shouldProbeWhamForFailure(
   );
 }
 
-function isSameWhamCredential(
+function isSameSubscriptionCredential(
   expected: AuthProfileCredential,
   current: AuthProfileCredential | undefined,
 ): boolean {
@@ -482,14 +492,14 @@ function shouldHalfOpenProbeWhamBlock(params: {
   );
 }
 
-type WhamBlockGeneration = Pick<
+type SubscriptionBlockGeneration = Pick<
   ProfileUsageStats,
   "blockedUntil" | "blockedModel" | "blockedScope" | "lastFailureAt"
 > & { rateLimitFailureCount?: number };
 
-function matchesWhamBlockGeneration(
+function matchesSubscriptionBlockGeneration(
   stats: ProfileUsageStats,
-  generation: WhamBlockGeneration,
+  generation: SubscriptionBlockGeneration,
 ): boolean {
   return (
     stats.blockedUntil === generation.blockedUntil &&
@@ -507,14 +517,14 @@ async function claimWhamHalfOpenReprobe(params: {
   forModel?: string;
   expectedProfile: AuthProfileCredential;
   startedAt: number;
-}): Promise<WhamBlockGeneration | null> {
-  let generation: WhamBlockGeneration | undefined;
+}): Promise<SubscriptionBlockGeneration | null> {
+  let generation: SubscriptionBlockGeneration | undefined;
   const updated = await updateOwnedAuthProfileUsage(params.store, params.profileId, {
     agentDir: params.agentDir,
     updater: (freshStore) => {
       const currentProfile = freshStore.profiles[params.profileId];
       if (
-        !isSameWhamCredential(params.expectedProfile, currentProfile) ||
+        !isSameSubscriptionCredential(params.expectedProfile, currentProfile) ||
         !shouldHalfOpenProbeWhamBlock({
           store: freshStore,
           profileId: params.profileId,
@@ -577,8 +587,8 @@ async function runWhamHalfOpenReprobe(params: {
         currentStats.blockedSource !== "wham" ||
         currentStats.blockedReason !== "subscription_limit" ||
         currentStats.lastProbeAt !== params.startedAt ||
-        !matchesWhamBlockGeneration(currentStats, generation) ||
-        !isSameWhamCredential(params.expectedProfile, currentProfile)
+        !matchesSubscriptionBlockGeneration(currentStats, generation) ||
+        !isSameSubscriptionCredential(params.expectedProfile, currentProfile)
       ) {
         return false;
       }
@@ -656,6 +666,327 @@ export function maybeReprobeWhamBlockedProfiles(params: {
       });
     whamReprobesInFlight.set(probeKey, task);
   }
+}
+
+type CodexRateLimitReprobeResult = {
+  accountId: string;
+  email: string;
+  generation: SubscriptionBlockGeneration;
+  stats: ProfileUsageStats;
+};
+
+function captureCodexBlockGeneration(
+  stats: ProfileUsageStats | undefined,
+): SubscriptionBlockGeneration {
+  return {
+    blockedUntil: stats?.blockedUntil,
+    blockedModel: stats?.blockedModel,
+    blockedScope: stats?.blockedScope,
+    lastFailureAt: stats?.lastFailureAt,
+    rateLimitFailureCount: stats?.failureCounts?.rate_limit,
+  };
+}
+
+function captureCodexReprobeResult(
+  store: AuthProfileStore | null | undefined,
+  profileId: string,
+  generation: SubscriptionBlockGeneration,
+): CodexRateLimitReprobeResult | undefined {
+  const profile = store?.profiles[profileId];
+  const stats = store?.usageStats?.[profileId];
+  if (profile?.type !== "oauth" || normalizeProviderId(profile.provider) !== "openai" || !stats) {
+    return undefined;
+  }
+  const accountId = profile.accountId?.trim();
+  const email = profile.email?.trim().toLowerCase();
+  return accountId && email
+    ? { accountId, email, generation, stats: structuredClone(stats) }
+    : undefined;
+}
+
+function isSameCodexRecoveryAccount(
+  expected: AuthProfileCredential | undefined,
+  current: AuthProfileCredential | undefined,
+): boolean {
+  // Native Codex may refresh its tokens during account/rateLimits/read. Bind
+  // recovery to the account/workspace, not to an access token that just rotated.
+  return (
+    expected?.type === "oauth" &&
+    current?.type === "oauth" &&
+    normalizeProviderId(expected.provider) === "openai" &&
+    normalizeProviderId(current.provider) === "openai" &&
+    Boolean(expected.accountId?.trim()) &&
+    expected.accountId === current.accountId &&
+    Boolean(expected.email?.trim()) &&
+    expected.email?.trim().toLowerCase() === current.email?.trim().toLowerCase()
+  );
+}
+
+function shouldReprobeCodexRateLimitBlock(params: {
+  store: AuthProfileStore;
+  profileId: string;
+  forModel?: string;
+  now: number;
+}): boolean {
+  const profile = params.store.profiles[params.profileId];
+  const stats = params.store.usageStats?.[params.profileId];
+  if (
+    profile?.type !== "oauth" ||
+    normalizeProviderId(profile.provider) !== "openai" ||
+    !profile.email?.trim() ||
+    !profile.accountId?.trim() ||
+    !stats ||
+    stats.blockedSource !== "codex_rate_limits" ||
+    stats.blockedReason !== "subscription_limit" ||
+    !isActiveUnusableWindow(stats.blockedUntil, params.now) ||
+    isActiveUnusableWindow(stats.cooldownUntil, params.now) ||
+    isActiveUnusableWindow(stats.disabledUntil, params.now)
+  ) {
+    return false;
+  }
+  if (
+    params.forModel &&
+    stats.blockedScope === "model" &&
+    stats.blockedModel &&
+    stats.blockedModel !== params.forModel
+  ) {
+    return false;
+  }
+  const lastProbeIntervalMs =
+    stats.codexRateLimitProbeStatus === "blocked"
+      ? CODEX_RATE_LIMIT_REPROBE_INTERVAL_MS
+      : stats.codexRateLimitProbeStatus === "probing" ||
+          stats.codexRateLimitProbeStatus === "unknown"
+        ? CODEX_RATE_LIMIT_REPROBE_FAILURE_INTERVAL_MS
+        : 0;
+  return (
+    (stats.blockedUntil ?? 0) - params.now > CODEX_RATE_LIMIT_REPROBE_INTERVAL_MS &&
+    params.now - (stats.lastProbeAt ?? 0) >= lastProbeIntervalMs
+  );
+}
+
+async function runCodexRateLimitReprobe(params: {
+  store: AuthProfileStore;
+  profileId: string;
+  agentDir?: string;
+  forModel?: string;
+  config?: OpenClawConfig;
+  startedAt: number;
+}): Promise<CodexRateLimitReprobeResult | undefined> {
+  const expectedProfile = structuredClone(params.store.profiles[params.profileId]);
+  if (expectedProfile?.type !== "oauth") {
+    return undefined;
+  }
+  const initialGeneration = captureCodexBlockGeneration(
+    params.store.usageStats?.[params.profileId],
+  );
+  let generation: SubscriptionBlockGeneration | undefined;
+  const claimed = await updateOwnedAuthProfileUsage(params.store, params.profileId, {
+    agentDir: params.agentDir,
+    updater: (freshStore) => {
+      if (
+        !isSameCodexRecoveryAccount(expectedProfile, freshStore.profiles[params.profileId]) ||
+        !shouldReprobeCodexRateLimitBlock({
+          ...params,
+          store: freshStore,
+          now: params.startedAt,
+        })
+      ) {
+        return false;
+      }
+      const stats = freshStore.usageStats?.[params.profileId];
+      if (!stats) {
+        return false;
+      }
+      generation = captureCodexBlockGeneration(stats);
+      updateUsageStatsEntry(freshStore, params.profileId, (existing) => ({
+        ...existing,
+        lastProbeAt: params.startedAt,
+        codexRateLimitProbeStatus: "probing",
+      }));
+      return true;
+    },
+  });
+  if (!claimed || !generation) {
+    if (claimed === null) {
+      logDroppedAuthProfileBookkeeping("codex_rate_limit_reprobe_claim", params.profileId);
+    }
+    return captureCodexReprobeResult(claimed, params.profileId, generation ?? initialGeneration);
+  }
+
+  const claimedGeneration = generation;
+  // The harness owns token refresh and account selection. A generic OpenAI
+  // summary can query another account or a stale stored OAuth access token.
+  const { loadProviderUsageSummary } = await import("../../infra/provider-usage.js");
+  const usage = await loadProviderUsageSummary({
+    providers: ["openai"],
+    auth: [buildCodexSyntheticUsageAuth({ authProfileId: params.profileId })],
+    authStore: params.store,
+    agentDir: params.agentDir,
+    config: params.config,
+    timeoutMs: CODEX_RATE_LIMIT_REPROBE_TIMEOUT_MS,
+  });
+  const snapshot = usage.providers.find((entry) => entry.provider === "openai");
+  const expectedEmail = expectedProfile.email?.trim().toLowerCase();
+  const observedEmail = snapshot?.accountEmail?.trim().toLowerCase();
+  const identityMatches =
+    Boolean(snapshot) &&
+    !snapshot?.error &&
+    snapshot?.accountId?.trim() === expectedProfile.accountId?.trim() &&
+    Boolean(expectedEmail) &&
+    expectedEmail === observedEmail;
+  if (!identityMatches || snapshot?.quotaAvailable !== true) {
+    const probeStatus: NonNullable<ProfileUsageStats["codexRateLimitProbeStatus"]> =
+      identityMatches && snapshot?.quotaAvailable === false ? "blocked" : "unknown";
+    const recorded = await updateOwnedAuthProfileUsage(params.store, params.profileId, {
+      agentDir: params.agentDir,
+      updater: (freshStore) => {
+        const stats = freshStore.usageStats?.[params.profileId];
+        if (
+          !stats ||
+          stats.blockedSource !== "codex_rate_limits" ||
+          stats.blockedReason !== "subscription_limit" ||
+          stats.lastProbeAt !== params.startedAt ||
+          !matchesSubscriptionBlockGeneration(stats, claimedGeneration) ||
+          !isSameCodexRecoveryAccount(expectedProfile, freshStore.profiles[params.profileId])
+        ) {
+          return false;
+        }
+        updateUsageStatsEntry(freshStore, params.profileId, (existing) => ({
+          ...existing,
+          codexRateLimitProbeStatus: probeStatus,
+        }));
+        return true;
+      },
+    });
+    if (recorded === null) {
+      logDroppedAuthProfileBookkeeping("codex_rate_limit_reprobe_status", params.profileId);
+    }
+    return captureCodexReprobeResult(recorded, params.profileId, claimedGeneration);
+  }
+
+  const updated = await updateOwnedAuthProfileUsage(params.store, params.profileId, {
+    agentDir: params.agentDir,
+    updater: (freshStore) => {
+      const stats = freshStore.usageStats?.[params.profileId];
+      if (
+        !stats ||
+        stats.blockedSource !== "codex_rate_limits" ||
+        stats.blockedReason !== "subscription_limit" ||
+        stats.lastProbeAt !== params.startedAt ||
+        !matchesSubscriptionBlockGeneration(stats, claimedGeneration) ||
+        !isSameCodexRecoveryAccount(expectedProfile, freshStore.profiles[params.profileId])
+      ) {
+        return false;
+      }
+      // Clear only the observed subscription block, never unrelated cooldowns
+      // or newer failures. Negative/unknown snapshots do not extend old blocks.
+      updateUsageStatsEntry(freshStore, params.profileId, (existing) => ({
+        ...existing,
+        blockedUntil: undefined,
+        blockedReason: undefined,
+        blockedSource: undefined,
+        blockedModel: undefined,
+        blockedScope: undefined,
+        codexRateLimitProbeStatus: undefined,
+      }));
+      return true;
+    },
+  });
+  if (updated === null) {
+    logDroppedAuthProfileBookkeeping("codex_rate_limit_reprobe", params.profileId);
+  }
+  return captureCodexReprobeResult(updated, params.profileId, claimedGeneration);
+}
+
+/** On-demand recovery: healthy profiles do not query usage; claims survive restart. */
+export async function maybeRecoverCodexRateLimitBlockedProfiles(params: {
+  store: AuthProfileStore;
+  profileIds: string[];
+  agentDir?: string;
+  forModel?: string;
+  config?: OpenClawConfig;
+  now?: number;
+}): Promise<void> {
+  const now = params.now ?? Date.now();
+  const tasks: Promise<void>[] = [];
+  for (const profileId of params.profileIds) {
+    const stats = params.store.usageStats?.[profileId];
+    if (
+      stats?.blockedSource !== "codex_rate_limits" ||
+      stats.blockedReason !== "subscription_limit" ||
+      !isActiveUnusableWindow(stats.blockedUntil, now) ||
+      isActiveUnusableWindow(stats.cooldownUntil, now) ||
+      isActiveUnusableWindow(stats.disabledUntil, now) ||
+      (params.forModel &&
+        stats.blockedScope === "model" &&
+        stats.blockedModel &&
+        stats.blockedModel !== params.forModel) ||
+      !isSameCodexRecoveryAccount(
+        params.store.profiles[profileId],
+        params.store.profiles[profileId],
+      )
+    ) {
+      continue;
+    }
+    const expectedProfile = structuredClone(params.store.profiles[profileId]);
+    const expectedStats = structuredClone(stats);
+    const owner = resolvePersistedAuthProfileOwnerAgentDir({
+      agentDir: params.agentDir,
+      profileId,
+    });
+    const probeKey = `${owner ?? "default"}\u0000${profileId}`;
+    let task = codexRateLimitReprobesInFlight.get(probeKey);
+    if (!task) {
+      if (!shouldReprobeCodexRateLimitBlock({ ...params, profileId, now })) {
+        continue;
+      }
+      task = runCodexRateLimitReprobe({ ...params, profileId, startedAt: now })
+        .catch(() => {
+          authProfileUsageLog.warn("Codex rate-limit half-open reprobe failed", {
+            event: "auth_profile_codex_rate_limit_reprobe_error",
+            profileId,
+          });
+          return undefined;
+        })
+        .finally(() => codexRateLimitReprobesInFlight.delete(probeKey));
+      codexRateLimitReprobesInFlight.set(probeKey, task);
+    }
+    // Joining callers may hold distinct snapshots of the same shared owner.
+    tasks.push(
+      task.then((result) => {
+        const profile = params.store.profiles[profileId];
+        if (
+          result &&
+          profile?.type === "oauth" &&
+          isSameCodexRecoveryAccount(expectedProfile, profile) &&
+          profile.accountId?.trim() === result.accountId &&
+          profile.email?.trim().toLowerCase() === result.email &&
+          matchesSubscriptionBlockGeneration(expectedStats, result.generation) &&
+          isDeepStrictEqual(params.store.usageStats?.[profileId], expectedStats)
+        ) {
+          params.store.usageStats = {
+            ...params.store.usageStats,
+            [profileId]: structuredClone(result.stats),
+          };
+        }
+      }),
+    );
+  }
+  await Promise.all(tasks);
+}
+
+/** Revalidates provider-reported long blocks before an auth profile is rejected. */
+export async function maybeRecoverProviderBlockedProfiles(params: {
+  store: AuthProfileStore;
+  profileIds: string[];
+  agentDir?: string;
+  forModel?: string;
+  config?: OpenClawConfig;
+  now?: number;
+}): Promise<void> {
+  await maybeRecoverCodexRateLimitBlockedProfiles(params);
+  maybeReprobeWhamBlockedProfiles(params);
 }
 
 /**
@@ -1084,7 +1415,7 @@ export async function markAuthProfileFailure(params: {
       const currentWhamResult =
         whamResult &&
         shouldProbeWhamForFailure(profileValue, reason) &&
-        isSameWhamCredential(profile, profileValue)
+        isSameSubscriptionCredential(profile, profileValue)
           ? whamResult
           : null;
       // The WHAM response belongs to the credential snapshot used for the

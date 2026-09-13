@@ -35,6 +35,7 @@ export async function fetchCodexAppServerUsageSnapshot(
     startOptions: appServer.start,
   });
   const snapshot = buildCodexAppServerUsageSnapshot(usage.rateLimits);
-  const accountEmail = ctx.email ?? usage.accountEmail;
+  // Observed identity must not be overwritten by the requested profile label.
+  const accountEmail = usage.accountEmail;
   return accountEmail && !snapshot.error ? { ...snapshot, accountEmail } : snapshot;
 }

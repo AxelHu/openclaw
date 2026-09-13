@@ -672,6 +672,30 @@ ordering rotate to the next `openai:*` profile, without changing the selected
 model or dropping out of the Codex harness. Once the reset time passes, the
 subscription profile is eligible again.
 
+If Codex restores quota before that recorded reset (for example, an early quota
+reset), the next affected request can revalidate a long-lived subscription block
+through the native Codex `account/rateLimits/read` interface before rejecting
+the selected profile. This is demand-driven, not a polling job: healthy profiles
+do not trigger the check. A snapshot that still confirms exhaustion is checked
+at most once every 45 minutes; a probe that times out or cannot establish
+authoritative quota/account evidence uses a shorter 5-minute retry interval.
+Legacy probe markers without an outcome are revalidated once under the current
+rules instead of inheriting a stale 45-minute delay. If that bounded metadata
+check is inconclusive, the same fallback run may spend one normal cooldown-probe
+slot on a real Codex request. A successful real request clears the stale failure
+state through ordinary auth-success bookkeeping; a genuine usage-limit failure
+keeps or refreshes the block. Claims are persisted under the auth-store lock,
+and concurrent requests for the same owner share an in-flight check. Blocks
+already within 45 minutes of expiry continue to use their normal expiry.
+
+Recovery requires a matching observed email and workspace ID plus complete, healthy
+quota data. Display defaults, missing identity, network errors, and an exhausted
+additional quota pool cannot unlock the profile. Until blocks retain an exact
+pool identifier, recovery conservatively requires all reported pools to be
+healthy. A successful revalidation clears only that unchanged subscription
+block, preserving unrelated cooldowns, disabled state, and newer failures. It
+does not change the selected model, runtime, auth order, or fallback policy.
+
 ## Image generation
 
 The bundled `openai` plugin registers image generation through the

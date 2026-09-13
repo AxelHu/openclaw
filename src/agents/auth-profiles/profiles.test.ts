@@ -1551,6 +1551,7 @@ describe("promoteAuthProfileInOrder", () => {
                 cooldownUntil: Date.now() + 60_000,
                 cooldownReason: "auth",
                 cooldownClassification: "wham_token_expired",
+                codexRateLimitProbeStatus: "unknown",
               },
             },
           },
@@ -1561,9 +1562,10 @@ describe("promoteAuthProfileInOrder", () => {
         await markAuthProfileSuccess({ store, provider: "openai", profileId, agentDir });
 
         expect(store.usageStats?.[profileId]?.cooldownClassification).toBeUndefined();
-        expect(loadPersistedAuthProfileStore(agentDir)?.usageStats?.[profileId]).not.toHaveProperty(
-          "cooldownClassification",
-        );
+        expect(store.usageStats?.[profileId]?.codexRateLimitProbeStatus).toBeUndefined();
+        const persistedStats = loadPersistedAuthProfileStore(agentDir)?.usageStats?.[profileId];
+        expect(persistedStats).not.toHaveProperty("cooldownClassification");
+        expect(persistedStats).not.toHaveProperty("codexRateLimitProbeStatus");
       },
     );
   });

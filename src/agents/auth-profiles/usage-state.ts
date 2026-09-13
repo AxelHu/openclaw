@@ -27,6 +27,7 @@ export function resetAuthProfileFailureState(
     disabledUntil: undefined,
     disabledReason: undefined,
     failureCounts: undefined,
+    codexRateLimitProbeStatus: undefined,
     ...overrides,
   };
 }

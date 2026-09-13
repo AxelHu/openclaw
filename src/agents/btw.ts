@@ -77,7 +77,7 @@ import {
 } from "./provider-secret-egress.js";
 import { registerProviderStreamForModel } from "./provider-stream.js";
 import { materializePreparedRuntimeModel } from "./runtime-plan/materialize-model.js";
-import { prepareAgentRuntimeAuth } from "./runtime-plan/prepare-auth.js";
+import { prepareAgentRuntimeAuthWithRecovery } from "./runtime-plan/prepare-auth-recovery.js";
 import {
   resolvePreparedRuntimeAuthAttempts,
   resolvePreparedRuntimeModelAuth,
@@ -396,7 +396,7 @@ async function toSimpleContextMessages(params: {
   ) as Message[];
 }
 
-type BtwRuntimeAuthPreparation = ReturnType<typeof prepareAgentRuntimeAuth>;
+type BtwRuntimeAuthPreparation = Awaited<ReturnType<typeof prepareAgentRuntimeAuthWithRecovery>>;
 
 type BtwRuntimeModelMaterialization = {
   provider: string;
@@ -540,7 +540,7 @@ async function resolveRuntimeModel(params: {
     authProfileStoreSelection.ignoreAutoPreferredProfile && authProfileIdSource !== "user"
       ? undefined
       : authProfileId;
-  const runtimeAuthPreparation = prepareAgentRuntimeAuth({
+  const runtimeAuthPreparation = await prepareAgentRuntimeAuthWithRecovery({
     provider: runtimeProvider,
     modelId: runtimeModelId,
     modelApi: model.api,
@@ -548,6 +548,7 @@ async function resolveRuntimeModel(params: {
     config: cfg,
     env: process.env,
     workspaceDir,
+    agentDir,
     authProfileStore: authProfileStoreSelection.store,
     sessionAuthProfileId: effectiveAuthProfileId,
     sessionAuthProfileSource: authProfileIdSource,
@@ -887,7 +888,7 @@ export async function runBtwSideQuestion(
               authProfileIdSource: runtime.authProfileIdSource,
             });
       const runtimeAuthPreparation = authProfileStoreSelection
-        ? prepareAgentRuntimeAuth({
+        ? await prepareAgentRuntimeAuthWithRecovery({
             provider: runtime.model.provider,
             modelId: runtime.model.id,
             modelApi: runtime.model.api,
@@ -895,6 +896,7 @@ export async function runBtwSideQuestion(
             config: params.cfg,
             env: process.env,
             workspaceDir,
+            agentDir: params.agentDir,
             authProfileStore: authProfileStoreSelection.store,
             sessionAuthProfileId:
               authProfileStoreSelection.ignoreAutoPreferredProfile &&

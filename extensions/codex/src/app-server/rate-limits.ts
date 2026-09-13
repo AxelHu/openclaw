@@ -218,6 +218,7 @@ export function summarizeCodexAccountUsage(
 /** Converts Codex app-server rate-limit payloads into OpenAI/Codex usage windows. */
 export function buildCodexAppServerUsageSnapshot(value: unknown): ProviderUsageSnapshot {
   const snapshot = selectCodexProviderUsageSnapshot(value);
+  const accountId = isJsonObject(value) ? normalizeOptionalString(value.accountId) : undefined;
   const entries = snapshot ? readWindowEntries(snapshot) : [];
   const windows = entries
     .map((entry) => readProviderUsageWindow(entry, entries))
@@ -226,8 +227,41 @@ export function buildCodexAppServerUsageSnapshot(value: unknown): ProviderUsageS
     provider: "openai",
     displayName: PROVIDER_LABELS.openai,
     windows,
+    quotaAvailable: resolveCodexQuotaAvailability(value),
+    ...(accountId ? { accountId } : {}),
     ...(snapshot ? { plan: resolveCodexProviderUsagePlan(snapshot) } : {}),
   };
+}
+
+/** Missing pool identity or window usage cannot certify recovery of a persisted block. */
+function resolveCodexQuotaAvailability(value: unknown): boolean | undefined {
+  const snapshots = collectCodexRateLimitSnapshots(value);
+  if (!snapshots.some(isCodexLimitSnapshot)) {
+    return undefined;
+  }
+  if (
+    snapshots.some(
+      (snapshot) =>
+        snapshotHasLimitBlock(snapshot) ||
+        snapshot.spendControlReached === true ||
+        snapshot.spend_control_reached === true,
+    )
+  ) {
+    return false;
+  }
+  // Blocks do not yet retain their pool id. Require every reported pool to be
+  // healthy rather than letting the main pool unlock an exhausted extra pool.
+  const complete = snapshots.every((snapshot) => {
+    const entries = readWindowEntries(snapshot);
+    return (
+      entries.length > 0 &&
+      entries.every(
+        ({ window }) =>
+          window.usedPercent !== undefined && window.usedPercent >= 0 && window.usedPercent < 100,
+      )
+    );
+  });
+  return complete ? true : undefined;
 }
 
 function isCodexUsageLimitError(codexErrorInfo: JsonValue | null | undefined): boolean {
@@ -291,7 +325,7 @@ function summarizeRateLimitSnapshot(snapshot: JsonObject, nowMs: number): string
   return undefined;
 }
 
-function collectCodexRateLimitSnapshots(value: JsonValue | undefined): JsonObject[] {
+function collectCodexRateLimitSnapshots(value: unknown): JsonObject[] {
   const snapshots: JsonObject[] = [];
   const seen = new Set<string>();
   collectRateLimitSnapshots(value, snapshots, seen);
@@ -299,7 +333,7 @@ function collectCodexRateLimitSnapshots(value: JsonValue | undefined): JsonObjec
 }
 
 function collectRateLimitSnapshots(
-  value: JsonValue | undefined,
+  value: unknown,
   snapshots: JsonObject[],
   seen: Set<string>,
 ): void {
@@ -319,13 +353,27 @@ function collectRateLimitSnapshots(
   const byLimitId = value.rateLimitsByLimitId;
   if (isJsonObject(byLimitId)) {
     for (const key of sortedRateLimitKeys(Object.keys(byLimitId))) {
-      collectRateLimitSnapshots(byLimitId[key], snapshots, seen);
+      const entry = byLimitId[key];
+      collectRateLimitSnapshots(
+        isJsonObject(entry) && !entry.limitId && !entry.limit_id
+          ? { ...entry, limitId: key }
+          : entry,
+        snapshots,
+        seen,
+      );
     }
   }
   const snakeByLimitId = value.rate_limits_by_limit_id;
   if (isJsonObject(snakeByLimitId)) {
     for (const key of sortedRateLimitKeys(Object.keys(snakeByLimitId))) {
-      collectRateLimitSnapshots(snakeByLimitId[key], snapshots, seen);
+      const entry = snakeByLimitId[key];
+      collectRateLimitSnapshots(
+        isJsonObject(entry) && !entry.limitId && !entry.limit_id
+          ? { ...entry, limitId: key }
+          : entry,
+        snapshots,
+        seen,
+      );
     }
   }
   collectRateLimitSnapshots(value.rateLimits, snapshots, seen);
@@ -488,7 +536,7 @@ function isCodexLimitSnapshot(snapshot: JsonObject): boolean {
 }
 
 function selectCodexProviderUsageSnapshot(value: unknown): JsonObject | undefined {
-  const snapshots = collectCodexRateLimitSnapshots(value as JsonValue | undefined);
+  const snapshots = collectCodexRateLimitSnapshots(value);
   return snapshots.find(isCodexLimitSnapshot) ?? snapshots[0];
 }
 

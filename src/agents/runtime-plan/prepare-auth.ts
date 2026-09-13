@@ -94,6 +94,8 @@ export type PreparedAgentRuntimeAuth = {
   plan: AgentRuntimeAuthPlan;
   /** Ordered physical attempts; every route/profile tuple was selected by this planner. */
   attempts: readonly PreparedAgentRuntimeAuthAttempt[];
+  /** This preparation may spend one transient cooldown probe in the same run. */
+  transientCooldownProbeGranted?: true;
 };
 
 /** Prevents a direct fallback from bypassing a prepared profile tier. */
@@ -199,11 +201,25 @@ function resolvePreparedProviderEntryApiKeyProfileReference(params: ProviderEntr
     );
   }
   if (isProfileInCooldown(params.store, reference.profileId, undefined, params.modelId)) {
-    throw new Error(
-      `Auth profile "${reference.profileId}" is temporarily unavailable for ${params.provider}/${params.modelId}.`,
+    throw new RuntimeAuthProfileUnavailableError(
+      reference.profileId,
+      params.provider,
+      params.modelId,
     );
   }
   return reference;
+}
+
+/** A selected profile is blocked locally; runtime callers may revalidate its quota. */
+export class RuntimeAuthProfileUnavailableError extends Error {
+  constructor(
+    readonly profileId: string,
+    provider: string,
+    modelId: string,
+  ) {
+    super(`Auth profile "${profileId}" is temporarily unavailable for ${provider}/${modelId}.`);
+    this.name = "RuntimeAuthProfileUnavailableError";
+  }
 }
 
 /** Selects concrete provider routes and ordered credentials as one immutable preparation. */
@@ -442,8 +458,10 @@ export function prepareAgentRuntimeAuth(
     });
     if (sourceDecision.kind === "rejected") {
       if (sourceDecision.reason === "all-cooldown" && sourceDecision.source) {
-        throw new Error(
-          `Auth profile "${sourceDecision.source.profileId}" is temporarily unavailable for ${params.provider}/${params.modelId}.`,
+        throw new RuntimeAuthProfileUnavailableError(
+          sourceDecision.source.profileId,
+          params.provider,
+          params.modelId,
         );
       }
       throw new Error(sourceDecision.message);
@@ -552,8 +570,10 @@ export function prepareAgentRuntimeAuth(
       routeAuthDecision.reason === "all-cooldown" &&
       routeAuthDecision.source
     ) {
-      throw new Error(
-        `Auth profile "${routeAuthDecision.source.profileId}" is temporarily unavailable for ${params.provider}/${params.modelId}.`,
+      throw new RuntimeAuthProfileUnavailableError(
+        routeAuthDecision.source.profileId,
+        params.provider,
+        params.modelId,
       );
     }
     throw new Error(routeAuthDecision.message);

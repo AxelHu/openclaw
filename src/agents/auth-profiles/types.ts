@@ -120,6 +120,7 @@ export type ProfileUsageStats = {
   failureCounts?: Partial<Record<AuthProfileFailureReason, number>>;
   lastFailureAt?: number;
   lastProbeAt?: number;
+  codexRateLimitProbeStatus?: "probing" | "blocked" | "unknown";
 };
 
 /** Durable, non-secret auth profile selection state. */

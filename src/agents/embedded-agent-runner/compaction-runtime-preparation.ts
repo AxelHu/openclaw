@@ -24,10 +24,10 @@ import {
   providerUsesCredentialScopedModelMetadata,
   resolveReusableRuntimeModelAuth,
 } from "../runtime-plan/credential-scoped-model.js";
-import {
-  prepareAgentRuntimeAuth,
-  type PreparedAgentRuntimeAuth,
-  type PreparedAgentRuntimeAuthAttempt,
+import { prepareAgentRuntimeAuthWithRecovery } from "../runtime-plan/prepare-auth-recovery.js";
+import type {
+  PreparedAgentRuntimeAuth,
+  PreparedAgentRuntimeAuthAttempt,
 } from "../runtime-plan/prepare-auth.js";
 import type { AgentRuntimeAuthPlan, AgentRuntimePlan } from "../runtime-plan/types.js";
 import {
@@ -209,7 +209,7 @@ export async function prepareCompactionHarnessAuth(params: {
         agentHarnessRuntimeOverride: params.agentHarnessRuntimeOverride,
       });
   const prepare = (harness: AgentHarness) =>
-    prepareAgentRuntimeAuth({
+    prepareAgentRuntimeAuthWithRecovery({
       provider: params.provider,
       modelId: params.modelId,
       modelApi: params.model?.api,
@@ -230,10 +230,10 @@ export async function prepareCompactionHarnessAuth(params: {
         plan: params.reusableRuntimeAuthPlan,
         attempts: [{ kind: "implicit", plan: params.reusableRuntimeAuthPlan }],
       }
-    : prepare(initialHarness!);
+    : await prepare(initialHarness!);
   let selectedPreparedHarness = selectPreparedHarness(runtimeAuthPreparation.attempts);
   if (!params.reusableRuntimeAuthPlan && selectedPreparedHarness.id !== initialHarness?.id) {
-    runtimeAuthPreparation = prepare(selectedPreparedHarness);
+    runtimeAuthPreparation = await prepare(selectedPreparedHarness);
     const confirmedHarness = selectPreparedHarness(runtimeAuthPreparation.attempts);
     if (confirmedHarness.id !== selectedPreparedHarness.id) {
       throw new Error(

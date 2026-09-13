@@ -27,6 +27,38 @@ describe("shouldUseCodexSyntheticUsageForRuntime", () => {
 });
 
 describe("mergeUsageSummaries", () => {
+  it("does not borrow stale account identity for fresh quota recovery evidence", () => {
+    const merged = mergeUsageSummaries(
+      {
+        updatedAt: 1,
+        providers: [
+          {
+            provider: "openai",
+            displayName: "OpenAI",
+            windows: [{ label: "Week", usedPercent: 5 }],
+            accountId: "old-workspace",
+            accountEmail: "old@example.test",
+            quotaAvailable: true,
+          },
+        ],
+      },
+      {
+        updatedAt: 2,
+        providers: [
+          {
+            provider: "openai",
+            displayName: "Codex",
+            windows: [{ label: "Week", usedPercent: 1 }],
+            quotaAvailable: true,
+          },
+        ],
+      },
+    );
+    expect(merged.providers[0]?.quotaAvailable).toBe(true);
+    expect(merged.providers[0]?.accountId).toBeUndefined();
+    expect(merged.providers[0]?.accountEmail).toBeUndefined();
+  });
+
   it("preserves OAuth plan and billing when synthetic Codex windows win", () => {
     const merged = mergeUsageSummaries(
       {

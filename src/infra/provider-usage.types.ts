@@ -74,10 +74,14 @@ export type ProviderUsageSnapshot = {
   provider: UsageProviderId;
   displayName: string;
   windows: UsageWindow[];
+  /** Positive recovery evidence from complete raw quota data, never display defaults. */
+  quotaAvailable?: boolean;
   billing?: ProviderUsageBilling[];
   costHistory?: ProviderUsageCostHistory;
   summary?: string;
   plan?: string;
+  /** Backend-observed account/workspace ID of this same quota snapshot, when known. */
+  accountId?: string;
   /** Account identity (email) the usage was fetched under, when known. */
   accountEmail?: string;
   error?: string;

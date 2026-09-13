@@ -41,9 +41,9 @@ import {
   unwrapModelHeaderSentinelsForProviderEgress,
   unwrapSecretSentinelsForProviderEgress,
 } from "./provider-secret-egress.js";
+import { prepareAgentRuntimeAuthWithRecovery } from "./runtime-plan/prepare-auth-recovery.js";
 import {
   canRunPreparedAgentRuntimeAuthAttempt,
-  prepareAgentRuntimeAuth,
   preparedAgentRuntimeProfileAttemptHasCandidate,
   type PreparedAgentRuntimeAuthAttempt,
 } from "./runtime-plan/prepare-auth.js";
@@ -536,22 +536,24 @@ export async function runIsolatedCompletion(
             allowKeychainPrompt: false,
             config,
           });
-          authAttempts = prepareAgentRuntimeAuth({
-            provider: runtimeModel.provider,
-            modelId: runtimeModel.id,
-            modelApi: runtimeModel.api,
-            modelBaseUrl: runtimeModel.baseUrl,
-            config,
-            env: process.env,
-            agentDir,
-            workspaceDir,
-            authProfileStore,
-            sessionAuthProfileId: request.authProfileId,
-            sessionAuthProfileSource: request.authProfileId ? "user" : undefined,
-            harnessId: harness.id,
-            harnessRuntime: harness.id,
-            harnessAuthBootstrap: harness.authBootstrap,
-          }).attempts;
+          authAttempts = (
+            await prepareAgentRuntimeAuthWithRecovery({
+              provider: runtimeModel.provider,
+              modelId: runtimeModel.id,
+              modelApi: runtimeModel.api,
+              modelBaseUrl: runtimeModel.baseUrl,
+              config,
+              env: process.env,
+              agentDir,
+              workspaceDir,
+              authProfileStore,
+              sessionAuthProfileId: request.authProfileId,
+              sessionAuthProfileSource: request.authProfileId ? "user" : undefined,
+              harnessId: harness.id,
+              harnessRuntime: harness.id,
+              harnessAuthBootstrap: harness.authBootstrap,
+            })
+          ).attempts;
         }
         let firstError: unknown;
         let priorProfileAttempted = false;

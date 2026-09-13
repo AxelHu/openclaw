@@ -84,9 +84,17 @@ function shouldProbePrimaryDuringCooldown(params: {
   authStore: AuthProfileStore;
   profileIds: string[];
   model: string;
+  forcePrimaryProbe?: boolean;
 }): boolean {
   if (!params.isPrimary || !isProbeThrottleOpen(params.now, params.throttleKey)) {
     return false;
+  }
+
+  // An inconclusive provider-owned quota revalidation may grant exactly one
+  // real request in this fallback run. The shared probe throttle still fences
+  // concurrent callers, while later turns need a new persisted revalidation.
+  if (params.forcePrimaryProbe) {
+    return true;
   }
 
   // A single-provider primary has no fallback chain to prefer, so every open
@@ -151,6 +159,7 @@ export function resolveCooldownDecision(params: {
   authRuntime: ModelFallbackAuthRuntime;
   authStore: AuthProfileStore;
   profileIds: string[];
+  forcePrimaryProbe?: boolean;
 }): CooldownDecision {
   const inferredReason =
     params.authRuntime.resolveProfilesUnavailableReason({
@@ -168,6 +177,7 @@ export function resolveCooldownDecision(params: {
     authStore: params.authStore,
     profileIds: params.profileIds,
     model: params.candidate.model,
+    forcePrimaryProbe: params.forcePrimaryProbe,
   });
 
   const isPersistentAuthIssue = inferredReason === "auth" || inferredReason === "auth_permanent";

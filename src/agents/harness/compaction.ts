@@ -23,9 +23,9 @@ import {
   unwrapSecretSentinelsForProviderEgress,
 } from "../provider-secret-egress.js";
 import { materializePreparedRuntimeModel } from "../runtime-plan/materialize-model.js";
+import { prepareAgentRuntimeAuthWithRecovery } from "../runtime-plan/prepare-auth-recovery.js";
 import {
   agentRuntimeAuthPlanMatchesTarget,
-  prepareAgentRuntimeAuth,
   type PreparedAgentRuntimeAuth,
   type PreparedAgentRuntimeAuthAttempt,
 } from "../runtime-plan/prepare-auth.js";
@@ -240,7 +240,7 @@ async function resolveHarnessCompactApiKey(params: {
         allowKeychainPrompt: false,
       });
   const prepareRuntimeAuth = (harness: AgentHarness) =>
-    prepareAgentRuntimeAuth({
+    prepareAgentRuntimeAuthWithRecovery({
       provider,
       modelId,
       modelApi: model.api,
@@ -264,7 +264,7 @@ async function resolveHarnessCompactApiKey(params: {
     };
   } else {
     try {
-      preparation = prepareRuntimeAuth(initialHarness);
+      preparation = await prepareRuntimeAuth(initialHarness);
     } catch (error) {
       log.warn(
         `native compaction auth preparation failed for ${provider}/${modelId}: ${error instanceof Error ? error.message : String(error)}`,
@@ -277,7 +277,7 @@ async function resolveHarnessCompactApiKey(params: {
     : selectPreparedHarness(preparation.attempts, model);
   if (!params.pinnedHarnessId && !reusableRuntimeAuthPlan && harness.id !== initialHarness.id) {
     try {
-      preparation = prepareRuntimeAuth(harness);
+      preparation = await prepareRuntimeAuth(harness);
     } catch (error) {
       log.warn(
         `native compaction auth preparation failed for ${provider}/${modelId}: ${error instanceof Error ? error.message : String(error)}`,

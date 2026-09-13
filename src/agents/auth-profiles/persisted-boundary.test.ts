@@ -17,7 +17,7 @@ import {
 } from "./persisted.js";
 import { getRuntimeExternalCliProfileIds } from "./runtime-external-profile-references.js";
 import { buildPersistedAuthProfileState, coerceAuthProfileState } from "./state.js";
-import type { AuthProfileStore, RuntimeAuthProfileStore } from "./types.js";
+import type { AuthProfileState, AuthProfileStore, RuntimeAuthProfileStore } from "./types.js";
 
 describe("persisted auth profile boundary", () => {
   it.each([
@@ -64,6 +64,44 @@ describe("persisted auth profile boundary", () => {
       expect(stats?.cooldownReason).toBe(testCase.cooldownReason);
       expect(stats?.cooldownClassification).toBe(testCase.expectedClassification);
     }
+  });
+
+  it.each(["probing", "blocked", "unknown"] as const)(
+    "persists Codex rate-limit probe status %s",
+    (status) => {
+      const state: AuthProfileState = {
+        usageStats: {
+          "openai:default": {
+            blockedUntil: 1_900_000_000_000,
+            blockedReason: "subscription_limit",
+            blockedSource: "codex_rate_limits",
+            lastProbeAt: 1_800_000_000_000,
+            codexRateLimitProbeStatus: status,
+          },
+        },
+      };
+      expect(
+        coerceAuthProfileState(state).usageStats?.["openai:default"]?.codexRateLimitProbeStatus,
+      ).toBe(status);
+      expect(
+        buildPersistedAuthProfileState(state)?.usageStats?.["openai:default"]
+          ?.codexRateLimitProbeStatus,
+      ).toBe(status);
+    },
+  );
+
+  it("drops unknown Codex rate-limit probe statuses at the persisted boundary", () => {
+    const state = {
+      usageStats: {
+        "openai:default": {
+          lastProbeAt: 1_800_000_000_000,
+          codexRateLimitProbeStatus: "future-value",
+        },
+      },
+    };
+    expect(
+      coerceAuthProfileState(state).usageStats?.["openai:default"]?.codexRateLimitProbeStatus,
+    ).toBe(undefined);
   });
 
   it("normalizes malformed persisted credentials and state before runtime use", () => {
