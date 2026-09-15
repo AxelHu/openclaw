@@ -1,6 +1,6 @@
 ---
 name: sonoscli
-description: "Control Sonos speakers (discover/status/play/volume/group)."
+description: "发现和控制Sonos音箱的播放、音量及分组。"
 homepage: https://sonoscli.sh
 metadata:
   {

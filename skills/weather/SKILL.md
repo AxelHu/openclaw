@@ -1,6 +1,6 @@
 ---
 name: weather
-description: "Current weather and forecasts with web_fetch, falling back to wttr.in curl for locations, rain, temperature, travel planning."
+description: "查询指定地点的当前天气和预报。"
 homepage: https://wttr.in/:help
 metadata:
   {

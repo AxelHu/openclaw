@@ -1,7 +1,6 @@
 ---
 name: feishu-wiki
-description: |
-  Feishu knowledge-base navigation workflows. Activate when the user mentions a knowledge base, wiki, or wiki link.
+description: "查找和导航飞书知识库及知识页面。"
 ---
 
 # Feishu wiki

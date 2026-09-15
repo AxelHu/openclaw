@@ -1,6 +1,6 @@
 ---
 name: github
-description: "GitHub CLI for issues, PRs, CI/check logs, comments, reviews, releases, repos, and gh api queries."
+description: "用 gh 管理 GitHub issue、PR、检查和发布。"
 metadata:
   {
     "openclaw":

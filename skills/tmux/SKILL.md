@@ -1,6 +1,6 @@
 ---
 name: tmux
-description: "Control tmux sessions/panes for interactive CLIs: list, capture output, send keys, paste text, monitor prompts."
+description: "管理终端会话，读取输出或向交互程序发送输入。"
 metadata:
   {
     "openclaw":

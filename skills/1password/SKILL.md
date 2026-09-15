@@ -1,6 +1,6 @@
 ---
 name: 1password
-description: "Set up and use 1Password CLI for sign-in, desktop integration, and reading or injecting secrets."
+description: "用1Password命令行登录、读取和注入获准密钥。"
 homepage: https://developer.1password.com/docs/cli/get-started/
 metadata:
   {

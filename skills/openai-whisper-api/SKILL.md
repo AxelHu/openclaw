@@ -1,6 +1,6 @@
 ---
 name: openai-whisper-api
-description: "OpenAI Audio Transcriptions API via curl; gpt-4o-transcribe, mini, diarize, or whisper-1."
+description: "调用OpenAI语音转写接口，按需区分说话人。"
 homepage: https://platform.openai.com/docs/guides/speech-to-text
 metadata:
   {

@@ -1,6 +1,6 @@
 ---
 name: obsidian
-description: "Work with Obsidian vaults using the official obsidian CLI: read/search/create/edit notes, tasks, links, properties, plugins."
+description: "管理Obsidian库的笔记、任务、链接和属性。"
 homepage: https://obsidian.md/cli
 metadata: { "openclaw": { "emoji": "💎", "requires": { "bins": ["obsidian"] } } }
 ---

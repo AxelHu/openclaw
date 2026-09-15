@@ -1,6 +1,6 @@
 ---
 name: configure-channel
-description: Configure and prove a chat channel with non-interactive one-liners; secrets only as SecretRefs.
+description: "配置聊天渠道并验证接入，用密钥引用保管凭据。"
 ---
 
 # Configure a channel

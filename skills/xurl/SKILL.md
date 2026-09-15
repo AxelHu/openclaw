@@ -1,6 +1,6 @@
 ---
 name: xurl
-description: "xurl CLI for authenticated X posts, replies, reads/search, DMs, media upload, followers, auth status, or raw v2 API calls."
+description: "通过X接口查询、发帖、回复及处理获准私信。"
 metadata:
   {
     "openclaw":

@@ -1,6 +1,6 @@
 ---
 name: camsnap
-description: "Capture frames or clips from RTSP/ONVIF cameras and local webcams, including USB pan/tilt/zoom control."
+description: "采集网络摄像头或本地摄像头的画面与视频片段。"
 homepage: https://camsnap.ai
 metadata:
   {

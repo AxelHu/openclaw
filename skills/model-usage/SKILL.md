@@ -1,6 +1,6 @@
 ---
 name: model-usage
-description: "Summarize CodexBar local cost logs by model for Codex or Claude, including current or full breakdowns."
+description: "按模型汇总CodexBar本地用量和费用日志。"
 metadata:
   {
     "openclaw":

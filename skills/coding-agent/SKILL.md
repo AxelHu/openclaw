@@ -1,6 +1,6 @@
 ---
 name: coding-agent
-description: "Delegate coding work to Codex, Claude Code, or OpenCode as background workers; not simple edits or read-only code lookup."
+description: "按需委派复杂编程任务，不代替简单修改或只读查找。"
 metadata:
   {
     "openclaw":

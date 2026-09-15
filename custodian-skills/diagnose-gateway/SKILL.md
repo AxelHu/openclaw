@@ -1,6 +1,6 @@
 ---
 name: diagnose-gateway
-description: Diagnose Gateway, config, secrets, channels, and port failures with read-only one-liners.
+description: "只读排查 Gateway、配置、渠道和端口故障。"
 ---
 
 # Diagnose the Gateway

@@ -1,6 +1,6 @@
 ---
 name: apple-notes
-description: "Create, view, edit, delete, search, move, or export Apple Notes via the memo CLI on macOS."
+description: "在Mac上创建、查找、编辑和导出苹果备忘录。"
 homepage: https://github.com/antoniorodr/memo
 metadata:
   {

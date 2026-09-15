@@ -1,6 +1,6 @@
 ---
 name: spotify-player
-description: "Terminal Spotify playback/search via spogo (preferred) or spotify_player."
+description: "在终端搜索和控制Spotify播放。"
 homepage: https://www.spotify.com
 metadata:
   {

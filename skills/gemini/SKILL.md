@@ -1,6 +1,6 @@
 ---
 name: gemini
-description: "Gemini CLI one-shot prompts, summaries, generation, skills, hooks, MCP, or Gemma routing."
+description: "通过Gemini命令行生成、总结和配置扩展。"
 homepage: https://ai.google.dev/
 metadata:
   {

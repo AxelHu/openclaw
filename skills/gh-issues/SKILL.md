@@ -1,6 +1,6 @@
 ---
 name: gh-issues
-description: "Fetch GitHub issues, select candidates, spawn background fix agents, open PRs, and optionally process PR review comments."
+description: "筛选 GitHub issue，委派修复、开 PR 和跟进审查。"
 user-invocable: true
 metadata:
   {

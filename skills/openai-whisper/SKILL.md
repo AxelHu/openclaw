@@ -1,6 +1,6 @@
 ---
 name: openai-whisper
-description: "Local speech-to-text with the Whisper CLI (no API key)."
+description: "使用本地Whisper将语音转为文字，无需API密钥。"
 homepage: https://openai.com/research/whisper
 metadata:
   {

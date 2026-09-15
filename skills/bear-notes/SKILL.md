@@ -1,6 +1,6 @@
 ---
 name: bear-notes
-description: "Create, search, and manage Bear notes via grizzly CLI."
+description: "通过命令行创建、查找和管理Bear笔记。"
 homepage: https://bear.app
 metadata:
   {

@@ -1,6 +1,6 @@
 ---
 name: video-frames
-description: "Extract frames or short clips from videos using ffmpeg."
+description: "用 ffmpeg 抽取视频帧或裁剪片段。"
 homepage: https://ffmpeg.org
 metadata:
   {

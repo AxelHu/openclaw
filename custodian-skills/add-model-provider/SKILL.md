@@ -1,6 +1,6 @@
 ---
 name: add-model-provider
-description: Add and live-prove a model provider with non-interactive config one-liners, without exposing credentials.
+description: "接入模型供应商并验证真实调用，不暴露凭据。"
 ---
 
 # Add a model provider

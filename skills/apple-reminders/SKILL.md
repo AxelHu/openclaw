@@ -1,6 +1,6 @@
 ---
 name: apple-reminders
-description: "List, add, edit, complete, or delete Apple Reminders and reminder lists via remindctl."
+description: "管理苹果提醒事项与清单，查询、完成或调整提醒。"
 homepage: https://github.com/steipete/remindctl
 metadata:
   {

@@ -1,6 +1,6 @@
 ---
 name: oracle
-description: "Oracle CLI second-model review/debug/refactor/design with selected files, dry-run token checks, API or browser engine."
+description: "选择文件请求第二模型审查、调试或设计建议。"
 homepage: https://askoracle.dev
 metadata:
   {

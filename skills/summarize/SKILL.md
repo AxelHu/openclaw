@@ -1,6 +1,6 @@
 ---
 name: summarize
-description: "Summarize or transcribe URLs, YouTube/videos, podcasts, articles, transcripts, PDFs, and local files."
+description: "总结网页、文档、播客和视频，按需提取转写。"
 homepage: https://summarize.sh
 metadata:
   {

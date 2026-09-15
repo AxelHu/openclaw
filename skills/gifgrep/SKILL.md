@@ -1,6 +1,6 @@
 ---
 name: gifgrep
-description: "Search GIF providers with CLI/TUI, download results, and extract stills/sheets."
+description: "检索、下载GIF，提取静态帧和图集。"
 homepage: https://gifgrep.com
 metadata:
   {

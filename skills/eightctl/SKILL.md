@@ -1,6 +1,6 @@
 ---
 name: eightctl
-description: "Control Eight Sleep pods (status, temperature, alarms, schedules)."
+description: "控制Eight Sleep床垫的温度、闹钟和日程。"
 homepage: https://eightctl.sh
 metadata:
   {

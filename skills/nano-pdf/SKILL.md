@@ -1,6 +1,6 @@
 ---
 name: nano-pdf
-description: "Edit PDFs with natural-language instructions using the nano-pdf CLI."
+description: "使用自然语言指令编辑PDF文件。"
 homepage: https://pypi.org/project/nano-pdf/
 metadata:
   {

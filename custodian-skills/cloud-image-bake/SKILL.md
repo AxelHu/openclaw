@@ -1,6 +1,6 @@
 ---
 name: cloud-image-bake
-description: Bake, select, prove, and safely retire a Cloud Worker image with crabbox and config one-liners.
+description: "制作、验证和退役 Cloud Worker 镜像。"
 ---
 
 # Bake a Cloud Worker image

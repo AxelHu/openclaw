@@ -1,6 +1,6 @@
 ---
 name: blogwatcher
-description: "Monitor blogs and RSS/Atom feeds for updates using the blogwatcher CLI."
+description: "检查博客及RSS、Atom订阅的内容更新。"
 homepage: https://github.com/Hyaxia/blogwatcher
 metadata:
   {

@@ -1,6 +1,6 @@
 ---
 name: session-logs
-description: "Search and analyze your own session logs (older/parent conversations) using jq."
+description: "搜索和分析自己获准访问的历史会话日志。"
 metadata:
   {
     "openclaw":

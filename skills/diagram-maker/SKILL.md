@@ -1,6 +1,6 @@
 ---
 name: diagram-maker
-description: Create SVG/HTML or Excalidraw diagrams for concepts, architecture, flows, and whiteboards.
+description: "制作 SVG、HTML 或 Excalidraw 图解。"
 metadata: { "openclaw": { "emoji": "🧭" } }
 ---
 

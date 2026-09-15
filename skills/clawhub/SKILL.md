@@ -1,6 +1,6 @@
 ---
 name: clawhub
-description: "Search ClawHub for skills when a requested capability is not already available; install, verify, update, uninstall, publish, or sync skills."
+description: "查找、安装、验证和管理 ClawHub 技能。"
 ---
 
 # ClawHub

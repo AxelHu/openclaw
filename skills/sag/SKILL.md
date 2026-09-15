@@ -1,6 +1,6 @@
 ---
 name: sag
-description: "ElevenLabs text-to-speech with mac-style say UX."
+description: "通过ElevenLabs把文本转换为语音。"
 homepage: https://sag.sh
 metadata:
   {

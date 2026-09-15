@@ -1,6 +1,6 @@
 ---
 name: node-connect
-description: "Diagnose OpenClaw Control UI browser and native Android, iOS, or macOS node connection failures across route, auth, pairing, QR/setup-code, and reconnect states."
+description: "排查控制台及手机、Mac 节点连接、配对与重连。"
 ---
 
 # Node Connect

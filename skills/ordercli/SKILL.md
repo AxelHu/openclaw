@@ -1,6 +1,6 @@
 ---
 name: ordercli
-description: "Foodora-only CLI for checking past orders and active order status (Deliveroo WIP)."
+description: "查询Foodora历史订单及当前订单状态。"
 homepage: https://ordercli.sh
 metadata:
   {
