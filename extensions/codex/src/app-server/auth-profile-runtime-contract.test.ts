@@ -134,6 +134,9 @@ function createCodexAuthProfileHarness(params: { startMethod: "thread/start" | "
       if (method === params.startMethod) {
         return threadStartResult("thread-auth-contract", { cwd: "" });
       }
+      if (method === "thread/inject_items") {
+        return {};
+      }
       if (method === "turn/start") {
         return turnStartResult("turn-auth-contract");
       }

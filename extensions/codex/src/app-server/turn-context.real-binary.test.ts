@@ -14,6 +14,7 @@ import {
 } from "./turn-instructions.js";
 import { buildTurnStartParams } from "./turn-params.js";
 import { createCodexUserInputTestParams } from "./user-input-bridge.test-support.js";
+import { CODEX_APP_SERVER_VERSION } from "./version.js";
 
 vi.unmock("node:child_process");
 
@@ -71,7 +72,7 @@ const MODEL_CATALOG = {
       auto_compact_token_limit: null,
       comp_hash: "synthetic-context-fixture",
       default_reasoning_summary: "none",
-      minimal_client_version: "0.153.4",
+      minimal_client_version: CODEX_APP_SERVER_VERSION,
       availability_nux: null,
       upgrade: null,
       experimental_supported_tools: [],
@@ -239,7 +240,7 @@ describe.skipIf(process.platform === "win32")(
           const client = CodexAppServerClient.fromTransportForTests(transport);
           clients.push(client);
           await client.initialize();
-          expect(client.getServerVersion()).toBe("0.153.4");
+          expect(client.getServerVersion()).toBe(CODEX_APP_SERVER_VERSION);
           return client;
         };
         const appServer = resolveCodexAppServerRuntimeOptions({

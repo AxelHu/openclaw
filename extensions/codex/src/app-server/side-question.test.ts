@@ -678,6 +678,7 @@ describe("runCodexAppServerSideQuestion", () => {
       "features.apply_patch_streaming_events": true,
       suppress_unstable_features_warning: true,
       "features.standalone_web_search": false,
+      "features.retain_client_developer_messages": true,
       web_search: "cached",
     });
     expect(forkParams?.developerInstructions).toContain("You are in a side conversation");

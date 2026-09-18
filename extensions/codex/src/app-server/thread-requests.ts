@@ -26,6 +26,10 @@ import {
   type JsonValue,
 } from "./protocol.js";
 import {
+  CODEX_RING_ZERO_RESTRICTED_FEATURE_ALIASES,
+  CODEX_RING_ZERO_RESTRICTED_FEATURES,
+} from "./ring-zero-feature-policy.js";
+import {
   CODEX_NATIVE_PERSONALITY_NONE,
   resolveCodexAppServerModelProvider,
   resolveCodexAppServerRequestModelSelection,
@@ -75,39 +79,7 @@ const CODEX_DELEGATION_DISABLED_THREAD_CONFIG: JsonObject = {
   "features.multi_agent_v2": false,
 };
 
-// Exact Codex 0.149 registry features that can expose a model-visible tool or
-// host capability. One list owns both the thread deny patch and requirement pin rejection.
-const CODEX_RING_ZERO_RESTRICTED_FEATURES = new Set([
-  "apps",
-  "artifact",
-  "browser_use",
-  "browser_use_external",
-  "browser_use_full_cdp_access",
-  "chronicle",
-  "code_mode",
-  "code_mode_only",
-  "computer_use",
-  "current_time_reminder",
-  "default_mode_request_user_input",
-  "deferred_executor",
-  "goals",
-  "hooks",
-  "image_generation",
-  "memories",
-  "multi_agent",
-  "multi_agent_v2",
-  "plugins",
-  "request_permissions_tool",
-  "skill_search",
-  "shell_tool",
-  "standalone_web_search",
-  "token_budget",
-  "unified_exec",
-  "view_image",
-  "web_search_cached",
-  "web_search_request",
-  "workspace_dependencies",
-]);
+// The restricted feature registry is version-audited in ring-zero-feature-policy.ts.
 
 const CODEX_RING_ZERO_THREAD_CONFIG: JsonObject = {
   ...CODEX_DELEGATION_DISABLED_THREAD_CONFIG,
@@ -134,15 +106,6 @@ const CODEX_RING_ZERO_THREAD_CONFIG: JsonObject = {
   notify: [],
   web_search: "disabled",
 };
-
-const CODEX_RING_ZERO_RESTRICTED_FEATURE_ALIASES = new Map<string, string>([
-  ["connectors", "apps"],
-  ["imagegenext", "image_generation"],
-  ["collab", "multi_agent"],
-  ["memory_tool", "memories"],
-  ["telepathy", "chronicle"],
-  ["codex_hooks", "hooks"],
-]);
 
 const CODEX_RING_ZERO_OVERRIDABLE_LAYER_TYPES = new Set([
   "packagedDefaults",

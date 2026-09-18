@@ -102,8 +102,8 @@ channel is the communication surface.
 
 - The official `@openclaw/codex` plugin installed. Include `codex` in
   `plugins.allow` if your config uses an allowlist.
-- Managed Codex app-server `0.153.4`. The plugin ships and manages
-  `@openai/codex` `0.153.4` by default, so a `codex` command on `PATH` does not
+- Managed Codex app-server `0.155.0`. The plugin ships and manages
+  `@openai/codex` `0.155.0` by default, so a `codex` command on `PATH` does not
   affect normal startup. Explicit custom, remote, and macOS desktop-owned
   app-servers must report a parseable semantic version of `0.149.0` or newer.
   Newer versions continue with a compatibility warning and normal runtime
@@ -118,14 +118,15 @@ For auth precedence, environment isolation, custom app-server commands,
 model discovery, and the full config field list, see
 [Codex harness reference](/plugins/codex-harness-reference).
 
-## Managed model catalog verification (2026-09-07)
+## Managed model catalog verification (2026-09-18)
 
-An authenticated `model/list` probe of Codex `0.153.4` returned the public
-`gpt-6-astra` model with text and image input. Its advertised reasoning efforts
-were `low`, `medium`, `high`, `xhigh`, `max`, and `ultra`. Preserve explicit
-agent effort settings instead of relying on a catalog default. The catalog
-also advertised an optional priority service tier;
-ordinary mode did not select a priority tier.
+An authenticated `model/list` probe of managed Codex `0.155.0` returned both
+`gpt-5.6-sol` and `gpt-6-astra` with text and image input. Both advertised
+`low`, `medium`, `high`, `xhigh`, `max`, and `ultra` reasoning plus an optional
+priority service tier and multi-agent v2. The catalog marked `gpt-5.6-sol` as
+the default with default effort `low`; `gpt-6-astra` reported default effort
+`medium`. Preserve explicit agent effort settings instead of relying on catalog
+defaults, and verify the effective model on an actual turn.
 
 Upgrading the managed binary does not itself migrate an OpenClaw agent's
 explicit model selection. Retain each agent's existing reasoning effort and

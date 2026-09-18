@@ -405,6 +405,10 @@ describe("Codex ring-zero thread config", () => {
       expect(config?.["features.multi_agent"]).toBe(false);
       expect(config?.["features.multi_agent_v2"]).toBe(false);
       expect(config?.["features.goals"]).toBe(false);
+      expect(config?.["features.codex_apps_mcp_2026_07_28"]).toBe(false);
+      expect(config?.["features.unified_exec_tty"]).toBe(false);
+      expect(config?.["features.windows_sandbox_service"]).toBe(false);
+      expect(config?.["features.worktrees"]).toBe(false);
       expect(config?.["orchestrator.mcp.enabled"]).toBe(false);
       expect(config?.["orchestrator.skills.enabled"]).toBe(false);
       expect(config?.project_doc_max_bytes).toBe(0);

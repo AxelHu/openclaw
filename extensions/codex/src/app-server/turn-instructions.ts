@@ -7,7 +7,7 @@ import type {
 } from "./session-binding.js";
 
 // Client-authored developer supplements must survive native context compaction.
-// Exact Codex 0.153.4 feature; it adds no model tool or permission surface.
+// Introduced in Codex 0.153.4 and reverified in 0.155.0; it adds no model tool or permission surface.
 export const CODEX_RETAIN_HOST_CONTEXT_CONFIG = {
   "features.retain_client_developer_messages": true,
 };
@@ -53,7 +53,7 @@ function buildCronInstructions(): string {
 
 /**
  * Synchronize before turn/start while the caller owns the idle thread route.
- * Codex 0.153.4 thread/inject_items accepts complete developer ResponseItems;
+ * Codex 0.153.4 introduced thread/inject_items for complete developer ResponseItems; reverified in 0.155.0;
  * additionalContext instead truncates each value at 1,000 estimated tokens.
  *
  * A receipt in the existing binding store survives native and gateway restarts.

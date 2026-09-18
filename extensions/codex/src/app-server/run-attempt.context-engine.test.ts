@@ -261,6 +261,10 @@ function getRequestInputTextAt(
 
 setupRunAttemptTestHooks();
 
+function withoutHostContextInjection(methods: string[]): string[] {
+  return methods.filter((method) => method !== "thread/inject_items");
+}
+
 describe("runCodexAppServerAttempt context-engine lifecycle", () => {
   it("keeps the fixture thread persistent while denying web search", () => {
     const params = withPersistentCodexTestToolPolicy(
@@ -640,11 +644,9 @@ describe("runCodexAppServerAttempt context-engine lifecycle", () => {
       ).toHaveLength(2);
     });
 
-    expect(firstHarness.requests.map((request) => request.method)).toEqual([
-      "thread/start",
-      "turn/start",
-      "turn/start",
-    ]);
+    expect(
+      withoutHostContextInjection(firstHarness.requests.map((request) => request.method)),
+    ).toEqual(["thread/start", "turn/start", "turn/start"]);
     const secondInputText = getRequestInputTextAt(firstHarness, 1);
     expect(secondInputText).not.toContain("OpenClaw assembled context for this turn:");
     expect(secondInputText).not.toContain("bootstrap-only context");
@@ -756,7 +758,7 @@ describe("runCodexAppServerAttempt context-engine lifecycle", () => {
     const run = runCodexAppServerAttempt(params);
     await harness.waitForMethod("turn/start");
 
-    expect(harness.requests.map((request) => request.method)).toEqual([
+    expect(withoutHostContextInjection(harness.requests.map((request) => request.method))).toEqual([
       "thread/resume",
       "turn/start",
     ]);
@@ -838,7 +840,7 @@ describe("runCodexAppServerAttempt context-engine lifecycle", () => {
     const run = runCodexAppServerAttempt(params);
     await harness.waitForMethod("turn/start");
 
-    expect(harness.requests.map((request) => request.method)).toEqual([
+    expect(withoutHostContextInjection(harness.requests.map((request) => request.method))).toEqual([
       "thread/start",
       "turn/start",
     ]);
@@ -927,7 +929,7 @@ describe("runCodexAppServerAttempt context-engine lifecycle", () => {
     const run = runCodexAppServerAttempt(params);
     await harness.waitForMethod("turn/start");
 
-    expect(harness.requests.map((request) => request.method)).toEqual([
+    expect(withoutHostContextInjection(harness.requests.map((request) => request.method))).toEqual([
       "thread/start",
       "turn/start",
     ]);
@@ -975,7 +977,7 @@ describe("runCodexAppServerAttempt context-engine lifecycle", () => {
     const run = runCodexAppServerAttempt(params);
     await harness.waitForMethod("turn/start");
 
-    expect(harness.requests.map((request) => request.method)).toEqual([
+    expect(withoutHostContextInjection(harness.requests.map((request) => request.method))).toEqual([
       "thread/start",
       "turn/start",
     ]);
@@ -1030,7 +1032,7 @@ describe("runCodexAppServerAttempt context-engine lifecycle", () => {
     const run = runCodexAppServerAttempt(params);
     await harness.waitForMethod("turn/start");
 
-    expect(harness.requests.map((request) => request.method)).toEqual([
+    expect(withoutHostContextInjection(harness.requests.map((request) => request.method))).toEqual([
       "thread/start",
       "turn/start",
     ]);
@@ -1118,7 +1120,7 @@ describe("runCodexAppServerAttempt context-engine lifecycle", () => {
     const run = runCodexAppServerAttempt(params);
     await harness.waitForMethod("turn/start");
 
-    expect(harness.requests.map((request) => request.method)).toEqual([
+    expect(withoutHostContextInjection(harness.requests.map((request) => request.method))).toEqual([
       "thread/start",
       "turn/start",
     ]);
@@ -1223,10 +1225,9 @@ describe("runCodexAppServerAttempt context-engine lifecycle", () => {
         }),
       ]);
 
-      expect(harness.requests.map((request) => request.method)).toEqual([
-        "thread/start",
-        "turn/start",
-      ]);
+      expect(
+        withoutHostContextInjection(harness.requests.map((request) => request.method)),
+      ).toEqual(["thread/start", "turn/start"]);
       expectRequestInputTextContains(harness, "OpenClaw assembled context for this turn:");
       expectRequestInputTextContains(harness, "native-disabled context");
 
@@ -1289,7 +1290,7 @@ describe("runCodexAppServerAttempt context-engine lifecycle", () => {
     const run = runCodexAppServerAttempt(params);
     await harness.waitForMethod("turn/start");
 
-    expect(harness.requests.map((request) => request.method)).toEqual([
+    expect(withoutHostContextInjection(harness.requests.map((request) => request.method))).toEqual([
       "thread/start",
       "turn/start",
     ]);
@@ -1384,12 +1385,9 @@ describe("runCodexAppServerAttempt context-engine lifecycle", () => {
 
     const run = runCodexAppServerAttempt(params);
     await vi.waitFor(() =>
-      expect(harness.requests.map((request) => request.method)).toEqual([
-        "thread/resume",
-        "turn/start",
-        "thread/start",
-        "turn/start",
-      ]),
+      expect(
+        withoutHostContextInjection(harness.requests.map((request) => request.method)),
+      ).toEqual(["thread/resume", "turn/start", "thread/start", "turn/start"]),
     );
     await harness.notify({
       method: "turn/completed",
@@ -1475,7 +1473,7 @@ describe("runCodexAppServerAttempt context-engine lifecycle", () => {
       threadId: "thread-old",
       replaySafe: true,
     });
-    expect(harness.requests.map((request) => request.method)).toEqual([
+    expect(withoutHostContextInjection(harness.requests.map((request) => request.method))).toEqual([
       "thread/resume",
       "turn/start",
       "thread/start",
@@ -1547,7 +1545,7 @@ describe("runCodexAppServerAttempt context-engine lifecycle", () => {
     );
 
     expect(compact).not.toHaveBeenCalled();
-    expect(harness.requests.map((request) => request.method)).toEqual([
+    expect(withoutHostContextInjection(harness.requests.map((request) => request.method))).toEqual([
       "thread/resume",
       "turn/start",
       "thread/unsubscribe",
@@ -1626,7 +1624,7 @@ describe("runCodexAppServerAttempt context-engine lifecycle", () => {
       "Codex ran out of room in the model's context window",
     );
     expect(compact).not.toHaveBeenCalled();
-    expect(harness.requests.map((request) => request.method)).toEqual([
+    expect(withoutHostContextInjection(harness.requests.map((request) => request.method))).toEqual([
       "thread/resume",
       "turn/start",
       "thread/unsubscribe",
@@ -1667,7 +1665,7 @@ describe("runCodexAppServerAttempt context-engine lifecycle", () => {
 
     expect(compact).not.toHaveBeenCalled();
     expect(assemble).toHaveBeenCalledTimes(1);
-    expect(harness.requests.map((request) => request.method)).toEqual([
+    expect(withoutHostContextInjection(harness.requests.map((request) => request.method))).toEqual([
       "thread/start",
       "turn/start",
     ]);
@@ -1709,7 +1707,7 @@ describe("runCodexAppServerAttempt context-engine lifecycle", () => {
 
     expect(compact).not.toHaveBeenCalled();
     expect(assemble).toHaveBeenCalledTimes(1);
-    expect(harness.requests.map((request) => request.method)).toEqual([
+    expect(withoutHostContextInjection(harness.requests.map((request) => request.method))).toEqual([
       "thread/start",
       "turn/start",
       "thread/unsubscribe",
@@ -1771,12 +1769,9 @@ describe("runCodexAppServerAttempt context-engine lifecycle", () => {
     const run = runCodexAppServerAttempt(params);
     await vi.waitFor(
       () =>
-        expect(harness.requests.map((request) => request.method)).toEqual([
-          "thread/resume",
-          "turn/start",
-          "thread/start",
-          "turn/start",
-        ]),
+        expect(
+          withoutHostContextInjection(harness.requests.map((request) => request.method)),
+        ).toEqual(["thread/resume", "turn/start", "thread/start", "turn/start"]),
       { timeout: 4_000 },
     );
     await harness.notify({

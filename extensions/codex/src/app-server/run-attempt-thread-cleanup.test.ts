@@ -93,6 +93,54 @@ async function waitForHarnessRequest(
   return { id: request.id, params: request.params };
 }
 
+/** 0.155+ synchronizes retained host developer context before turn/start. */
+async function waitForTurnStart(
+  harness: ReturnType<typeof createClientHarness>,
+  startIndex = 0,
+): Promise<{ id: number | string; params?: unknown }> {
+  const acknowledged = new Set<number | string>();
+  let request: { id?: number | string; method?: string; params?: unknown } | undefined;
+  await vi.waitFor(
+    () => {
+      for (const write of harness.writes.slice(startIndex)) {
+        const message = JSON.parse(write) as {
+          id?: number | string;
+          method?: string;
+          params?: unknown;
+        };
+        if (
+          message.method === "thread/inject_items" &&
+          message.id !== undefined &&
+          !acknowledged.has(message.id)
+        ) {
+          acknowledged.add(message.id);
+          harness.send({ id: message.id, result: {} });
+        }
+        if (message.method === "turn/start") {
+          request = message;
+        }
+      }
+      expect(
+        request?.id,
+        `expected turn/start after write ${startIndex}; observed ${JSON.stringify(
+          harness.writes
+            .slice(startIndex)
+            .map((write) => (JSON.parse(write) as { method: string }).method),
+        )}`,
+      ).toBeDefined();
+    },
+    { interval: 1, timeout: 5_000 },
+  );
+  if (request?.id === undefined) {
+    throw new Error("Codex harness did not write turn/start");
+  }
+  return { id: request.id, params: request.params };
+}
+
+function withoutHostContextInjection(methods: string[]): string[] {
+  return methods.filter((method) => method !== "thread/inject_items");
+}
+
 setupRunAttemptTestHooks();
 
 describe("Codex app-server main thread cleanup", () => {
@@ -179,7 +227,10 @@ describe("Codex app-server main thread cleanup", () => {
       pluginAppsFingerprint: expect.any(String),
     });
 
-    expect(requests.map((entry) => entry.method)).toEqual(["thread/start", "turn/start"]);
+    expect(withoutHostContextInjection(requests.map((entry) => entry.method))).toEqual([
+      "thread/start",
+      "turn/start",
+    ]);
   });
 
   it("keeps alternating conversations subscribed on their shared physical Codex client", async () => {
@@ -221,7 +272,7 @@ describe("Codex app-server main thread cleanup", () => {
         const start = await waitForHarnessRequest(harness, "thread/start", requestStart);
         harness.send({ id: start.id, result: threadStartResult(threadId, { cwd: workspaceDir }) });
       }
-      const turn = await waitForHarnessRequest(harness, "turn/start", requestStart);
+      const turn = await waitForTurnStart(harness, requestStart);
       const turnId = `turn-${index + 1}`;
       harness.send({ id: turn.id, result: turnStartResult(turnId) });
       harness.send({
@@ -234,7 +285,10 @@ describe("Codex app-server main thread cleanup", () => {
     const userRequestMethods = () =>
       harness.writes
         .map((write) => (JSON.parse(write) as { method: string }).method)
-        .filter((method) => method !== "initialize" && method !== "initialized");
+        .filter(
+          (method) =>
+            method !== "initialize" && method !== "initialized" && method !== "thread/inject_items",
+        );
     expect(userRequestMethods()).toEqual([
       "thread/start",
       "turn/start",
@@ -274,7 +328,7 @@ describe("Codex app-server main thread cleanup", () => {
     const siblingRun = runCodexAppServerAttempt(siblingParams, {
       bindingStore: testCodexAppServerBindingStore,
     });
-    const siblingTurn = await waitForHarnessRequest(harness, "turn/start", siblingRequestStart);
+    const siblingTurn = await waitForTurnStart(harness, siblingRequestStart);
     harness.send({ id: siblingTurn.id, result: turnStartResult("turn-5") });
     harness.send({
       method: "turn/completed",
@@ -316,7 +370,7 @@ describe("Codex app-server main thread cleanup", () => {
     });
     const firstThreadStart = await waitForHarnessRequest(physical, "thread/start");
     physical.send({ id: firstThreadStart.id, result: threadStartResult("thread-1") });
-    const firstTurnStart = await waitForHarnessRequest(physical, "turn/start");
+    const firstTurnStart = await waitForTurnStart(physical);
     physical.send({ id: firstTurnStart.id, result: turnStartResult("turn-1") });
 
     physical.send({
@@ -345,7 +399,7 @@ describe("Codex app-server main thread cleanup", () => {
       secondRequestStart,
     );
     physical.send({ id: secondThreadStart.id, result: threadStartResult("thread-2") });
-    const secondTurnStart = await waitForHarnessRequest(physical, "turn/start", secondRequestStart);
+    const secondTurnStart = await waitForTurnStart(physical, secondRequestStart);
     physical.send({ id: secondTurnStart.id, result: turnStartResult("turn-2") });
     physical.send({
       method: "item/started",
@@ -459,7 +513,7 @@ describe("Codex app-server main thread cleanup", () => {
     const start = await waitForHarnessRequest(harness, "thread/start");
     expect(start.params).toEqual(expect.objectContaining({ ephemeral: true }));
     harness.send({ id: start.id, result: threadStartResult() });
-    const turn = await waitForHarnessRequest(harness, "turn/start");
+    const turn = await waitForTurnStart(harness);
     harness.send({ id: turn.id, result: turnStartResult() });
     harness.send({
       method: "turn/completed",
@@ -530,7 +584,7 @@ describe("Codex app-server main thread cleanup", () => {
         clientFactory,
       }),
     ).rejects.toThrow(error.message);
-    expect(requests.map((entry) => entry.method)).toEqual([
+    expect(withoutHostContextInjection(requests.map((entry) => entry.method))).toEqual([
       "thread/start",
       "turn/start",
       "thread/unsubscribe",
@@ -571,7 +625,7 @@ describe("Codex app-server main thread cleanup", () => {
       });
       const threadStart = await waitForHarnessRequest(harness, "thread/start");
       harness.send({ id: threadStart.id, result: threadStartResult() });
-      const turnStart = await waitForHarnessRequest(harness, "turn/start");
+      const turnStart = await waitForTurnStart(harness);
 
       abort.abort("cancelled");
       const interrupt = await waitForHarnessRequest(harness, "turn/interrupt");
@@ -590,7 +644,9 @@ describe("Codex app-server main thread cleanup", () => {
         harness.send({ id: unsubscribe.id, result: {} });
       }
       await expect(failure).resolves.toMatchObject({ message: "turn/start aborted" });
-      expect(harness.writes.map((entry) => JSON.parse(entry).method)).toEqual([
+      expect(
+        withoutHostContextInjection(harness.writes.map((entry) => JSON.parse(entry).method)),
+      ).toEqual([
         "initialize",
         "initialized",
         "thread/start",
@@ -623,6 +679,9 @@ describe("Codex app-server main thread cleanup", () => {
       if (method === "turn/interrupt") {
         throw new Error("startup interrupt failed");
       }
+      if (method === "thread/inject_items") {
+        return {};
+      }
       throw new Error(`unexpected cleanup request: ${method}`);
     });
     const clientFactory: CodexAppServerClientFactory = multiplexedClientFactory(async () => {
@@ -643,7 +702,7 @@ describe("Codex app-server main thread cleanup", () => {
         clientFactory,
       }),
     ).rejects.toBe(startupError);
-    expect(request.mock.calls.map(([method]) => method)).toEqual([
+    expect(withoutHostContextInjection(request.mock.calls.map(([method]) => method))).toEqual([
       "thread/start",
       "turn/start",
       "turn/interrupt",
@@ -678,7 +737,7 @@ describe("Codex app-server main thread cleanup", () => {
       });
       const threadStart = await waitForHarnessRequest(harness, "thread/start");
       harness.send({ id: threadStart.id, result: threadStartResult() });
-      const turnStart = await waitForHarnessRequest(harness, "turn/start");
+      const turnStart = await waitForTurnStart(harness);
       harness.send({ id: turnStart.id, result: turnStartResult() });
       await new Promise<void>((resolve) => {
         setImmediate(resolve);
@@ -784,7 +843,7 @@ describe("Codex app-server main thread cleanup", () => {
     });
     const threadStart = await waitForHarnessRequest(harness, "thread/start");
     harness.send({ id: threadStart.id, result: threadStartResult() });
-    const turnStart = await waitForHarnessRequest(harness, "turn/start");
+    const turnStart = await waitForTurnStart(harness);
     harness.send({ id: turnStart.id, result: turnStartResult() });
     vi.spyOn(CodexAppServerEventProjector.prototype, "buildResult").mockImplementationOnce(() => {
       throw projectionError;
@@ -828,7 +887,7 @@ describe("Codex app-server main thread cleanup", () => {
     const threadStart = await waitForHarnessRequest(contaminated, "thread/start");
     contaminated.send({ id: threadStart.id, result: threadStartResult() });
 
-    const turnStart = await waitForHarnessRequest(contaminated, "turn/start");
+    const turnStart = await waitForTurnStart(contaminated);
     const releaseSiblingLease = retainSharedCodexAppServerClientIfCurrent(contaminated.client);
     if (!releaseSiblingLease) {
       throw new Error("Codex harness did not acquire the real shared client");
@@ -860,7 +919,7 @@ describe("Codex app-server main thread cleanup", () => {
     });
     const replacementThread = await waitForHarnessRequest(replacement, "thread/start");
     replacement.send({ id: replacementThread.id, result: threadStartResult("thread-2") });
-    const replacementTurn = await waitForHarnessRequest(replacement, "turn/start");
+    const replacementTurn = await waitForTurnStart(replacement);
     replacement.send({ id: replacementTurn.id, result: turnStartResult("turn-2") });
     replacement.send({
       method: "turn/completed",

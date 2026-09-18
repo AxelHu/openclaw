@@ -141,6 +141,7 @@ const DEFAULT_CODEX_RUNTIME_THREAD_CONFIG = {
   "features.apply_patch_streaming_events": true,
   suppress_unstable_features_warning: true,
   "features.standalone_web_search": false,
+  "features.retain_client_developer_messages": true,
   web_search: "cached",
 } as const;
 
@@ -2386,6 +2387,7 @@ describe("Codex app-server thread lifecycle bindings", () => {
     "chronicle",
     "code_mode",
     "code_mode_only",
+    "codex_apps_mcp_2026_07_28",
     "computer_use",
     "current_time_reminder",
     "default_mode_request_user_input",
@@ -2403,9 +2405,12 @@ describe("Codex app-server thread lifecycle bindings", () => {
     "standalone_web_search",
     "token_budget",
     "unified_exec",
+    "unified_exec_tty",
     "view_image",
     "web_search_cached",
     "web_search_request",
+    "windows_sandbox_service",
+    "worktrees",
     "workspace_dependencies",
     "codex_hooks",
   ])("fails closed when requirements pin native registry %s on", async (feature) => {
