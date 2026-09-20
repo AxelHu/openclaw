@@ -8,6 +8,7 @@ import {
 } from "../../execution-contract.js";
 import type { AgentMessage } from "../../runtime/index.js";
 import { assessLastAssistantMessage } from "../thinking.js";
+import { resolveFinalAssistantRawText } from "./helpers.js";
 import type { EmbeddedRunAttemptResult } from "./types.js";
 
 export type IncompleteTurnAttempt = Pick<
@@ -15,6 +16,7 @@ export type IncompleteTurnAttempt = Pick<
   | "assistantTexts"
   | "clientToolCalls"
   | "currentAttemptAssistant"
+  | "currentAttemptCompletedAssistant"
   | "yieldDetected"
   | "didSendDeterministicApprovalPrompt"
   | "heartbeatToolResponse"
@@ -107,6 +109,28 @@ export function hasOnlySilentAssistantReply(assistantTexts?: readonly string[]):
     nonEmptyTexts.length > 0 &&
     nonEmptyTexts.every((text) => isSilentReplyPayloadText(text, SILENT_REPLY_TOKEN))
   );
+}
+
+/**
+ * Recognizes authored silence from the current terminal assistant rather than
+ * accumulated commentary/progress text. Text-only legacy projections fall
+ * back to the older all-silent check.
+ */
+export function hasExplicitSilentAssistantReply(
+  attempt: Pick<
+    IncompleteTurnAttempt,
+    "assistantTexts" | "currentAttemptAssistant" | "currentAttemptCompletedAssistant"
+  >,
+): boolean {
+  const assistant = attempt.currentAttemptCompletedAssistant ?? attempt.currentAttemptAssistant;
+  if (!assistant) {
+    return hasOnlySilentAssistantReply(attempt.assistantTexts);
+  }
+  if (assistant.stopReason === "error" || assistant.stopReason === "aborted") {
+    return false;
+  }
+  const rawAnswer = resolveFinalAssistantRawText(assistant);
+  return Boolean(rawAnswer && isSilentReplyPayloadText(rawAnswer, SILENT_REPLY_TOKEN));
 }
 
 export function isReasoningOnlyAssistantTurn(message: unknown): boolean {

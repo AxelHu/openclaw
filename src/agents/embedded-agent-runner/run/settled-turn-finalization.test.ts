@@ -312,6 +312,75 @@ describe("resolveSettledTurnFinalizationRequest", () => {
     ).toBeNull();
   });
 
+  it("does not finalize canonical NO_REPLY after earlier commentary", () => {
+    const toolUseAssistant = buildEmbeddedRunnerAssistant({
+      stopReason: "toolUse",
+      content: [{ type: "toolCall", id: "tool-1", name: "write", arguments: {} }],
+    });
+    const silentAssistant = buildEmbeddedRunnerAssistant({
+      stopReason: "stop",
+      content: [
+        {
+          type: "text",
+          text: "Finishing the scheduled review.",
+          textSignature: JSON.stringify({
+            v: 1,
+            id: "commentary",
+            phase: "commentary",
+          }),
+        },
+        {
+          type: "text",
+          text: SILENT_REPLY_TOKEN,
+          textSignature: JSON.stringify({
+            v: 1,
+            id: "final",
+            phase: "final_answer",
+          }),
+        },
+      ],
+    });
+    const attempt = makeEmbeddedRunnerAttempt({
+      assistantTexts: ["Earlier progress update.", SILENT_REPLY_TOKEN],
+      toolMetas: [{ toolName: "write", toolCallId: "tool-1", replaySafe: false }],
+      itemLifecycle: { startedCount: 1, completedCount: 1, activeCount: 0 },
+      messagesSnapshot: [
+        { role: "user", content: [{ type: "text", text: "run scheduled review" }] },
+        toolUseAssistant,
+        { role: "toolResult", toolCallId: "tool-1", toolName: "write", isError: false },
+        silentAssistant,
+      ] as never,
+      lastAssistant: silentAssistant,
+      currentAttemptAssistant: silentAssistant,
+      currentAttemptCompletedAssistant: silentAssistant,
+      replayMetadata: { hadPotentialSideEffects: true, replaySafe: false },
+      currentAttemptReplayMetadata: { hadPotentialSideEffects: true, replaySafe: false },
+    });
+
+    expect(
+      resolveSettledTurnFinalizationRequest({
+        runParams: {
+          sessionId: "session:settled-cron-commentary-silent",
+          runId: "run:settled-cron-commentary-silent",
+          trigger: "cron",
+          allowEmptyAssistantReplyAsSilent: true,
+          terminalReplyExpectation: "required",
+        } as never,
+        attempt,
+        activeErrorContext: { provider: "openai", model: "gpt-6-astra" },
+        modelApi: "openai-responses",
+        executionContract: undefined,
+        payloadsWithToolMedia: [],
+        hasTerminalToolPresentation: false,
+        terminalState: resolveEmbeddedRunAttemptTerminalState({
+          attempt,
+          assistant: silentAssistant,
+        }),
+        settledTurnFinalizationAvailable: true,
+      }),
+    ).toBeNull();
+  });
+
   it("requires an available finalizer and no visible structured error", () => {
     const assistant = buildEmbeddedRunnerAssistant({
       stopReason: "toolUse",

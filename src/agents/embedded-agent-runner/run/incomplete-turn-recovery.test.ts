@@ -135,6 +135,50 @@ describe("incomplete-turn recovery policy", () => {
     ).toBe(false);
   });
 
+  it("uses the current terminal assistant for explicit silence instead of earlier commentary", () => {
+    const assistant = buildEmbeddedRunnerAssistant({
+      content: [
+        {
+          type: "text",
+          text: "Finishing the review.",
+          textSignature: JSON.stringify({
+            v: 1,
+            id: "commentary",
+            phase: "commentary",
+          }),
+        },
+        {
+          type: "text",
+          text: SILENT_REPLY_TOKEN,
+          textSignature: JSON.stringify({
+            v: 1,
+            id: "final",
+            phase: "final_answer",
+          }),
+        },
+      ],
+    });
+    const attempt = makeEmbeddedRunnerAttempt({
+      assistantTexts: ["Earlier progress update.", SILENT_REPLY_TOKEN],
+      lastAssistant: assistant,
+      currentAttemptAssistant: assistant,
+      currentAttemptCompletedAssistant: assistant,
+      replayMetadata: { hadPotentialSideEffects: true, replaySafe: false },
+      currentAttemptReplayMetadata: { hadPotentialSideEffects: true, replaySafe: false },
+    });
+
+    expect(
+      shouldTreatEmptyAssistantReplyAsSilent({
+        allowEmptyAssistantReplyAsSilent: true,
+        terminalReplyExpectation: "required",
+        payloadCount: 0,
+        aborted: false,
+        timedOut: false,
+        attempt,
+      }),
+    ).toBe(true);
+  });
+
   it("does not retry an empty turn after side effects", () => {
     const assistant = emptyAssistant({ stopReason: "stop", model: "gpt-5.4" });
     const attempt = emptyAttempt(assistant);

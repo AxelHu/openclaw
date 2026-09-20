@@ -14,7 +14,7 @@ import {
   isCurrentAttemptReplaySafe,
 } from "./attempt-terminal-evidence.js";
 import {
-  hasOnlySilentAssistantReply,
+  hasExplicitSilentAssistantReply,
   hasPositiveOutputTokenUsage,
   isEmptyResponseAssistantTurn,
   isNonVisibleAssistantTurnEligibleForSilentReply,
@@ -126,11 +126,8 @@ export function shouldTreatEmptyAssistantReplyAsSilent(params: {
   if (hasCommittedMessagingToolDeliveryEvidence(params.attempt)) {
     return false;
   }
-  const assistant = params.attempt.currentAttemptAssistant ?? params.attempt.lastAssistant;
   const explicitSilentReply =
-    params.payloadCount === 0 &&
-    assistant?.stopReason !== "error" &&
-    hasOnlySilentAssistantReply(params.attempt.assistantTexts);
+    params.payloadCount === 0 && hasExplicitSilentAssistantReply(params.attempt);
   if (
     shouldSkipNonVisibleTurnRetry({
       ...params,
@@ -352,7 +349,7 @@ export function resolveSettledToolTerminalContinuationInstruction(params: {
   );
   if (
     params.payloadCount !== 0 ||
-    (!params.allowEmptyStopContinuation && hasOnlySilentAssistantReply(attempt.assistantTexts)) ||
+    (!params.allowEmptyStopContinuation && hasExplicitSilentAssistantReply(attempt)) ||
     params.hasTerminalToolPresentation ||
     params.aborted ||
     ((params.timedOut || terminal.kind === "timeout") && !idlePromptTimeout) ||
