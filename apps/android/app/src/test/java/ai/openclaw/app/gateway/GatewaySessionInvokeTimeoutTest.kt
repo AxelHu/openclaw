@@ -1,6 +1,8 @@
 package ai.openclaw.app.gateway
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GatewaySessionInvokeTimeoutTest {
@@ -50,6 +52,35 @@ class GatewaySessionInvokeTimeoutTest {
         contextPath = "//openclaw",
       ),
     )
+  }
+
+  @Test
+  fun shouldBypassSystemProxyForGatewayHost_bypassesLoopbackAndPrivateLiterals() {
+    listOf(
+      "localhost",
+      "127.0.0.1",
+      "10.1.2.3",
+      "172.16.0.1",
+      "172.31.255.254",
+      "192.168.0.94",
+      "169.254.10.20",
+      "::1",
+      "[fd12:3456::1]",
+      "fe80::1234%wlan0",
+      "::ffff:192.168.1.10",
+    ).forEach { host -> assertTrue(host, shouldBypassSystemProxyForGatewayHost(host)) }
+  }
+
+  @Test
+  fun shouldBypassSystemProxyForGatewayHost_keepsPublicAndNamedHostsOnSystemProxy() {
+    listOf(
+      "gateway.example",
+      "8.8.8.8",
+      "100.64.0.1",
+      "172.15.255.255",
+      "172.32.0.1",
+      "2001:4860:4860::8888",
+    ).forEach { host -> assertFalse(host, shouldBypassSystemProxyForGatewayHost(host)) }
   }
 
   @Test

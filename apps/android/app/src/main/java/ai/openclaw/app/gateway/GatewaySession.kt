@@ -41,6 +41,7 @@ import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import okio.Buffer
 import java.io.IOException
+import java.net.Proxy
 import java.net.URI
 import java.util.Base64
 import java.util.Locale
@@ -1271,6 +1272,14 @@ class GatewaySession(
           .writeTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
           .readTimeout(0, java.util.concurrent.TimeUnit.SECONDS)
           .pingInterval(30, java.util.concurrent.TimeUnit.SECONDS)
+      // A phone can legitimately use a system proxy for internet traffic while its Gateway lives
+      // on the same trusted LAN. Sending RFC1918/loopback Gateway WebSockets through that proxy is
+      // both unnecessary and brittle (and can make a healthy local Gateway look permanently
+      // offline). Keep public/hostname endpoints on the normal system proxy path, but connect
+      // numeric private/link-local endpoints directly.
+      if (shouldBypassSystemProxyForGatewayHost(endpoint.host)) {
+        builder.proxy(Proxy.NO_PROXY)
+      }
       if (tlsConfig != null) {
         builder.sslSocketFactory(tlsConfig.sslSocketFactory, tlsConfig.trustManager)
         builder.hostnameVerifier(tlsConfig.hostnameVerifier)
@@ -2217,6 +2226,35 @@ internal fun buildGatewayWebSocketUrl(
   val scheme = if (useTls) "wss" else "ws"
   val path = normalizeGatewayContextPath(contextPath)
   return "$scheme://${formatGatewayAuthority(host, port)}$path"
+}
+
+/** Returns true only for literal/local Gateway hosts that should never need an internet proxy. */
+internal fun shouldBypassSystemProxyForGatewayHost(host: String): Boolean {
+  val normalized = host.trim().trim('[', ']').trimEnd('.').substringBefore('%').lowercase(Locale.ROOT)
+  if (normalized == "localhost") return true
+
+  fun privateIpv4(value: String): Boolean {
+    val parts = value.split('.')
+    if (parts.size != 4) return false
+    val octets = parts.map { part ->
+      if (part.isEmpty() || part.length > 3 || part.any { !it.isDigit() }) return false
+      part.toIntOrNull()?.takeIf { it in 0..255 } ?: return false
+    }
+    val first = octets[0]
+    val second = octets[1]
+    return first == 10 ||
+      first == 127 ||
+      (first == 169 && second == 254) ||
+      (first == 172 && second in 16..31) ||
+      (first == 192 && second == 168)
+  }
+
+  if (privateIpv4(normalized)) return true
+  if (normalized.startsWith("::ffff:") && privateIpv4(normalized.removePrefix("::ffff:"))) return true
+  if (normalized == "::1") return true
+
+  val firstHextet = normalized.substringBefore(':').toIntOrNull(16) ?: return false
+  return firstHextet in 0xfc00..0xfdff || firstHextet in 0xfe80..0xfebf
 }
 
 /** Builds one gateway upgrade request without exposing proxy credentials to cleartext routes. */
