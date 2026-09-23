@@ -931,6 +931,69 @@ describe("buildOpenAIProvider", () => {
     }
   });
 
+  it.each([
+    ["gpt-6-sol", ["low", "medium", "high", "xhigh", "max", "ultra"]],
+    ["gpt-6-luna", ["low", "medium", "high", "xhigh", "max"]],
+  ])("preserves live GPT-6 Codex limits and capabilities for %s", async (modelId, efforts) => {
+    const fetchGuard: LiveModelCatalogFetchGuard = vi.fn(async (params) => ({
+      response: Response.json({
+        models: [
+          {
+            slug: modelId,
+            visibility: "list",
+            input_modalities: ["text", "image"],
+            supported_reasoning_levels: (efforts as string[]).map((effort) => ({ effort })),
+            context_window: 272_000,
+            max_context_window: 872_000,
+          },
+        ],
+      }),
+      finalUrl: params.url,
+      release: async () => undefined,
+    }));
+    const result = await buildOpenAICodexLiveProviderConfig({
+      discoveryApiKey: "gpt6-test-" + modelId,
+      fetchGuard,
+    });
+    expect(result.models).toHaveLength(1);
+    expect(result.models[0]).toMatchObject({
+      id: modelId,
+      api: "openai-chatgpt-responses",
+      contextWindow: 872_000,
+      contextTokens: 272_000,
+      maxTokens: 128_000,
+      thinkingLevelMap: { off: null, xhigh: "xhigh", max: "max" },
+      compat: { supportedReasoningEfforts: efforts },
+    });
+  });
+
+  it("keeps native GPT-6 capabilities in offline hints without changing API metadata", async () => {
+    const fetchGuard: LiveModelCatalogFetchGuard = vi.fn(async () => {
+      throw new Error("catalog unavailable");
+    });
+    const result = await buildOpenAICodexLiveProviderConfig({
+      discoveryApiKey: "gpt6-offline-test",
+      fetchGuard,
+    });
+    for (const [id, nativeEfforts] of [
+      ["gpt-6-sol", ["low", "medium", "high", "xhigh", "max", "ultra"]],
+      ["gpt-6-luna", ["low", "medium", "high", "xhigh", "max"]],
+    ] as const) {
+      expect(result.models.find((model) => model.id === id)).toMatchObject({
+        contextWindow: 872_000,
+        contextTokens: 272_000,
+        compat: { supportedReasoningEfforts: nativeEfforts },
+        thinkingLevelMap: { off: null },
+      });
+      expect(
+        manifest.modelCatalog.providers.openai.models.find((model) => model.id === id),
+      ).toMatchObject({
+        contextWindow: 1_050_000,
+        compat: { supportedReasoningEfforts: ["none", "low", "medium", "high", "xhigh", "max"] },
+      });
+    }
+  });
+
   it("uses the managed Codex package version for OAuth model discovery", async () => {
     const pinnedVersion = readPinnedCodexClientVersion();
     const fetchGuard: LiveModelCatalogFetchGuard = vi.fn(async (params) => ({

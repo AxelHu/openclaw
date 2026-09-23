@@ -56,6 +56,23 @@ function comparableProviderMetadata(provider: ReturnType<typeof createOpenAIProv
 }
 
 describe("OpenAI plugin manifest", () => {
+  it.each([
+    ["gpt-6-sol", { input: 2, output: 10, cacheRead: 0.2, cacheWrite: 2.5 }],
+    ["gpt-6-luna", { input: 0.1, output: 0.5, cacheRead: 0.01, cacheWrite: 0.125 }],
+  ])("publishes %s without inheriting old model prices or changing defaults", (id, cost) => {
+    expect(
+      manifest.modelCatalog.providers.openai.models.find((model) => model.id === id),
+    ).toMatchObject({
+      contextWindow: 1_050_000,
+      contextTokens: 272_000,
+      maxTokens: 128_000,
+      input: ["text", "image"],
+      cost,
+      compat: { supportedReasoningEfforts: ["none", "low", "medium", "high", "xhigh", "max"] },
+    });
+    expect(manifest.modelCatalog.providers.openai.defaultUtilityModel).toBe("gpt-5.6-luna");
+  });
+
   it("exposes only current OpenAI login choices", () => {
     const openAiLogin = manifest.providerAuthChoices?.find(
       (choice) => choice.choiceId === "openai",

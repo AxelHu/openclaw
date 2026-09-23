@@ -98,18 +98,19 @@ function buildOpenAIThinkingProfile(params: {
       ? resolveOpenAICodexReasoningEfforts(modelId, catalogEfforts)
       : undefined;
   const knownCodexEfforts = resolveOpenAICodexReasoningEfforts(modelId, undefined);
-  const isGpt56Variant = knownCodexEfforts !== undefined;
+  const isKnownCodexVariant = knownCodexEfforts !== undefined;
   const codexSupportsMax = (resolvedCodexEfforts ?? knownCodexEfforts)?.includes("max");
   // Catalog capabilities also cover models newer than the built-in name list.
   // Preserve their advertised advanced tiers without inventing logical Ultra.
   const supportsMax =
-    (modelId.startsWith("gpt-5.6") && (agentRuntime !== "codex" || codexSupportsMax)) ||
+    ((modelId.startsWith("gpt-5.6") || isKnownCodexVariant) &&
+      (agentRuntime !== "codex" || codexSupportsMax)) ||
     catalogEfforts?.includes("max");
   const codexSupportsUltra = (resolvedCodexEfforts ?? knownCodexEfforts)?.includes("ultra");
   // OpenClaw owns its logical Ultra orchestration. Native Codex capabilities
   // come only from the selected ChatGPT route's catalog metadata.
   const supportsUltra =
-    (modelId === OPENAI_GPT_56_MODEL_ID || isGpt56Variant) &&
+    (modelId === OPENAI_GPT_56_MODEL_ID || isKnownCodexVariant) &&
     (agentRuntime === "openclaw" ||
       agentRuntime === "auto" ||
       (agentRuntime === "codex" && codexSupportsUltra));
@@ -118,11 +119,13 @@ function buildOpenAIThinkingProfile(params: {
     params.compat?.supportedReasoningEfforts === undefined &&
     (params.api === undefined || params.api === "openai-chatgpt-responses") &&
     !matchesExactOrPrefix(params.modelId, params.xhighModelIds) &&
-    !modelId.startsWith("gpt-5.6");
-  const defaultLevel = isGpt56Variant ? "medium" : undefined;
+    !modelId.startsWith("gpt-5.6") &&
+    !isKnownCodexVariant;
+  const defaultLevel = isKnownCodexVariant ? "medium" : undefined;
   const fallbackLevels: ProviderThinkingProfile["levels"] = [
     ...OPENAI_THINKING_BASE_LEVELS,
     ...(matchesExactOrPrefix(params.modelId, params.xhighModelIds) ||
+    knownCodexEfforts?.includes("xhigh") ||
     catalogEfforts?.includes("xhigh")
       ? [{ id: "xhigh" as const }]
       : []),

@@ -15,7 +15,7 @@ import {
   type CodexAppServerThreadBinding,
 } from "./session-binding.js";
 import { captureExclusiveSharedCodexAppServerClient } from "./shared-client.js";
-import { shouldRotateCodexGpt56MultiAgentBinding } from "./thread-binding-policy.js";
+import { shouldRotateCodexModelMultiAgentBinding } from "./thread-binding-policy.js";
 import { isContextEngineBindingCompatible } from "./thread-context-engine.js";
 import { codexDynamicToolsFingerprint } from "./thread-fingerprints.js";
 import {
@@ -117,7 +117,7 @@ export async function resumePendingCodexThread(
     (contextEngineBinding
       ? !isContextEngineBindingCompatible(binding.contextEngine, contextEngineBinding)
       : binding.contextEngine !== undefined) ||
-    shouldRotateCodexGpt56MultiAgentBinding({
+    shouldRotateCodexModelMultiAgentBinding({
       bindingModel: binding.model,
       requestedModel: params.params.modelId,
     })

@@ -26,7 +26,7 @@ import {
   isTransientWebSearchRestriction,
   shouldRecheckRecoverablePluginBinding,
   shouldRotateCodexAppServerBindingForRuntime,
-  shouldRotateCodexGpt56MultiAgentBinding,
+  shouldRotateCodexModelMultiAgentBinding,
 } from "./thread-binding-policy.js";
 import { isContextEngineBindingCompatible } from "./thread-context-engine.js";
 import {
@@ -348,15 +348,15 @@ export async function startOrResumeThread(
     }
     if (
       binding?.threadId &&
-      shouldRotateCodexGpt56MultiAgentBinding({
+      shouldRotateCodexModelMultiAgentBinding({
         bindingModel: binding.model,
         requestedModel: params.params.modelId,
       })
     ) {
       // Codex locks the model-selected multi-agent version on the first turn.
-      // Sol/Terra (V2) and Luna (V1) therefore cannot share one resumed thread.
+      // GPT-5.6 Luna (V1) and V2 models cannot share one resumed thread.
       embeddedAgentLog.debug(
-        "codex app-server GPT-5.6 multi-agent version changed; starting a new thread",
+        "codex app-server model multi-agent version changed; starting a new thread",
         {
           threadId: binding.threadId,
           bindingModel: binding.model,

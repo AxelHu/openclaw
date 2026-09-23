@@ -20,11 +20,11 @@ export function shouldRotateCodexAppServerBindingForRuntime(params: {
   return params.connectionClass === "remote" || Boolean(params.binding);
 }
 
-type CodexGpt56MultiAgentVersion = "v1" | "v2";
+type CodexModelMultiAgentVersion = "v1" | "v2";
 
-export function resolveCodexGpt56MultiAgentVersion(
+export function resolveCodexModelMultiAgentVersion(
   modelRef: string | undefined,
-): CodexGpt56MultiAgentVersion | undefined {
+): CodexModelMultiAgentVersion | undefined {
   let modelId = modelRef?.trim().toLowerCase();
   if (!modelId) {
     return undefined;
@@ -37,18 +37,22 @@ export function resolveCodexGpt56MultiAgentVersion(
     }
     modelId = modelId.slice(slashIndex + 1);
   }
-  if (modelId === "gpt-5.6-sol" || modelId === "gpt-5.6-terra") {
+  // The account catalog now advertises all public GPT-6 variants as V2,
+  // including Luna. Only GPT-5.6 Luna retains the V1 thread generation.
+  if (
+    ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-6-astra", "gpt-6-sol", "gpt-6-luna"].includes(modelId)
+  ) {
     return "v2";
   }
   return modelId === "gpt-5.6-luna" ? "v1" : undefined;
 }
 
-export function shouldRotateCodexGpt56MultiAgentBinding(params: {
+export function shouldRotateCodexModelMultiAgentBinding(params: {
   bindingModel?: string;
   requestedModel: string;
 }): boolean {
-  const bindingVersion = resolveCodexGpt56MultiAgentVersion(params.bindingModel);
-  const requestedVersion = resolveCodexGpt56MultiAgentVersion(params.requestedModel);
+  const bindingVersion = resolveCodexModelMultiAgentVersion(params.bindingModel);
+  const requestedVersion = resolveCodexModelMultiAgentVersion(params.requestedModel);
   return Boolean(bindingVersion && requestedVersion && bindingVersion !== requestedVersion);
 }
 

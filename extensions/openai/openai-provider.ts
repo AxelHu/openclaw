@@ -50,6 +50,7 @@ import {
   OPENAI_GPT_54_PRO_MODEL_ID,
   OPENAI_GPT_55_MODEL_ID,
   OPENAI_GPT_55_PRO_MODEL_ID,
+  OPENAI_GPT_6_VARIANT_MODEL_IDS,
   OPENAI_GPT_56_LUNA_MODEL_ID,
   OPENAI_GPT_56_MODEL_ID,
   OPENAI_GPT_56_SOL_MODEL_ID,
@@ -407,8 +408,30 @@ function resolveCodexModelInput(
   return input.size > 0 ? [...input] : (fallback?.input ?? ["text", "image"]);
 }
 
-function normalizeOpenAICodexCatalogModel(model: ModelDefinitionConfig): ModelDefinitionConfig {
+function normalizeOpenAICodexCatalogModel(
+  model: ModelDefinitionConfig,
+  fromManifest = false,
+): ModelDefinitionConfig {
   const modelId = normalizeLowercaseStringOrEmpty(model.id);
+  const isGpt6 = OPENAI_GPT_6_VARIANT_MODEL_IDS.some((id) => id === modelId);
+  if (isGpt6) {
+    // Platform's 1.05M window is not the Codex account window. Offline hints use
+    // the 2026-09-23 catalog; a successful live row keeps its own context limits.
+    return {
+      ...model,
+      ...(fromManifest ? { contextWindow: 872_000, contextTokens: 272_000 } : {}),
+      thinkingLevelMap: { ...model.thinkingLevelMap, off: null },
+      compat: {
+        ...model.compat,
+        // Non-empty API hints are merged with known native tiers (including
+        // Sol ultra); only an explicitly empty live capability list disables them.
+        supportedReasoningEfforts: resolveOpenAICodexReasoningEfforts(
+          modelId,
+          model.compat?.supportedReasoningEfforts?.filter((effort) => effort !== "none"),
+        ),
+      },
+    };
+  }
   if (
     modelId === OPENAI_GPT_56_SOL_MODEL_ID ||
     modelId === OPENAI_GPT_56_TERRA_MODEL_ID ||
@@ -441,7 +464,7 @@ function resolveCodexModelFallback(modelId: string): ModelDefinitionConfig | und
     (candidate) =>
       normalizeLowercaseStringOrEmpty(candidate.id) === normalizeLowercaseStringOrEmpty(modelId),
   );
-  return fallbackModel ? normalizeOpenAICodexCatalogModel(fallbackModel) : undefined;
+  return fallbackModel ? normalizeOpenAICodexCatalogModel(fallbackModel, true) : undefined;
 }
 
 function buildOpenAICodexModelFromLiveRow(row: unknown): ModelDefinitionConfig | undefined {
@@ -533,7 +556,7 @@ function buildOpenAICodexStaticProviderConfig(): ModelProviderConfig {
       if (modelId.startsWith("gpt-5.6") && modelId !== OPENAI_GPT_56_SOL_MODEL_ID) {
         return [];
       }
-      return [normalizeOpenAICodexCatalogModel(model)];
+      return [normalizeOpenAICodexCatalogModel(model, true)];
     }),
   };
 }
@@ -793,6 +816,10 @@ function buildOpenAIUnknownModelHint(modelId: string): string | undefined {
 
 const OPENAI_GPT_FORWARD_COMPAT_CASES = [
   {
+    match: [...OPENAI_GPT_6_VARIANT_MODEL_IDS],
+    templateIds: [OPENAI_GPT_56_SOL_MODEL_ID],
+  },
+  {
     match: [OPENAI_CHAT_LATEST_MODEL_ID],
     templateIds: OPENAI_CHAT_LATEST_TEMPLATE_MODEL_IDS,
     patch: { reasoning: false, cost: OPENAI_CHAT_LATEST_COST, contextWindow: 400_000 },
@@ -837,6 +864,7 @@ function resolveOpenAIGptForwardCompatModel(ctx: ProviderResolveDynamicModelCont
   const modelId = normalizeLowercaseStringOrEmpty(trimmedModelId);
   const exactModel = ctx.modelRegistry.find(PROVIDER_ID, trimmedModelId);
   if (
+    OPENAI_GPT_6_VARIANT_MODEL_IDS.some((id) => id === modelId) ||
     modelId === OPENAI_GPT_56_SOL_MODEL_ID ||
     modelId === OPENAI_GPT_56_TERRA_MODEL_ID ||
     modelId === OPENAI_GPT_56_LUNA_MODEL_ID

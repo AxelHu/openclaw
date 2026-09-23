@@ -2588,6 +2588,10 @@ describe("Codex app-server thread lifecycle bindings", () => {
     ["gpt-5.6-luna", "gpt-5.6-terra"],
     ["gpt-5.6-sol", "gpt-5.6-luna"],
     ["gpt-5.6-terra", "gpt-5.6-luna"],
+    ["gpt-5.6-luna", "gpt-6-sol"],
+    ["gpt-5.6-luna", "gpt-6-luna"],
+    ["gpt-6-sol", "gpt-5.6-luna"],
+    ["gpt-6-luna", "gpt-5.6-luna"],
   ])("starts a fresh thread when switching from %s to %s", async (bindingModel, requestedModel) => {
     const sessionFile = path.join(tempDir, `${bindingModel}-${requestedModel}.jsonl`);
     const workspaceDir = path.join(tempDir, "workspace");
@@ -2627,6 +2631,10 @@ describe("Codex app-server thread lifecycle bindings", () => {
   it.each([
     ["gpt-5.6-sol", "gpt-5.6-terra"],
     ["gpt-5.6-terra", "gpt-5.6-sol"],
+    ["gpt-6-sol", "gpt-6-luna"],
+    ["gpt-6-luna", "gpt-6-sol"],
+    ["gpt-6-astra", "gpt-6-sol"],
+    ["gpt-5.6-sol", "gpt-6-luna"],
   ])("resumes the thread when switching from %s to %s", async (bindingModel, requestedModel) => {
     const sessionFile = path.join(tempDir, `${bindingModel}-${requestedModel}.jsonl`);
     const workspaceDir = path.join(tempDir, "workspace");

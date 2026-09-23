@@ -133,6 +133,30 @@ explicit model selection. Retain each agent's existing reasoning effort and
 context budget when evaluating a new model, and verify the effective model on
 an actual turn rather than inferring it from binary version or catalog presence.
 
+## GPT-6 Sol and Luna (verified 2026-09-23)
+
+The authenticated Codex `0.155.0` catalog includes `gpt-6-sol` and
+`gpt-6-luna`; upgrading the binary is not required just to select either model.
+Use `openai/gpt-6-sol` or `openai/gpt-6-luna` without changing existing agent
+defaults. Both accept text and images and default to `medium` reasoning.
+Sol supports `low`, `medium`, `high`, `xhigh`, `max`, and native `ultra`;
+Luna supports the same list through `max`, not native `ultra`.
+
+The observed Codex runtime context is 272,000 tokens, with an optional maximum
+of 872,000. The Platform API advertises 1,050,000 instead. Keep the ordinary
+runtime budget by default and never infer the subscription budget from API
+metadata. A successful account catalog remains authoritative.
+
+Both new models use native multi-agent V2, including GPT-6 Luna. GPT-5.6 Luna
+uses V1, so switching across that boundary starts a fresh native thread. Changes
+between GPT-6 Sol, Luna, and Astra preserve a compatible V2 thread.
+
+These model IDs are available in Codex, Work, and the API, but not ordinary
+Chat at launch. A Chat-only bridge must not alias them to GPT-5.6 or silently
+switch execution surfaces. Sources: [release announcement](https://openai.com/index/introducing-gpt-6-sol-and-luna/),
+[Sol API model](https://developers.openai.com/api/docs/models/gpt-6-sol), and
+[Luna API model](https://developers.openai.com/api/docs/models/gpt-6-luna).
+
 ## Quickstart
 
 Install the official plugin, then sign in with Codex OAuth:
