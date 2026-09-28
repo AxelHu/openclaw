@@ -19,15 +19,16 @@ Referral link for MiniMax Coding Plan (10% off): [MiniMax Coding Plan](https://p
 
 ## Built-in catalog
 
-| Model                    | Type             | Description                              |
-| ------------------------ | ---------------- | ---------------------------------------- |
-| `MiniMax-M3`             | Chat (reasoning) | Default hosted reasoning model           |
-| `MiniMax-M2.7`           | Chat (reasoning) | Previous hosted reasoning model          |
-| `MiniMax-M2.7-highspeed` | Chat (reasoning) | Faster M2.7 reasoning tier               |
-| `MiniMax-VL-01`          | Vision           | Image understanding model                |
-| `image-01`               | Image generation | Text-to-image and image-to-image editing |
-| `music-2.6`              | Music generation | Default music model                      |
-| `MiniMax-Hailuo-2.3`     | Video generation | Text-to-video and image-to-video flows   |
+| Model                        | Type                         | Description                                           |
+| ---------------------------- | ---------------------------- | ----------------------------------------------------- |
+| `MiniMax-M3.1-Flash-Preview` | Chat (reasoning, multimodal) | Token Plan preview; opt-in, five native effort levels |
+| `MiniMax-M3`                 | Chat (reasoning)             | Default hosted reasoning model                        |
+| `MiniMax-M2.7`               | Chat (reasoning)             | Previous hosted reasoning model                       |
+| `MiniMax-M2.7-highspeed`     | Chat (reasoning)             | Faster M2.7 reasoning tier                            |
+| `MiniMax-VL-01`              | Vision                       | Image understanding model                             |
+| `image-01`                   | Image generation             | Text-to-image and image-to-image editing              |
+| `music-2.6`                  | Music generation             | Default music model                                   |
+| `MiniMax-Hailuo-2.3`         | Video generation             | Text-to-video and image-to-video flows                |
 
 Model refs follow the auth path: `minimax/<model>` for API-key setups, `minimax-portal/<model>` for OAuth setups.
 
@@ -450,3 +451,24 @@ More help: [Troubleshooting](/help/troubleshooting) and [FAQ](/help/faq).
     General troubleshooting and FAQ.
   </Card>
 </CardGroup>
+
+## MiniMax M3.1 Flash Preview
+
+Select `minimax/MiniMax-M3.1-Flash-Preview` (or the corresponding
+`minimax-portal/` model). Adding support does not change the existing M3 default.
+The preview is available through Token Plan/MiniMax Code, not general pay-as-you-go.
+Token Plan API keys use the `minimax` provider too; `minimax-portal` is not the
+only subscription route. Catalog presence does not grant access to a PAYG key.
+Its advertised context is 1,000,000 tokens and its inputs are text, images, and video.
+OpenClaw uses a conservative 32,768 output-token cap; this is not an upstream maximum.
+Catalog zero-cost fields are subscription-accounting placeholders, not free inference.
+
+Native thinking levels are `low`, `medium`, `high`, `xhigh`, and `max`; the provider
+default is `max`. OpenClaw sends `thinking.type=adaptive` and
+`output_config.effort` rather than a token budget or `thinking.type=high`.
+Thinking cannot be disabled. `adaptive` inherits `max`; it is not an additional native effort.
+M3 and M2.x keep their previous thinking policies. Existing regional endpoints
+remain configured as before; the documented CN endpoint `api.minimax.cn` is also
+recognized as native.
+
+Reference: [MiniMax Anthropic-compatible API](https://platform.minimax.cn/docs/api-reference/text-anthropic-api).

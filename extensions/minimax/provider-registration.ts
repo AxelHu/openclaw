@@ -20,7 +20,6 @@ import {
   buildProviderReplayFamilyHooks,
   normalizeModelCompat,
 } from "openclaw/plugin-sdk/provider-model-shared";
-import { buildProviderStreamFamilyHooks } from "openclaw/plugin-sdk/provider-stream-family";
 import { fetchMinimaxUsage } from "openclaw/plugin-sdk/provider-usage";
 import { normalizeOptionalString } from "openclaw/plugin-sdk/string-coerce-runtime";
 import {
@@ -29,7 +28,7 @@ import {
   MINIMAX_TEXT_MODEL_CATALOG,
   MINIMAX_TEXT_MODEL_ORDER,
 } from "./api.js";
-import { DEFAULT_MINIMAX_MAX_TOKENS, resolveMinimaxApiCost } from "./model-definitions.js";
+import { resolveMinimaxMaxTokens, resolveMinimaxApiCost } from "./model-definitions.js";
 import type { MiniMaxRegion } from "./oauth.js";
 import { applyMinimaxApiConfig, applyMinimaxApiConfigCn } from "./onboard.js";
 import {
@@ -38,6 +37,8 @@ import {
   buildMinimaxProvider,
   resolveMinimaxCatalogBaseUrl,
 } from "./provider-catalog.js";
+import { MINIMAX_M31_FLASH_MODEL_ID } from "./provider-models.js";
+import { wrapMinimaxStream } from "./stream.js";
 import { resolveMinimaxThinkingProfile } from "./thinking.js";
 
 const API_PROVIDER_ID = "minimax";
@@ -63,7 +64,9 @@ const HYBRID_ANTHROPIC_OPENAI_REPLAY_HOOKS = buildProviderReplayFamilyHooks({
 });
 const MINIMAX_PROVIDER_HOOKS = {
   ...HYBRID_ANTHROPIC_OPENAI_REPLAY_HOOKS,
-  ...buildProviderStreamFamilyHooks("minimax-fast-mode"),
+  wrapStreamFn: wrapMinimaxStream,
+  wrapSimpleCompletionStreamFn: (ctx: Parameters<typeof wrapMinimaxStream>[0]) =>
+    wrapMinimaxStream(ctx, true),
   resolveReasoningOutputMode: () => "native" as const,
   resolveThinkingProfile: ({ modelId }: { modelId: string }) =>
     resolveMinimaxThinkingProfile(modelId),
@@ -131,7 +134,9 @@ function resolveMinimaxDynamicModel(params: {
     input: [...catalogModel.model.input] as ProviderRuntimeModel["input"],
     cost: resolveMinimaxApiCost(catalogModel.id),
     contextWindow: catalogModel.model.contextWindow,
-    maxTokens: DEFAULT_MINIMAX_MAX_TOKENS,
+    maxTokens: resolveMinimaxMaxTokens(catalogModel.id),
+    // Provider-specific code mode/effort metadata remains in the OpenClaw catalog
+    // and resolveThinkingProfile. The transport SDK accepts neither compat key.
   });
 }
 
@@ -230,6 +235,7 @@ function createOAuthHandler(region: MiniMaxRegion) {
           agents: {
             defaults: {
               models: {
+                [portalModelRef(MINIMAX_M31_FLASH_MODEL_ID)]: { alias: "minimax-m31-flash" },
                 [portalModelRef("MiniMax-M3")]: { alias: "minimax-m3" },
                 [portalModelRef("MiniMax-M2.7")]: { alias: "minimax-m2.7" },
                 [portalModelRef("MiniMax-M2.7-highspeed")]: {

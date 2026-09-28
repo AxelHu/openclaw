@@ -14,6 +14,8 @@ export {
 } from "./model-definitions.js";
 export {
   isMiniMaxModernModelId,
+  MINIMAX_M31_FLASH_MODEL_ID,
+  MINIMAX_M31_EFFORTS,
   MINIMAX_DEFAULT_MODEL_ID,
   MINIMAX_DEFAULT_MODEL_REF,
   MINIMAX_TEXT_MODEL_CATALOG,
