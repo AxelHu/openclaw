@@ -98,7 +98,7 @@ describe.skipIf(process.platform === "win32")("service-managed child lifecycle",
       argv: [
         "/bin/sh",
         "-c",
-        'sleep 60 >/dev/null 2>&1 & child=$!; printf "%s %s\\n" "$$" "$child"; wait',
+        'exec 3>&-; sleep 60 >/dev/null 2>&1 & child=$!; printf "%s %s\\n" "$$" "$child"; wait',
       ],
       stdinMode: "pipe-closed",
       sessionId: "service-lifecycle-test",
@@ -545,7 +545,23 @@ describe.skipIf(process.platform === "win32")("service-managed child lifecycle",
     },
   );
 
-  it("fails closed when the command drops its lineage descriptor early", async () => {
+  it("lets a live command close inherited descriptors without losing ownership", async () => {
+    process.env.OPENCLAW_SERVICE_MARKER = "openclaw";
+    const adapter = await createChildAdapter({
+      argv: ["/bin/sh", "-c", 'exec 3>&-; sleep 0.5; printf "completed\\n"; exit 23'],
+      stdinMode: "pipe-closed",
+    });
+    let output = "";
+    adapter.onStdout((chunk) => {
+      output += chunk;
+    });
+
+    await expect(adapter.wait()).resolves.toEqual({ code: 23, signal: null });
+    expect(output).toBe("completed\n");
+    await adapter.waitForExtinction?.();
+  });
+
+  it("still cancels a command that closed its inherited descriptors", async () => {
     process.env.OPENCLAW_SERVICE_MARKER = "openclaw";
     const adapter = await createChildAdapter({
       argv: ["/bin/sh", "-c", `exec 3>&-; trap '' TERM; printf "%s\\n" "$$"; sleep 60`],
@@ -559,6 +575,7 @@ describe.skipIf(process.platform === "win32")("service-managed child lifecycle",
     const rootPid = Number.parseInt(output, 10);
     activePids.add(rootPid);
 
+    adapter.kill("SIGTERM");
     await adapter.wait();
     await waitFor(() => !isAlive(rootPid));
   });
@@ -612,7 +629,7 @@ describe.skipIf(process.platform === "win32")("service-managed child lifecycle",
         process.env.OPENCLAW_SERVICE_MARKER = "openclaw";
         const { createChildAdapter } = await import(${JSON.stringify(childModuleUrl)});
         const adapter = await createChildAdapter({
-          argv: ["/bin/sh", "-c", 'sleep 60 >/dev/null 2>&1 & child=$!; printf "%s %s\\\\n" "$$" "$child"; wait'],
+          argv: ["/bin/sh", "-c", 'exec 3>&-; sleep 60 >/dev/null 2>&1 & child=$!; printf "%s %s\\\\n" "$$" "$child"; wait'],
           stdinMode: "pipe-closed",
         });
         let output = "";

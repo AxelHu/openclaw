@@ -11,8 +11,6 @@ import {
   type ServiceChildStart,
 } from "./service-child-protocol.js";
 
-const LINEAGE_EXIT_OBSERVATION_MS = 100;
-
 type AnchorState = "starting" | "active" | "closing" | "closed";
 type StdioEntry = "ignore" | "inherit" | "pipe" | number;
 
@@ -235,12 +233,11 @@ export function runServiceChildGroupAnchor(): void {
       lineageClosed = true;
       lineageDone.resolve();
       if (state === "active") {
-        // Pipe EOF and the child exit notification race independently. Wait
-        // briefly for the exact child event before treating EOF as lease loss.
+        // Programs may close inherited descriptors while still running (for example,
+        // SSH's closefrom). The exact child and private host channel still own the group;
+        // descriptor EOF alone is not loss of that authority.
         void (async () => {
-          if (!rootExit) {
-            await Promise.race([rootExited.promise, delay(LINEAGE_EXIT_OBSERVATION_MS)]);
-          }
+          await rootExited.promise;
           if (state !== "active") {
             return;
           }
