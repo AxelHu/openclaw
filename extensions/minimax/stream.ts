@@ -2,12 +2,16 @@
 import type { ProviderWrapStreamFnContext } from "openclaw/plugin-sdk/plugin-entry";
 import { buildProviderStreamFamilyHooks } from "openclaw/plugin-sdk/provider-stream-family";
 import { createPayloadPatchStreamWrapper } from "openclaw/plugin-sdk/provider-stream-shared";
-import { MINIMAX_M31_EFFORTS, MINIMAX_M31_FLASH_MODEL_ID } from "./provider-models.js";
+import {
+  MINIMAX_M31_EFFORTS,
+  MINIMAX_M31_FLASH_FORMAL_MODEL_ID,
+  isMinimaxM31Flash,
+} from "./provider-models.js";
 
 const FAST_MODE = buildProviderStreamFamilyHooks("minimax-fast-mode");
 
 export function wrapMinimaxStream(ctx: ProviderWrapStreamFnContext, simple = false) {
-  const isFlash = ctx.modelId.trim().toLowerCase() === MINIMAX_M31_FLASH_MODEL_ID.toLowerCase();
+  const isFlash = isMinimaxM31Flash(ctx.modelId);
   if (simple && !isFlash) {
     return ctx.streamFn;
   }
@@ -26,6 +30,12 @@ export function wrapMinimaxStream(ctx: ProviderWrapStreamFnContext, simple = fal
         throw new Error(
           "MiniMax M3.1 Flash thinking cannot be disabled; use low, medium, high, xhigh, or max",
         );
+      }
+      if (
+        ctx.modelId.trim().toLowerCase() === MINIMAX_M31_FLASH_FORMAL_MODEL_ID.toLowerCase() &&
+        "service_tier" in payload
+      ) {
+        throw new Error("MiniMax M3.1 Flash formal release does not support service_tier");
       }
       payload.thinking = { type: "adaptive" };
       const output = payload.output_config;

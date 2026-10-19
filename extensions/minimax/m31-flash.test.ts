@@ -47,98 +47,105 @@ async function payloadFor(effort?: string, id = "minimax", modelId = MODEL, simp
   return payload;
 }
 
-describe("MiniMax M3.1 Flash public provider contract", () => {
-  it.each(["minimax", "minimax-portal"])(
-    "offers all five native efforts, no off, for %s",
-    async (id) => {
-      const hooks = await provider(id);
-      const profile = hooks.resolveThinkingProfile?.({ modelId: MODEL } as never);
-      expect(profile?.levels.map((level) => level.id)).toEqual(EFFORTS);
-      expect(profile?.defaultLevel).toBe("max");
-    },
-  );
-  it.each(EFFORTS)(
-    "sends native %s effort, adaptive thinking, and the caller's token cap",
-    async (effort) => {
-      expect(await payloadFor(effort)).toEqual({
-        thinking: { type: "adaptive" },
-        output_config: { effort },
-        max_tokens: 500,
-      });
-    },
-  );
-  it.each(EFFORTS)(
-    "preserves native %s effort and token cap through direct completion aliases",
-    async (effort) => {
-      expect(await payloadFor(effort, "minimax", MODEL, true)).toEqual({
-        thinking: { type: "adaptive" },
-        output_config: { effort },
-        max_tokens: 500,
-      });
-    },
-  );
-  it("uses the direct-completion hook for portal OAuth", async () => {
-    expect(await payloadFor("xhigh", "minimax-portal", MODEL, true)).toMatchObject({
-      output_config: { effort: "xhigh" },
-    });
-  });
-  it("keeps legacy direct completions on their existing wire contract", async () => {
-    expect(await payloadFor("high", "minimax", "MiniMax-M3", true)).toEqual({
-      thinking: { type: "enabled", budget_tokens: 8192 },
-      max_tokens: 8692,
-    });
-  });
-  it("rejects disabled reasoning on direct completions before dispatch", async () => {
-    await expect(payloadFor("off", "minimax", MODEL, true)).rejects.toThrow(/cannot be disabled/i);
-  });
-  it("uses the same effort contract for portal OAuth", async () => {
-    expect(await payloadFor("xhigh", "minimax-portal")).toMatchObject({
-      output_config: { effort: "xhigh" },
-    });
-  });
-  it("uses documented max when the caller leaves effort unspecified", async () => {
-    expect(await payloadFor()).toMatchObject({ output_config: { effort: "max" } });
-  });
-  it("rejects off before dispatch rather than claiming thinking can be disabled", async () => {
-    await expect(payloadFor("off")).rejects.toThrow(/cannot be disabled/i);
-  });
-  it("does not send M3.1 effort controls to the existing M3 model", async () => {
-    expect(await payloadFor("adaptive", "minimax", "MiniMax-M3")).not.toHaveProperty(
-      "output_config",
+describe.each([MODEL, "MiniMax-M3.1-Flash"])(
+  "MiniMax M3.1 Flash public provider contract: %s",
+  (modelId) => {
+    it.each(["minimax", "minimax-portal"])(
+      "offers all five native efforts, no off, for %s",
+      async (id) => {
+        const hooks = await provider(id);
+        const profile = hooks.resolveThinkingProfile?.({ modelId } as never);
+        expect(profile?.levels.map((level) => level.id)).toEqual(EFFORTS);
+        expect(profile?.defaultLevel).toBe("max");
+      },
     );
-  });
-  it("adds an explicitly selectable multimodal model to both static catalogs", () => {
-    for (const catalog of [buildMinimaxProvider(), buildMinimaxPortalProvider()]) {
-      const model = catalog.models.find((m) => m.id === MODEL);
+    it.each(EFFORTS)(
+      "sends native %s effort, adaptive thinking, and the caller's token cap",
+      async (effort) => {
+        expect(await payloadFor(effort, "minimax", modelId)).toEqual({
+          thinking: { type: "adaptive" },
+          output_config: { effort },
+          max_tokens: 500,
+        });
+      },
+    );
+    it.each(EFFORTS)(
+      "preserves native %s effort and token cap through direct completion aliases",
+      async (effort) => {
+        expect(await payloadFor(effort, "minimax", modelId, true)).toEqual({
+          thinking: { type: "adaptive" },
+          output_config: { effort },
+          max_tokens: 500,
+        });
+      },
+    );
+    it("uses the direct-completion hook for portal OAuth", async () => {
+      expect(await payloadFor("xhigh", "minimax-portal", modelId, true)).toMatchObject({
+        output_config: { effort: "xhigh" },
+      });
+    });
+    it("keeps legacy direct completions on their existing wire contract", async () => {
+      expect(await payloadFor("high", "minimax", "MiniMax-M3", true)).toEqual({
+        thinking: { type: "enabled", budget_tokens: 8192 },
+        max_tokens: 8692,
+      });
+    });
+    it("rejects disabled reasoning on direct completions before dispatch", async () => {
+      await expect(payloadFor("off", "minimax", modelId, true)).rejects.toThrow(
+        /cannot be disabled/i,
+      );
+    });
+    it("uses the same effort contract for portal OAuth", async () => {
+      expect(await payloadFor("xhigh", "minimax-portal", modelId)).toMatchObject({
+        output_config: { effort: "xhigh" },
+      });
+    });
+    it("uses documented max when the caller leaves effort unspecified", async () => {
+      expect(await payloadFor(undefined, "minimax", modelId)).toMatchObject({
+        output_config: { effort: "max" },
+      });
+    });
+    it("rejects off before dispatch rather than claiming thinking can be disabled", async () => {
+      await expect(payloadFor("off", "minimax", modelId)).rejects.toThrow(/cannot be disabled/i);
+    });
+    it("does not send M3.1 effort controls to the existing M3 model", async () => {
+      expect(await payloadFor("adaptive", "minimax", "MiniMax-M3")).not.toHaveProperty(
+        "output_config",
+      );
+    });
+    it("adds an explicitly selectable multimodal model to both static catalogs", () => {
+      for (const catalog of [buildMinimaxProvider(), buildMinimaxPortalProvider()]) {
+        const model = catalog.models.find((m) => m.id === modelId);
+        expect(model).toMatchObject({
+          id: modelId,
+          input: ["text", "image", "video"],
+          reasoning: true,
+          contextWindow: 1_000_000,
+          maxTokens: modelId === MODEL ? 32768 : 131072,
+        });
+        expect(catalog.models.some((m) => m.id === "MiniMax-M3")).toBe(true);
+      }
+      expect(buildMinimaxApiModelDefinition(modelId).compat?.supportedReasoningEfforts).toEqual(
+        EFFORTS,
+      );
+    });
+    it("preserves the same identity and limits through dynamic discovery", async () => {
+      const hooks = await provider();
+      const model = hooks.resolveDynamicModel?.({ modelId, providerConfig: {} } as never);
       expect(model).toMatchObject({
-        id: MODEL,
-        input: ["text", "image", "video"],
-        reasoning: true,
+        id: modelId,
         contextWindow: 1_000_000,
-        maxTokens: 32768,
+        maxTokens: modelId === MODEL ? 32768 : 131072,
       });
-      expect(catalog.models.some((m) => m.id === "MiniMax-M3")).toBe(true);
-    }
-    expect(buildMinimaxApiModelDefinition(MODEL).compat?.supportedReasoningEfforts).toEqual(
-      EFFORTS,
-    );
-  });
-  it("preserves the same identity and limits through dynamic discovery", async () => {
-    const hooks = await provider();
-    const model = hooks.resolveDynamicModel?.({ modelId: MODEL, providerConfig: {} } as never);
-    expect(model).toMatchObject({
-      id: MODEL,
-      contextWindow: 1_000_000,
-      maxTokens: 32768,
     });
-  });
-});
+  },
+);
 
 it.each(["minimax", "minimax-portal"])(
   "preserves M3.1 and M3 native thinking/tool history for %s",
   async (id) => {
     const hooks = await provider(id);
-    for (const modelId of [MODEL, "MiniMax-M3"]) {
+    for (const modelId of [MODEL, "MiniMax-M3.1-Flash", "MiniMax-M3"]) {
       const policy = hooks.buildReplayPolicy?.({
         provider: id,
         modelId,
