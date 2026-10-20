@@ -2,11 +2,14 @@
 import { matchesExactOrPrefix } from "openclaw/plugin-sdk/provider-model-shared";
 
 // Token Plan API keys use `minimax`; subscription access is not OAuth-only.
-export const MINIMAX_M31_FLASH_MODEL_ID = "MiniMax-M3.1-Flash-Preview";
-export const MINIMAX_M31_FLASH_FORMAL_MODEL_ID = "MiniMax-M3.1-Flash";
+// Formal release is the primary selectable model; Preview remains available
+// only for explicit historical session/config reproduction.
+export const MINIMAX_M31_FLASH_MODEL_ID = "MiniMax-M3.1-Flash";
+export const MINIMAX_M31_FLASH_FORMAL_MODEL_ID = MINIMAX_M31_FLASH_MODEL_ID;
+export const MINIMAX_M31_FLASH_PREVIEW_MODEL_ID = "MiniMax-M3.1-Flash-Preview";
 export function isMinimaxM31Flash(modelId: string): boolean {
   const normalized = modelId.trim().toLowerCase();
-  return [MINIMAX_M31_FLASH_MODEL_ID, MINIMAX_M31_FLASH_FORMAL_MODEL_ID].some(
+  return [MINIMAX_M31_FLASH_MODEL_ID, MINIMAX_M31_FLASH_PREVIEW_MODEL_ID].some(
     (id) => id.toLowerCase() === normalized,
   );
 }
@@ -18,13 +21,13 @@ export const MINIMAX_DEFAULT_MODEL_REF = `minimax/${MINIMAX_DEFAULT_MODEL_ID}`;
 export const MINIMAX_TEXT_MODEL_ORDER = [
   "MiniMax-M3",
   MINIMAX_M31_FLASH_MODEL_ID,
-  MINIMAX_M31_FLASH_FORMAL_MODEL_ID,
+  MINIMAX_M31_FLASH_PREVIEW_MODEL_ID,
   "MiniMax-M2.7",
   "MiniMax-M2.7-highspeed",
 ] as const;
 
 export const MINIMAX_TEXT_MODEL_CATALOG = {
-  [MINIMAX_M31_FLASH_FORMAL_MODEL_ID]: {
+  [MINIMAX_M31_FLASH_MODEL_ID]: {
     name: "MiniMax M3.1 Flash",
     reasoning: true,
     input: ["text", "image", "video"],
@@ -33,7 +36,7 @@ export const MINIMAX_TEXT_MODEL_CATALOG = {
     maxTokens: 131072,
     compat: { codeMode: "preferred", supportedReasoningEfforts: [...MINIMAX_M31_EFFORTS] },
   },
-  [MINIMAX_M31_FLASH_MODEL_ID]: {
+  [MINIMAX_M31_FLASH_PREVIEW_MODEL_ID]: {
     name: "MiniMax M3.1 Flash Preview",
     reasoning: true,
     input: ["text", "image", "video"],

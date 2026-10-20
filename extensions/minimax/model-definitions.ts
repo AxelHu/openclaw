@@ -3,6 +3,7 @@ import type { ModelDefinitionConfig } from "openclaw/plugin-sdk/provider-model-s
 import {
   MINIMAX_DEFAULT_MODEL_ID,
   MINIMAX_M31_FLASH_MODEL_ID,
+  MINIMAX_M31_FLASH_PREVIEW_MODEL_ID,
   MINIMAX_TEXT_MODEL_CATALOG,
 } from "./provider-models.js";
 
@@ -62,7 +63,7 @@ type MinimaxCatalogId = keyof typeof MINIMAX_TEXT_MODEL_CATALOG;
 export function resolveMinimaxApiCost(modelId: string): ModelDefinitionConfig["cost"] {
   // Flash Preview is Token Plan-only. Zero is a subscription accounting placeholder,
   // not a public pay-as-you-go price and not a claim of free inference.
-  if (modelId === MINIMAX_M31_FLASH_MODEL_ID) {
+  if (modelId === MINIMAX_M31_FLASH_PREVIEW_MODEL_ID) {
     return MINIMAX_HOSTED_COST;
   }
   if (modelId === "MiniMax-M2.7") {

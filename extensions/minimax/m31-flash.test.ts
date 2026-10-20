@@ -7,11 +7,24 @@ import {
 import { describe, expect, it } from "vitest";
 import { buildMinimaxApiModelDefinition } from "./model-definitions.js";
 import { buildMinimaxProvider, buildMinimaxPortalProvider } from "./provider-catalog.js";
+import {
+  MINIMAX_M31_FLASH_MODEL_ID,
+  MINIMAX_M31_FLASH_PREVIEW_MODEL_ID,
+  MINIMAX_TEXT_MODEL_ORDER,
+} from "./provider-models.js";
 import { registerMinimaxProviders } from "./provider-registration.js";
 
 const MODEL = "MiniMax-M3.1-Flash-Preview";
 const EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
 const plugin = { register: registerMinimaxProviders };
+
+it("prefers the formal Flash ID while preserving the Preview compatibility entry", () => {
+  expect(MINIMAX_M31_FLASH_MODEL_ID).toBe("MiniMax-M3.1-Flash");
+  expect(MINIMAX_M31_FLASH_PREVIEW_MODEL_ID).toBe("MiniMax-M3.1-Flash-Preview");
+  expect(MINIMAX_TEXT_MODEL_ORDER.indexOf(MINIMAX_M31_FLASH_MODEL_ID)).toBeLessThan(
+    MINIMAX_TEXT_MODEL_ORDER.indexOf(MINIMAX_M31_FLASH_PREVIEW_MODEL_ID),
+  );
+});
 
 async function provider(id = "minimax") {
   const { providers } = await registerProviderPlugin({ plugin, id: "minimax", name: "MiniMax" });
