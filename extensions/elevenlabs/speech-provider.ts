@@ -33,7 +33,7 @@ import {
   normalizeLowercaseStringOrEmpty,
   parseBooleanValue,
 } from "openclaw/plugin-sdk/string-coerce-runtime";
-import { resolveElevenLabsApiKeyWithProfileFallback } from "./config-api.js";
+import { executeElevenLabsApiKeyPool, resolveElevenLabsApiKeyPool } from "./api-keys.js";
 import { isValidElevenLabsVoiceId, normalizeElevenLabsBaseUrl } from "./shared.js";
 import { elevenLabsTTS, elevenLabsTTSStream } from "./tts.js";
 const DEFAULT_ELEVENLABS_VOICE_ID = "pMsXgVXv3BLzUgSXRplE";
@@ -198,17 +198,20 @@ function readElevenLabsProviderConfig(config: SpeechProviderConfig): ElevenLabsP
   };
 }
 
-function resolveElevenLabsApiKey(...candidates: Array<string | undefined>): string | undefined {
-  return resolveSpeechProviderApiKey(
-    ...candidates,
-    resolveElevenLabsApiKeyWithProfileFallback() ?? undefined,
-    process.env.XI_API_KEY,
-  );
+function resolveElevenLabsApiKeys(
+  candidates: Array<string | undefined>,
+  options: { rotate?: boolean } = {},
+): string[] {
+  const explicit = resolveSpeechProviderApiKey(...candidates);
+  return resolveElevenLabsApiKeyPool({
+    explicitApiKey: explicit,
+    rotate: options.rotate,
+  }).apiKeys;
 }
 
 function resolveElevenLabsTalkApiKey(config: SpeechProviderConfig): string | undefined {
   if (config.apiKey === undefined) {
-    return resolveElevenLabsApiKey();
+    return undefined;
   }
   return normalizeResolvedSecretInputString({
     value: config.apiKey,
@@ -354,45 +357,50 @@ function parseDirectiveToken(ctx: SpeechDirectiveTokenParseContext) {
 }
 
 async function listElevenLabsVoices(params: {
-  apiKey: string;
+  apiKeys: readonly string[];
   baseUrl?: string;
   timeoutMs?: number;
 }): Promise<SpeechVoiceOption[]> {
   const normalizedBaseUrl = normalizeElevenLabsBaseUrl(params.baseUrl);
-  const { response, release } = await fetchWithSsrFGuard({
-    url: `${normalizedBaseUrl}/v1/voices`,
-    init: {
-      headers: {
-        "xi-api-key": params.apiKey,
-      },
+  return await executeElevenLabsApiKeyPool({
+    apiKeys: params.apiKeys,
+    execute: async (apiKey) => {
+      const { response, release } = await fetchWithSsrFGuard({
+        url: `${normalizedBaseUrl}/v1/voices`,
+        init: {
+          headers: {
+            "xi-api-key": apiKey,
+          },
+        },
+        timeoutMs: params.timeoutMs,
+        policy: ssrfPolicyFromHttpBaseUrlAllowedHostname(normalizedBaseUrl),
+        auditContext: "elevenlabs.voices",
+      });
+      try {
+        await assertOkOrThrowProviderError(response, "ElevenLabs voices API error");
+        const json = await readProviderJsonResponse<{
+          voices?: Array<{
+            voice_id?: string;
+            name?: string;
+            category?: string;
+            description?: string;
+          }>;
+        }>(response, "elevenlabs.voices");
+        return Array.isArray(json.voices)
+          ? json.voices
+              .map((voice) => ({
+                id: voice.voice_id?.trim() ?? "",
+                name: trimToUndefined(voice.name),
+                category: trimToUndefined(voice.category),
+                description: trimToUndefined(voice.description),
+              }))
+              .filter((voice) => voice.id.length > 0)
+          : [];
+      } finally {
+        await release();
+      }
     },
-    timeoutMs: params.timeoutMs,
-    policy: ssrfPolicyFromHttpBaseUrlAllowedHostname(normalizedBaseUrl),
-    auditContext: "elevenlabs.voices",
   });
-  try {
-    await assertOkOrThrowProviderError(response, "ElevenLabs voices API error");
-    const json = await readProviderJsonResponse<{
-      voices?: Array<{
-        voice_id?: string;
-        name?: string;
-        category?: string;
-        description?: string;
-      }>;
-    }>(response, "elevenlabs.voices");
-    return Array.isArray(json.voices)
-      ? json.voices
-          .map((voice) => ({
-            id: voice.voice_id?.trim() ?? "",
-            name: trimToUndefined(voice.name),
-            category: trimToUndefined(voice.category),
-            description: trimToUndefined(voice.description),
-          }))
-          .filter((voice) => voice.id.length > 0)
-      : [];
-  } finally {
-    await release();
-  }
 }
 
 type ElevenLabsSynthesisRequest = Pick<
@@ -406,13 +414,13 @@ function resolveElevenLabsTtsRequest(
 ): Parameters<typeof elevenLabsTTS>[0] {
   const config = readElevenLabsProviderConfig(req.providerConfig);
   const overrides = req.providerOverrides ?? {};
-  const apiKey = resolveElevenLabsApiKey(config.apiKey);
-  if (!apiKey) {
+  const apiKeys = resolveElevenLabsApiKeys([config.apiKey]);
+  if (apiKeys.length === 0) {
     throw new Error("ElevenLabs API key missing");
   }
   return {
     text: req.text,
-    apiKey,
+    apiKeys,
     baseUrl: config.baseUrl,
     voiceId: trimToUndefined(overrides.voiceId) ?? config.voiceId,
     modelId: normalizeElevenLabsTtsModelId(trimToUndefined(overrides.modelId)) ?? config.modelId,
@@ -524,18 +532,20 @@ export function buildElevenLabsSpeechProvider(): SpeechProviderPlugin {
         : undefined;
       const requestValue = req.apiKey;
       const configValue = config?.apiKey;
-      const apiKey = resolveElevenLabsApiKey(requestValue, configValue);
-      if (!apiKey) {
+      const apiKeys = resolveElevenLabsApiKeys([requestValue, configValue]);
+      if (apiKeys.length === 0) {
         throw new Error("ElevenLabs API key missing");
       }
       return listElevenLabsVoices({
-        apiKey,
+        apiKeys,
         baseUrl: req.baseUrl ?? config?.baseUrl,
         timeoutMs: req.timeoutMs,
       });
     },
     isConfigured: ({ providerConfig }) =>
-      Boolean(resolveElevenLabsApiKey(readElevenLabsProviderConfig(providerConfig).apiKey)),
+      resolveElevenLabsApiKeys([readElevenLabsProviderConfig(providerConfig).apiKey], {
+        rotate: false,
+      }).length > 0,
     synthesize: async (req) => {
       const overrides = req.providerOverrides ?? {};
       const outputPlan = resolveElevenLabsOutputPlan(req);

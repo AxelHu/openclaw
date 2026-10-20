@@ -15,7 +15,7 @@ import {
   normalizeOptionalString,
   parseFiniteNumber as readFiniteNumber,
 } from "openclaw/plugin-sdk/string-coerce-runtime";
-import { resolveElevenLabsApiKeyWithProfileFallback } from "./config-api.js";
+import { resolveElevenLabsApiKeyPool } from "./api-keys.js";
 import { normalizeElevenLabsRealtimeBaseUrl } from "./shared.js";
 
 type ElevenLabsRealtimeTranscriptionProviderConfig = {
@@ -247,16 +247,6 @@ function createElevenLabsRealtimeTranscriptionSession(
   });
 }
 
-function resolveElevenLabsRealtimeApiKey(
-  config: ElevenLabsRealtimeTranscriptionProviderConfig,
-): string | null | undefined {
-  return (
-    config.apiKey ??
-    resolveElevenLabsApiKeyWithProfileFallback() ??
-    normalizeOptionalString(process.env.XI_API_KEY)
-  );
-}
-
 export function buildElevenLabsRealtimeTranscriptionProvider(): RealtimeTranscriptionProviderPlugin {
   return {
     id: "elevenlabs",
@@ -265,11 +255,16 @@ export function buildElevenLabsRealtimeTranscriptionProvider(): RealtimeTranscri
     defaultModel: ELEVENLABS_REALTIME_DEFAULT_MODEL,
     autoSelectOrder: 40,
     resolveConfig: ({ rawConfig }) => normalizeProviderConfig(rawConfig),
-    isConfigured: ({ providerConfig }) =>
-      Boolean(resolveElevenLabsRealtimeApiKey(normalizeProviderConfig(providerConfig))),
+    isConfigured: ({ providerConfig }) => {
+      const config = normalizeProviderConfig(providerConfig);
+      return (
+        resolveElevenLabsApiKeyPool({ explicitApiKey: config.apiKey, rotate: false }).apiKeys
+          .length > 0
+      );
+    },
     createSession: (req) => {
       const config = normalizeProviderConfig(req.providerConfig);
-      const apiKey = resolveElevenLabsRealtimeApiKey(config);
+      const [apiKey] = resolveElevenLabsApiKeyPool({ explicitApiKey: config.apiKey }).apiKeys;
       if (!apiKey) {
         throw new Error("ElevenLabs API key missing");
       }

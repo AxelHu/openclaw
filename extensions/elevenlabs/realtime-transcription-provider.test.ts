@@ -1,5 +1,5 @@
 // Elevenlabs tests cover realtime transcription provider plugin behavior.
-import { createServer } from "node:http";
+import { createServer, type IncomingHttpHeaders } from "node:http";
 import type { AddressInfo } from "node:net";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
 import { createDeferred } from "openclaw/plugin-sdk/extension-shared";
@@ -7,12 +7,19 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type WebSocket from "ws";
 import { WebSocketServer } from "ws";
 
-const { resolveElevenLabsApiKeyWithProfileFallbackMock } = vi.hoisted(() => ({
-  resolveElevenLabsApiKeyWithProfileFallbackMock: vi.fn(),
+const { resolveElevenLabsApiKeyPoolMock } = vi.hoisted(() => ({
+  resolveElevenLabsApiKeyPoolMock: vi.fn(
+    ({ explicitApiKey }: { explicitApiKey?: string; rotate?: boolean }) => {
+      const explicit = explicitApiKey?.trim();
+      return explicit
+        ? { apiKeys: [explicit], source: "explicit" }
+        : { apiKeys: [], source: "missing" };
+    },
+  ),
 }));
 
-vi.mock("./config-api.js", () => ({
-  resolveElevenLabsApiKeyWithProfileFallback: resolveElevenLabsApiKeyWithProfileFallbackMock,
+vi.mock("./api-keys.js", () => ({
+  resolveElevenLabsApiKeyPool: resolveElevenLabsApiKeyPoolMock,
 }));
 
 import { buildElevenLabsRealtimeTranscriptionProvider } from "./realtime-transcription-provider.js";
@@ -20,7 +27,7 @@ import { buildElevenLabsRealtimeTranscriptionProvider } from "./realtime-transcr
 let cleanup: (() => Promise<void>) | undefined;
 
 async function createRealtimeServer(
-  onRequest: (url: URL) => void,
+  onRequest: (url: URL, headers: IncomingHttpHeaders) => void,
   options?: {
     initialEvent?: Record<string, unknown>;
     events?: readonly Record<string, unknown>[];
@@ -33,7 +40,7 @@ async function createRealtimeServer(
   const clients = new Set<WebSocket>();
   let connectionCount = 0;
   server.on("upgrade", (request, socket, head) => {
-    onRequest(new URL(request.url ?? "/", "http://127.0.0.1"));
+    onRequest(new URL(request.url ?? "/", "http://127.0.0.1"), request.headers);
     wss.handleUpgrade(request, socket, head, (ws) => {
       clients.add(ws);
       ws.on("close", () => {
@@ -76,7 +83,15 @@ describe("buildElevenLabsRealtimeTranscriptionProvider", () => {
     await cleanup?.();
     cleanup = undefined;
     vi.unstubAllEnvs();
-    resolveElevenLabsApiKeyWithProfileFallbackMock.mockReset();
+    resolveElevenLabsApiKeyPoolMock.mockReset();
+    resolveElevenLabsApiKeyPoolMock.mockImplementation(
+      ({ explicitApiKey }: { explicitApiKey?: string; rotate?: boolean }) => {
+        const explicit = explicitApiKey?.trim();
+        return explicit
+          ? { apiKeys: [explicit], source: "explicit" }
+          : { apiKeys: [], source: "missing" };
+      },
+    );
   });
 
   it("normalizes nested provider config", () => {
@@ -188,6 +203,30 @@ describe("buildElevenLabsRealtimeTranscriptionProvider", () => {
     expect(requests[0]?.searchParams.get("audio_format")).toBe("ulaw_8000");
     expect(requests[0]?.searchParams.get("commit_strategy")).toBe("vad");
     expect(requests[0]?.searchParams.get("language_code")).toBe("en");
+  });
+
+  it("selects the rotated pooled key once per realtime session", async () => {
+    resolveElevenLabsApiKeyPoolMock.mockReturnValue({
+      apiKeys: ["key-b", "key-a"],
+      source: "environment",
+    });
+    const headers: IncomingHttpHeaders[] = [];
+    const baseUrl = await createRealtimeServer((_url, requestHeaders) =>
+      headers.push(requestHeaders),
+    );
+    const session = buildElevenLabsRealtimeTranscriptionProvider().createSession({
+      providerConfig: { baseUrl },
+    });
+
+    try {
+      await session.connect();
+      expect(resolveElevenLabsApiKeyPoolMock).toHaveBeenCalledWith({
+        explicitApiKey: undefined,
+      });
+      expect(headers[0]?.["xi-api-key"]).toBe("key-b");
+    } finally {
+      session.close();
+    }
   });
 
   it.each([
@@ -442,7 +481,6 @@ describe("buildElevenLabsRealtimeTranscriptionProvider", () => {
   });
 
   it("rejects whitespace-only environment keys before session creation", () => {
-    resolveElevenLabsApiKeyWithProfileFallbackMock.mockReturnValue(null);
     vi.stubEnv("ELEVENLABS_API_KEY", "");
     vi.stubEnv("XI_API_KEY", "   ");
     const provider = buildElevenLabsRealtimeTranscriptionProvider();

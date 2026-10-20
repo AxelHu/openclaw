@@ -11,7 +11,7 @@ describe("elevenlabs tts diagnostics", () => {
   function createDefaultTtsRequest() {
     return {
       text: "hello",
-      apiKey: "test-key",
+      apiKeys: ["test-key"],
       baseUrl: "https://api.elevenlabs.io",
       voiceId: "pMsXgVXv3BLzUgSXRplE",
       modelId: "eleven_multilingual_v2",
@@ -82,6 +82,36 @@ describe("elevenlabs tts diagnostics", () => {
     await expectDefaultTtsRequestToThrow(
       "ElevenLabs API error (429): Quota exceeded [code=quota_exceeded] [request_id=el_req_456]",
     );
+  });
+
+  it("fails over on a definitive key rejection and preserves key order", async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response("quota", { status: 429 }))
+      .mockResolvedValueOnce(
+        new Response(Buffer.from("mp3"), { headers: { "content-type": "audio/mpeg" } }),
+      );
+    globalThis.fetch = fetchMock;
+
+    await expect(
+      elevenLabsTTS({ ...createDefaultTtsRequest(), apiKeys: ["key-a", "key-b"] }),
+    ).resolves.toEqual(Buffer.from("mp3"));
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(new Headers(fetchMock.mock.calls[0]?.[1]?.headers).get("xi-api-key")).toBe("key-a");
+    expect(new Headers(fetchMock.mock.calls[1]?.[1]?.headers).get("xi-api-key")).toBe("key-b");
+  });
+
+  it("does not retry an ambiguous provider failure with another key", async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(new Response("down", { status: 503 }));
+    globalThis.fetch = fetchMock;
+
+    await expect(
+      elevenLabsTTS({ ...createDefaultTtsRequest(), apiKeys: ["key-a", "key-b"] }),
+    ).rejects.toThrow("ElevenLabs API error (503)");
+    expect(fetchMock).toHaveBeenCalledOnce();
   });
 
   it("falls back to raw body text when the error body is non-JSON", async () => {
@@ -216,6 +246,40 @@ describe("elevenlabs tts diagnostics", () => {
       });
       await expect(reader.read()).resolves.toEqual({ done: true, value: undefined });
       expect(audioStream.locked).toBe(false);
+    } finally {
+      await result.release();
+    }
+  });
+
+  it("fails over before handing off a rejected streaming response", async () => {
+    const audioStream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array([4, 5, 6]));
+        controller.close();
+      },
+    });
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response("unauthorized", { status: 401 }))
+      .mockResolvedValueOnce(
+        new Response(audioStream, { headers: { "content-type": "audio/mpeg" } }),
+      );
+    globalThis.fetch = fetchMock;
+
+    const result = await elevenLabsTTSStream({
+      ...createDefaultTtsRequest(),
+      apiKeys: ["key-a", "key-b"],
+    });
+    try {
+      const reader = result.audioStream.getReader();
+      await expect(reader.read()).resolves.toEqual({
+        done: false,
+        value: new Uint8Array([4, 5, 6]),
+      });
+      reader.releaseLock();
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(new Headers(fetchMock.mock.calls[0]?.[1]?.headers).get("xi-api-key")).toBe("key-a");
+      expect(new Headers(fetchMock.mock.calls[1]?.[1]?.headers).get("xi-api-key")).toBe("key-b");
     } finally {
       await result.release();
     }

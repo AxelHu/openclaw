@@ -4,9 +4,38 @@ import { isValidElevenLabsVoiceId } from "./shared.js";
 import { buildElevenLabsSpeechProvider } from "./speech-provider.js";
 
 const fetchWithSsrFGuardMock = vi.hoisted(() => vi.fn());
+const { poolKeysMock } = vi.hoisted(() => ({
+  poolKeysMock: vi.fn<() => string[]>(() => []),
+}));
 
-vi.mock("./config-api.js", () => ({
-  resolveElevenLabsApiKeyWithProfileFallback: () => null,
+vi.mock("./api-keys.js", () => ({
+  resolveElevenLabsApiKeyPool: ({ explicitApiKey }: { explicitApiKey?: string }) => {
+    const explicit = explicitApiKey?.trim();
+    return explicit
+      ? { apiKeys: [explicit], source: "explicit" }
+      : { apiKeys: poolKeysMock(), source: "environment" };
+  },
+  executeElevenLabsApiKeyPool: async <T>({
+    apiKeys,
+    execute,
+  }: {
+    apiKeys: readonly string[];
+    execute: (apiKey: string) => Promise<T>;
+  }) => {
+    let lastError: unknown;
+    for (const apiKey of apiKeys) {
+      try {
+        return await execute(apiKey);
+      } catch (error) {
+        lastError = error;
+        const status = (error as { status?: unknown }).status;
+        if (![401, 402, 403, 429].includes(Number(status))) {
+          throw error;
+        }
+      }
+    }
+    throw lastError;
+  },
 }));
 
 vi.mock("openclaw/plugin-sdk/ssrf-runtime", () => ({
@@ -67,6 +96,8 @@ describe("elevenlabs speech provider", () => {
   afterEach(() => {
     globalThis.fetch = originalFetch;
     fetchWithSsrFGuardMock.mockClear();
+    poolKeysMock.mockReset();
+    poolKeysMock.mockReturnValue([]);
     vi.unstubAllEnvs();
     vi.restoreAllMocks();
   });
@@ -139,6 +170,23 @@ describe("elevenlabs speech provider", () => {
     expect(fetchWithSsrFGuardMock).toHaveBeenCalledWith(
       expect.objectContaining({ timeoutMs: 30_000 }),
     );
+  });
+
+  it("fails over pooled keys when voice discovery gets a definitive rejection", async () => {
+    poolKeysMock.mockReturnValue(["key-a", "key-b"]);
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response("quota", { status: 429 }))
+      .mockResolvedValueOnce(Response.json({ voices: [{ voice_id: "voice-id-123", name: "OK" }] }));
+    globalThis.fetch = fetchMock;
+    const provider = buildElevenLabsSpeechProvider();
+
+    await expect(provider.listVoices?.({ timeoutMs: 1_000 })).resolves.toEqual([
+      { id: "voice-id-123", name: "OK", category: undefined, description: undefined },
+    ]);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(new Headers(fetchMock.mock.calls[0]?.[1]?.headers).get("xi-api-key")).toBe("key-a");
+    expect(new Headers(fetchMock.mock.calls[1]?.[1]?.headers).get("xi-api-key")).toBe("key-b");
   });
 
   it("rejects blank credentials across discovery and synthesis before requests", async () => {

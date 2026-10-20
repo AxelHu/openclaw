@@ -26,6 +26,28 @@ compatibility with existing ElevenLabs tooling.
 export ELEVENLABS_API_KEY="..."
 ```
 
+For a rotating pool, use a comma/semicolon-separated list or numbered variables:
+
+```bash
+export ELEVENLABS_API_KEYS="key-one,key-two"
+# Or: ELEVENLABS_API_KEY_1=... and ELEVENLABS_API_KEY_2=...
+```
+
+When no environment key is set, OpenClaw also reads
+`~/.config/elevenlabs/credentials.json` (`api_keys` array plus the legacy
+`api_key` field), individual non-hidden files in
+`~/.config/elevenlabs/keys/`, and the legacy `~/.config/elevenlabs/key`.
+Duplicate values are removed. An explicit provider `apiKey` stays pinned.
+
+TTS and voice-list HTTP requests round-robin their starting key, then try the
+next pooled key only after a definitive authentication, permission, quota, or
+rate-limit rejection (HTTP 401/402/403/429). Transport and 5xx failures are not
+resubmitted with another key. Batch STT uses OpenClaw's shared media-provider
+rotation for environment keys and the same ElevenLabs rejection policy for the
+local-file pool. Realtime STT chooses the next key when a new session is
+created; reconnects inside that session keep the selected key so audio and
+callbacks are not silently rebound to another account.
+
 ## Text-to-speech
 
 ```json5

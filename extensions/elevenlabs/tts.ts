@@ -16,6 +16,7 @@ import {
   fetchWithSsrFGuard,
   ssrfPolicyFromHttpBaseUrlAllowedHostname,
 } from "openclaw/plugin-sdk/ssrf-runtime";
+import { executeElevenLabsApiKeyPool } from "./api-keys.js";
 import { isValidElevenLabsVoiceId, normalizeElevenLabsBaseUrl } from "./shared.js";
 
 function assertElevenLabsVoiceSettings(settings: {
@@ -52,7 +53,7 @@ function normalizeElevenLabsLatencyTier(latencyTier: number | undefined): number
 
 type ElevenLabsTtsRequestParams = {
   text: string;
-  apiKey: string;
+  apiKeys: readonly string[];
   baseUrl: string;
   voiceId: string;
   modelId: string;
@@ -70,6 +71,14 @@ type ElevenLabsTtsRequestParams = {
   };
   timeoutMs: number;
 };
+
+function requireElevenLabsApiKeys(apiKeys: readonly string[]): string[] {
+  const normalized = [...new Set(apiKeys.map((key) => key.trim()).filter(Boolean))];
+  if (normalized.length === 0) {
+    throw new Error("ElevenLabs API key missing");
+  }
+  return normalized;
+}
 
 function prepareElevenLabsTtsRequest(params: ElevenLabsTtsRequestParams & { stream: boolean }): {
   url: URL;
@@ -131,83 +140,96 @@ function prepareElevenLabsTtsRequest(params: ElevenLabsTtsRequestParams & { stre
 }
 
 export async function elevenLabsTTS(params: ElevenLabsTtsRequestParams): Promise<Buffer> {
-  const { apiKey, timeoutMs } = params;
+  const { timeoutMs } = params;
+  const apiKeys = requireElevenLabsApiKeys(params.apiKeys);
   const { url, normalizedBaseUrl, acceptHeader, body } = prepareElevenLabsTtsRequest({
     ...params,
     stream: false,
   });
 
-  const { response, release } = await fetchWithSsrFGuard({
-    url: url.toString(),
-    init: {
-      method: "POST",
-      headers: {
-        "xi-api-key": apiKey,
-        "Content-Type": "application/json",
-        ...(acceptHeader ? { Accept: acceptHeader } : {}),
-      },
-      body,
+  return await executeElevenLabsApiKeyPool({
+    apiKeys,
+    execute: async (apiKey) => {
+      const { response, release } = await fetchWithSsrFGuard({
+        url: url.toString(),
+        init: {
+          method: "POST",
+          headers: {
+            "xi-api-key": apiKey,
+            "Content-Type": "application/json",
+            ...(acceptHeader ? { Accept: acceptHeader } : {}),
+          },
+          body,
+        },
+        timeoutMs,
+        policy: ssrfPolicyFromHttpBaseUrlAllowedHostname(normalizedBaseUrl),
+        auditContext: "elevenlabs.tts",
+      });
+      try {
+        await assertOkOrThrowProviderError(response, "ElevenLabs API error");
+        return Buffer.from(
+          await readProviderBinaryResponse(response, "ElevenLabs API error", "audio"),
+        );
+      } finally {
+        await release();
+      }
     },
-    timeoutMs,
-    policy: ssrfPolicyFromHttpBaseUrlAllowedHostname(normalizedBaseUrl),
-    auditContext: "elevenlabs.tts",
   });
-  try {
-    await assertOkOrThrowProviderError(response, "ElevenLabs API error");
-
-    return Buffer.from(await readProviderBinaryResponse(response, "ElevenLabs API error", "audio"));
-  } finally {
-    await release();
-  }
 }
 
 export async function elevenLabsTTSStream(params: ElevenLabsTtsRequestParams): Promise<{
   audioStream: ReadableStream<Uint8Array>;
   release: () => Promise<void>;
 }> {
-  const { apiKey, timeoutMs } = params;
+  const { timeoutMs } = params;
+  const apiKeys = requireElevenLabsApiKeys(params.apiKeys);
   const { url, normalizedBaseUrl, acceptHeader, body } = prepareElevenLabsTtsRequest({
     ...params,
     stream: true,
   });
 
-  const { response, release } = await fetchWithSsrFGuard({
-    url: url.toString(),
-    init: {
-      method: "POST",
-      headers: {
-        "xi-api-key": apiKey,
-        "Content-Type": "application/json",
-        ...(acceptHeader ? { Accept: acceptHeader } : {}),
-      },
-      body,
+  return await executeElevenLabsApiKeyPool({
+    apiKeys,
+    execute: async (apiKey) => {
+      const { response, release } = await fetchWithSsrFGuard({
+        url: url.toString(),
+        init: {
+          method: "POST",
+          headers: {
+            "xi-api-key": apiKey,
+            "Content-Type": "application/json",
+            ...(acceptHeader ? { Accept: acceptHeader } : {}),
+          },
+          body,
+        },
+        timeoutMs,
+        policy: ssrfPolicyFromHttpBaseUrlAllowedHostname(normalizedBaseUrl),
+        auditContext: "elevenlabs.tts.stream",
+      });
+      let handedOff = false;
+      try {
+        await assertOkOrThrowProviderError(response, "ElevenLabs API error");
+        assertProviderBinaryResponseContent(response, "ElevenLabs API error", "audio");
+        if (!response.body) {
+          throw new Error("ElevenLabs API response missing audio stream");
+        }
+        const boundedStream = createBoundedProviderBinaryStream(response.body, {
+          maxBytes: MAX_AUDIO_BYTES,
+          createOverflowError: ({ maxBytes }) =>
+            new Error(`ElevenLabs API error: audio response exceeds ${maxBytes} bytes`),
+          createReleaseError: () => new Error("ElevenLabs TTS stream released"),
+          cleanup: release,
+        });
+        handedOff = true;
+        return {
+          audioStream: boundedStream.stream,
+          release: boundedStream.release,
+        };
+      } finally {
+        if (!handedOff) {
+          await release();
+        }
+      }
     },
-    timeoutMs,
-    policy: ssrfPolicyFromHttpBaseUrlAllowedHostname(normalizedBaseUrl),
-    auditContext: "elevenlabs.tts.stream",
   });
-  let handedOff = false;
-  try {
-    await assertOkOrThrowProviderError(response, "ElevenLabs API error");
-    assertProviderBinaryResponseContent(response, "ElevenLabs API error", "audio");
-    if (!response.body) {
-      throw new Error("ElevenLabs API response missing audio stream");
-    }
-    const boundedStream = createBoundedProviderBinaryStream(response.body, {
-      maxBytes: MAX_AUDIO_BYTES,
-      createOverflowError: ({ maxBytes }) =>
-        new Error(`ElevenLabs API error: audio response exceeds ${maxBytes} bytes`),
-      createReleaseError: () => new Error("ElevenLabs TTS stream released"),
-      cleanup: release,
-    });
-    handedOff = true;
-    return {
-      audioStream: boundedStream.stream,
-      release: boundedStream.release,
-    };
-  } finally {
-    if (!handedOff) {
-      await release();
-    }
-  }
 }
