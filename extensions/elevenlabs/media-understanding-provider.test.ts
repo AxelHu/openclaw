@@ -14,7 +14,10 @@ vi.mock("./api-keys.js", () => ({
       ? { apiKeys: [explicit], source: "explicit" }
       : { apiKeys: poolKeysMock(), source: "environment" };
   },
-  resolveElevenLabsLocalApiKeys: () => poolKeysMock(),
+  resolveElevenLabsLocalApiKeyPool: () => ({
+    apiKeys: poolKeysMock(),
+    source: poolKeysMock().length > 0 ? "local" : "missing",
+  }),
   resolveElevenLabsProviderAuth: () => {
     const apiKey = poolKeysMock()[0];
     return apiKey
@@ -26,7 +29,6 @@ vi.mock("./api-keys.js", () => ({
         }
       : undefined;
   },
-  rotateElevenLabsApiKeys: (apiKeys: readonly string[]) => [...apiKeys],
   executeElevenLabsApiKeyPool: async <T>({
     apiKeys,
     execute,

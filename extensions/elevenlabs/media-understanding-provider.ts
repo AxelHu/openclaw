@@ -16,9 +16,8 @@ import {
   ELEVENLABS_LOCAL_AUTH_SOURCE,
   executeElevenLabsApiKeyPool,
   resolveElevenLabsApiKeyPool,
-  resolveElevenLabsLocalApiKeys,
+  resolveElevenLabsLocalApiKeyPool,
   resolveElevenLabsProviderAuth,
-  rotateElevenLabsApiKeys,
 } from "./api-keys.js";
 import { DEFAULT_ELEVENLABS_BASE_URL, normalizeElevenLabsBaseUrl } from "./shared.js";
 
@@ -31,7 +30,7 @@ async function transcribeElevenLabsAudio(
   const explicitApiKey = req.apiKey?.trim();
   const apiKeys =
     req.auth?.source === ELEVENLABS_LOCAL_AUTH_SOURCE
-      ? rotateElevenLabsApiKeys(resolveElevenLabsLocalApiKeys())
+      ? resolveElevenLabsLocalApiKeyPool().apiKeys
       : resolveElevenLabsApiKeyPool({ explicitApiKey }).apiKeys;
   if (apiKeys.length === 0) {
     throw new Error("ElevenLabs API key missing");

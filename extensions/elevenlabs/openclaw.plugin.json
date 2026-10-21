@@ -12,7 +12,11 @@
     "providers": [
       {
         "id": "elevenlabs",
-        "envVars": ["ELEVENLABS_API_KEY", "XI_API_KEY"]
+        "envVars": [
+          "ELEVENLABS_PREFERRED_API_KEYS",
+          "ELEVENLABS_API_KEY",
+          "XI_API_KEY"
+        ]
       }
     ]
   },

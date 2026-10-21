@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
   executeElevenLabsApiKeyPool,
   resolveElevenLabsApiKeyPool,
+  resolveElevenLabsLocalApiKeyPool,
   resolveElevenLabsLocalApiKeys,
   rotateElevenLabsApiKeys,
 } from "./api-keys.js";
@@ -42,6 +43,7 @@ describe("ElevenLabs API key pool", () => {
   it("reads and deduplicates JSON, key-directory, legacy-file, and profile sources", () => {
     const deps = fixtureDeps({
       "/tmp/home/.config/elevenlabs/credentials.json": JSON.stringify({
+        preferred_api_keys: ["paid-a", "paid-b", "paid-a"],
         api_keys: ["json-a", "json-b", "json-a"],
         api_key: "legacy-json",
       }),
@@ -55,6 +57,8 @@ describe("ElevenLabs API key pool", () => {
     });
 
     expect(resolveElevenLabsLocalApiKeys(deps)).toEqual([
+      "paid-a",
+      "paid-b",
       "json-a",
       "json-b",
       "legacy-json",
@@ -75,6 +79,39 @@ describe("ElevenLabs API key pool", () => {
     );
 
     expect(pool).toEqual({ apiKeys: ["env-a", "env-b"], source: "environment" });
+  });
+
+  it("keeps preferred environment keys ahead of fallback keys across rotations", () => {
+    const deps = {
+      collectEnvKeys: () => ["free-a", "paid-a", "free-b"],
+      env: { ELEVENLABS_PREFERRED_API_KEYS: "paid-a" },
+    };
+
+    const first = resolveElevenLabsApiKeyPool({}, deps).apiKeys;
+    const second = resolveElevenLabsApiKeyPool({}, deps).apiKeys;
+
+    expect(first[0]).toBe("paid-a");
+    expect(second[0]).toBe("paid-a");
+    expect(new Set(first.slice(1))).toEqual(new Set(["free-a", "free-b"]));
+    expect(new Set(second.slice(1))).toEqual(new Set(["free-a", "free-b"]));
+  });
+
+  it("round-robins within the preferred group without promoting fallback keys", () => {
+    const deps = fixtureDeps({
+      "/tmp/home/.config/elevenlabs/credentials.json": JSON.stringify({
+        preferred_api_keys: ["paid-a", "paid-b"],
+        api_keys: ["free-a", "free-b"],
+      }),
+    });
+
+    const first = resolveElevenLabsLocalApiKeyPool({}, deps).apiKeys;
+    const second = resolveElevenLabsLocalApiKeyPool({}, deps).apiKeys;
+
+    expect(new Set(first.slice(0, 2))).toEqual(new Set(["paid-a", "paid-b"]));
+    expect(new Set(second.slice(0, 2))).toEqual(new Set(["paid-a", "paid-b"]));
+    expect(first[0]).not.toBe(second[0]);
+    expect(first.slice(2).every((key) => key.startsWith("free-"))).toBe(true);
+    expect(second.slice(2).every((key) => key.startsWith("free-"))).toBe(true);
   });
 
   it("keeps an explicit provider key pinned", () => {
