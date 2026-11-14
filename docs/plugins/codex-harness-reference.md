@@ -177,7 +177,7 @@ flags, and plugin allow/deny references into this block. Explicit canonical
 ## App-server transport
 
 For ordinary harness turns, OpenClaw starts the managed Codex binary shipped
-with the official plugin (currently `@openai/codex` `0.155.0`):
+with the official plugin (currently `@openai/codex` `0.169.0`):
 
 ```bash
 codex app-server --listen stdio://
@@ -322,7 +322,7 @@ If the normal app-server runtime would be `danger-full-access`, enabling
 permission profile instead. Codex-managed network enforcement is sandboxed
 networking, so a full-access profile would not protect outbound traffic.
 
-The plugin manages stable Codex app-server `0.155.0`. Explicit custom
+The plugin manages stable Codex app-server `0.169.0`. Explicit custom
 executables, remote app-servers, and macOS desktop binaries must report a
 parseable semantic version of `0.149.0` or newer. Older, malformed, and
 unversioned handshakes are rejected. Newer versions log a compatibility warning
@@ -451,7 +451,7 @@ The stable default is fail-closed: active OpenClaw sandboxing disables native
 Codex execution surfaces that would otherwise run from the Codex app-server
 host. Use `appServer.experimental.sandboxExecServer: true` only when you want
 to try Codex's remote environment support with OpenClaw's sandbox backend.
-This preview path uses the pinned Codex `0.155.0` app-server.
+This preview path uses the pinned Codex `0.169.0` app-server.
 
 ```json5
 {
@@ -825,6 +825,12 @@ reject arbitrary model overrides, so the broker must enforce allowed selectors
 on every request. Disable native session discovery with
 `sessionCatalog.enabled: false` when no native history should be imported.
 
+Local session discovery and startup transcript guards read both `.jsonl` and
+Codex's compressed `.jsonl.zst` rollouts without rewriting history. If both
+representations exist, the plain rollout takes precedence, matching Codex's
+append behavior. Transcript byte limits apply to the decompressed content;
+an unreadable compressed rollout prevents reuse of that thread.
+
 A custom endpoint is not automatically a supported Codex route. Explicit
 `agentRuntime.id: "codex"` does not bypass prepared-route compatibility or the
 trusted-endpoint requirement for model-backed approval review. A workload API
@@ -848,9 +854,9 @@ response remains authoritative even if it contains no visible models; HTTP
 `401` and `403` return an empty catalog rather than exposing fallback models.
 
 <Note>
-The current bundled harness is `@openai/codex` `0.155.0`. See the
-[2026-09-18 catalog verification](/plugins/codex-harness#managed-model-catalog-verification-2026-09-18)
-for the observed GPT-6 Astra entry. The historical probe against the official
+The current bundled harness is `@openai/codex` `0.169.0`. See the
+[2026-11-14 catalog verification](/plugins/codex-harness#managed-model-catalog-verification-2026-11-14)
+for the current catalog metadata. The historical probe against the official
 `0.151.0` app-server verified this public subset of picker rows:
 
 | Model id        | Input modalities | Reasoning efforts                    |
@@ -945,6 +951,17 @@ OpenClaw disables inherited and configured MCP servers, attests that they remain
 disabled, disables native hook relays, and applies the effective policy to its
 dynamic tools. A temporary restriction on an existing session uses a transient
 Codex thread and preserves the unrestricted binding for later resume.
+
+The restriction does not imply an empty model-visible tool declaration list.
+Codex `0.155.0` already allowed model-catalog declarations for `clock.curr_time`
+and `send_message_to_user_async` despite disabled feature flags. Codex `0.169.0`
+also declares `apply_patch` when advertised by the model, even with no selected
+environment; a native execution probe confirms that such a patch fails because
+there is no execution environment and writes no file. Restricted turns explicitly
+disable `sleep_tool`. OpenClaw retains its authorization and result-validation
+checks for client-executed tools. Tool declarations may appear in incremental
+`additional_tools` input items, so inspecting only the request's top-level
+`tools` field does not establish the actual declaration surface.
 
 Ring zero is not a configurable policy profile. It is the host-scoped system
 agent path used by OpenClaw setup and repair flows. The host must activate the

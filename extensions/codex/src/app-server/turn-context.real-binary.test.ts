@@ -5,8 +5,10 @@ import { useAutoCleanupTempDirTracker } from "openclaw/plugin-sdk/test-env";
 import { describe, expect, it, vi } from "vitest";
 import { CodexAppServerClient } from "./client.js";
 import { resolveCodexAppServerRuntimeOptions } from "./config.js";
+import { resolveCodexSandboxEnvironmentSelection } from "./dynamic-tool-build.js";
 import { createCodexNativeTestState } from "./native-app-server.test-support.js";
 import { createCodexTestBindingStore } from "./session-binding.test-helpers.js";
+import { buildThreadStartParams } from "./thread-requests.js";
 import { createStdioTransport } from "./transport-stdio.js";
 import {
   buildCodexTurnSupplementalInstructions,
@@ -75,7 +77,7 @@ const MODEL_CATALOG = {
       minimal_client_version: CODEX_APP_SERVER_VERSION,
       availability_nux: null,
       upgrade: null,
-      experimental_supported_tools: [],
+      experimental_supported_tools: ["clock", "send_message_to_user_async"],
       available_in_plans: [],
       supports_search_tool: true,
       default_service_tier: null,
@@ -87,10 +89,34 @@ const MODEL_CATALOG = {
   ],
 };
 
+type ModelTool = { type?: string; name?: string; tools?: ModelTool[] };
 type ModelRequest = {
-  instructions?: string;
-  input: Array<{ role?: string; content?: Array<{ type?: string; text?: string }> }>;
+  input: Array<{
+    type?: string;
+    role?: string;
+    call_id?: string;
+    output?: unknown;
+    content?: Array<{ type?: string; text?: string }>;
+    tools?: ModelTool[];
+  }>;
+  tools?: ModelTool[];
 };
+
+function modelToolNames(request: ModelRequest): string[] {
+  const tools = [
+    ...(request.tools ?? []),
+    ...request.input
+      .filter((item) => item.type === "additional_tools")
+      .flatMap((item) => item.tools ?? []),
+  ];
+  return tools
+    .flatMap((tool) =>
+      tool.type === "namespace" && tool.tools
+        ? tool.tools.map((child) => `${tool.name}.${child.name}`)
+        : [tool.name ?? "<unnamed>"],
+    )
+    .toSorted();
+}
 
 function developerText(request: ModelRequest): string {
   return request.input
@@ -122,13 +148,14 @@ describe.skipIf(process.platform === "win32")(
   "Codex supplemental context at model boundary",
   () => {
     it(
-      "delivers complete snapshots on fresh and resumed threads without replacing native modes",
+      "preserves context across resume and rejects environmentless patch attempts",
       { timeout: 120_000 },
       async (context) => {
         const dirs = useAutoCleanupTempDirTracker(context.onTestFinished);
         const root = dirs.make("codex-context-boundary-");
         const native = await createCodexNativeTestState(root);
         const requests: ModelRequest[] = [];
+        let requestPatch = false;
         const server = http.createServer((request, response) => {
           const chunks: Buffer[] = [];
           request.on("data", (data: Buffer) => chunks.push(data));
@@ -144,16 +171,28 @@ describe.skipIf(process.platform === "win32")(
               return;
             }
             const id = `response-${requests.length}`;
-            const events = [
-              { type: "response.created", response: { id } },
-              {
-                type: "response.output_item.done",
-                item: {
+            const item = requestPatch
+              ? {
+                  type: "custom_tool_call",
+                  id: `tool-${id}`,
+                  call_id: "blocked-patch",
+                  name: "apply_patch",
+                  input:
+                    "*** Begin Patch\n*** Add File: boundary-write.txt\n+must not be written\n*** End Patch",
+                  status: "completed",
+                }
+              : {
                   type: "message",
                   id: `msg-${id}`,
                   role: "assistant",
                   content: [{ type: "output_text", text: "fixture complete" }],
-                },
+                };
+            requestPatch = false;
+            const events = [
+              { type: "response.created", response: { id } },
+              {
+                type: "response.output_item.done",
+                item,
               },
               {
                 type: "response.completed",
@@ -268,6 +307,9 @@ describe.skipIf(process.platform === "win32")(
           threadId: string,
           revision: string,
           preserveNativeTurnSettings = false,
+          expectedRequests = 1,
+          turnAppServer = appServer,
+          environmentSelection?: ReturnType<typeof resolveCodexSandboxEnvironmentSelection>,
         ) => {
           const before = requests.length;
           let detach = () => {};
@@ -283,7 +325,8 @@ describe.skipIf(process.platform === "win32")(
           const request = buildTurnStartParams(params, {
             threadId,
             cwd: native.cwd,
-            appServer,
+            appServer: turnAppServer,
+            environmentSelection,
             modelProvider: "loopback-fixture",
             preserveNativeTurnSettings,
           });
@@ -308,7 +351,7 @@ describe.skipIf(process.platform === "win32")(
             }
             detach();
           }
-          expect(requests.length).toBe(before + 1);
+          expect(requests.length).toBe(before + expectedRequests);
           return { request, actual: requests.at(-1)! };
         };
         const firstClient = await start();
@@ -337,7 +380,11 @@ describe.skipIf(process.platform === "win32")(
           expect(text).toContain(marker);
         }
         expect(text).not.toContain("tokens truncated");
-        expect(first.actual.instructions).toContain("MODEL_BASE_MARKER");
+        // Codex 0.169 records base instructions as a developer input item.
+        expect(text).toContain("MODEL_BASE_MARKER");
+        // Catalog-selected declarations can survive feature restrictions. Verify
+        // the native execution boundary separately from the declaration surface.
+        expect(modelToolNames(first.actual)).toContain("clock.curr_time");
         expect(first.request.collaborationMode?.settings.developer_instructions).toBeNull();
         // The native same-loaded-thread store must not append an unchanged catalog.
         const second = await turn(firstClient, thread.id, "A");
@@ -375,6 +422,51 @@ describe.skipIf(process.platform === "win32")(
         expect(activeSnapshot.match(/<skill>/g) ?? []).toHaveLength(83);
         expect(activeSnapshot).not.toContain("fixture-A-");
         expect(activeSnapshot).toContain("Only the latest complete snapshot is active");
+
+        params.toolsAllow = ["openclaw"];
+        params.pluginHarnessToolPolicyRestricted = true;
+        const restrictedRuntime = { ...appServer, sandbox: "danger-full-access" as const };
+        const restrictedEnvironments = resolveCodexSandboxEnvironmentSelection(undefined, false);
+        expect(restrictedEnvironments).toEqual([]);
+        const restricted = await resumedClient.request(
+          "thread/start",
+          buildThreadStartParams(params, {
+            cwd: native.cwd,
+            dynamicTools: [],
+            environmentSelection: restrictedEnvironments,
+            appServer: restrictedRuntime,
+            modelProvider: "loopback-fixture",
+            nativeCodeModeEnabled: false,
+            hostSystemAgentActive: true,
+          }),
+        );
+        await bindingStore.mutate(bindingIdentity, {
+          kind: "set",
+          binding: { threadId: restricted.thread.id, cwd: native.cwd },
+        });
+        requestPatch = true;
+        const restrictedTurn = await turn(
+          resumedClient,
+          restricted.thread.id,
+          "R",
+          true,
+          2,
+          restrictedRuntime,
+          restrictedEnvironments,
+        );
+        expect(modelToolNames(restrictedTurn.actual)).toEqual([
+          "apply_patch",
+          "clock.curr_time",
+          "send_message_to_user_async",
+        ]);
+        const patchOutput = restrictedTurn.actual.input.find(
+          (item) => item.type === "custom_tool_call_output" && item.call_id === "blocked-patch",
+        );
+        expect(patchOutput).toBeDefined();
+        expect(JSON.stringify(patchOutput?.output)).toMatch(/environment/i);
+        await expect(fs.access(path.join(native.cwd, "boundary-write.txt"))).rejects.toMatchObject({
+          code: "ENOENT",
+        });
         await expect(fs.access(path.join(native.codexHome, "auth.json"))).rejects.toMatchObject({
           code: "ENOENT",
         });

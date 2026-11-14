@@ -2,6 +2,7 @@ import path from "node:path";
 import { embeddedAgentLog } from "openclaw/plugin-sdk/agent-harness-runtime";
 import { resolveAgentDir } from "openclaw/plugin-sdk/agent-runtime";
 import { resolveSessionAgentIdsStrict } from "openclaw/plugin-sdk/agent-scope-runtime";
+import { isJsonlFile } from "../jsonl-lines.js";
 import { codexCatalogHomeId } from "../session-catalog-home-id.js";
 import {
   CODEX_APP_SERVER_UNSUBSCRIBE_TIMEOUT_MS,
@@ -99,7 +100,7 @@ function resolveCodexThreadRolloutPath(thread: CodexThread): string | undefined 
   if (
     !rolloutPath ||
     !path.isAbsolute(rolloutPath) ||
-    path.extname(rolloutPath) !== ".jsonl" ||
+    !isJsonlFile(rolloutPath) ||
     !path.basename(rolloutPath).includes(thread.id)
   ) {
     return undefined;

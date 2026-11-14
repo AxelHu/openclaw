@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import process from "node:process";
+import { zstdCompressSync } from "node:zlib";
 import type { PluginRuntime } from "openclaw/plugin-sdk/plugin-runtime";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -224,19 +225,121 @@ describe("codex cli node sessions", () => {
     ]);
   });
 
-  it("streams rollout JSONL with a record spanning many chunks", async () => {
-    const sessionId = "019e23d1-f33d-78e3-959e-0f56f30a5250";
-    const sessionDir = path.join(tempDir, "sessions", "2026", "05", "14");
-    const sessionFile = path.join(sessionDir, `rollout-2026-05-14T00-10-22-${sessionId}.jsonl`);
+  it.each([false, true])(
+    "lists compressed rollouts with history present=%s",
+    async (withHistory) => {
+      const sessionId = "019e23d1-f33d-78e3-959e-0f56f30a5253";
+      const sessionDir = path.join(tempDir, "sessions", "2026", "05", "14");
+      const sessionFile = path.join(
+        sessionDir,
+        `rollout-2026-05-14T00-10-22-${sessionId}.jsonl.zst`,
+      );
+      await fs.mkdir(sessionDir, { recursive: true });
+      const text = "压缩的会话仍可读取";
+      await fs.writeFile(
+        sessionFile,
+        zstdCompressSync(
+          Buffer.from(
+            [
+              JSON.stringify({
+                type: "session_meta",
+                payload: { id: sessionId, cwd: "/repo/compressed" },
+              }),
+              JSON.stringify({
+                timestamp: "2026-05-14T00:10:24.000Z",
+                type: "response_item",
+                payload: { type: "message", role: "user", content: [{ type: "input_text", text }] },
+              }),
+            ].join("\r\n"),
+          ),
+        ),
+      );
+      if (withHistory) {
+        await fs.writeFile(
+          path.join(tempDir, "history.jsonl"),
+          JSON.stringify({ session_id: sessionId, text }),
+        );
+      }
+      const command = createCodexCliSessionNodeHostCommands().find(
+        (entry) => entry.command === CODEX_CLI_SESSIONS_LIST_COMMAND,
+      );
+      const result = JSON.parse((await command?.handle(JSON.stringify({ limit: 5 }))) ?? "{}");
+      expect(result.sessions).toEqual([
+        {
+          sessionId,
+          updatedAt: "2026-05-14T00:10:24.000Z",
+          lastMessage: text,
+          cwd: "/repo/compressed",
+          sessionFile,
+          messageCount: 1,
+        },
+      ]);
+      await expect(fs.readdir(sessionDir)).resolves.toEqual([path.basename(sessionFile)]);
+    },
+  );
+
+  it("lists a resumed plain rollout once when compressed history is still present", async () => {
+    const sessionId = "019e23d1-f33d-78e3-959e-0f56f30a5254";
+    const sessionDir = path.join(tempDir, "sessions");
+    const sessionFile = path.join(sessionDir, `rollout-${sessionId}.jsonl`);
     await fs.mkdir(sessionDir, { recursive: true });
-    const filler = JSON.stringify({
-      timestamp: "2026-05-14T00:10:23.619Z",
-      type: "event_msg",
-      payload: { type: "token_count", padding: "x".repeat(5 * 1_024 * 1_024) },
-    });
+    const content = [
+      JSON.stringify({ type: "session_meta", payload: { id: sessionId, cwd: "/repo/resumed" } }),
+      JSON.stringify({
+        timestamp: "2026-05-14T00:10:24.000Z",
+        type: "response_item",
+        payload: {
+          type: "message",
+          role: "user",
+          content: [{ type: "input_text", text: "before resume" }],
+        },
+      }),
+    ].join("\n");
+    await fs.writeFile(`${sessionFile}.zst`, zstdCompressSync(Buffer.from(content)));
     await fs.writeFile(
       sessionFile,
-      [
+      `${content}\n${JSON.stringify({
+        timestamp: "2026-05-14T00:11:24.000Z",
+        type: "response_item",
+        payload: {
+          type: "message",
+          role: "user",
+          content: [{ type: "input_text", text: "after resume" }],
+        },
+      })}\n`,
+    );
+    const command = createCodexCliSessionNodeHostCommands().find(
+      (entry) => entry.command === CODEX_CLI_SESSIONS_LIST_COMMAND,
+    );
+    const result = JSON.parse((await command?.handle(JSON.stringify({ limit: 5 }))) ?? "{}");
+    expect(result.sessions).toEqual([
+      {
+        sessionId,
+        sessionFile,
+        cwd: "/repo/resumed",
+        lastMessage: "after resume",
+        messageCount: 2,
+        updatedAt: "2026-05-14T00:11:24.000Z",
+      },
+    ]);
+  });
+
+  it.each([".jsonl", ".jsonl.zst"])(
+    "streams %s with a record spanning many chunks",
+    async (suffix) => {
+      const sessionId = "019e23d1-f33d-78e3-959e-0f56f30a5250";
+      const sessionDir = path.join(tempDir, "sessions", "2026", "05", "14");
+      const sessionFile = path.join(
+        sessionDir,
+        `rollout-2026-05-14T00-10-22-${sessionId}${suffix}`,
+      );
+      await fs.mkdir(sessionDir, { recursive: true });
+      const filler = JSON.stringify({
+        timestamp: "2026-05-14T00:10:23.619Z",
+        type: "event_msg",
+        payload: { type: "token_count", padding: "x".repeat(5 * 1_024 * 1_024) },
+      });
+      const content = [
         JSON.stringify({
           timestamp: "2026-05-14T00:10:23.618Z",
           type: "session_meta",
@@ -252,35 +355,39 @@ describe("codex cli node sessions", () => {
             content: [{ type: "input_text", text: "rollout fallback" }],
           },
         }),
-      ].join("\n"),
-    );
-    const readFile = vi.spyOn(fs, "readFile");
-
-    const command = createCodexCliSessionNodeHostCommands().find(
-      (entry) => entry.command === CODEX_CLI_SESSIONS_LIST_COMMAND,
-    );
-    const raw = await command?.handle(JSON.stringify({ limit: 5 }));
-    const parsed = JSON.parse(raw ?? "{}") as {
-      sessions?: Array<{
-        sessionId?: string;
-        cwd?: string;
-        lastMessage?: string;
-        messageCount?: number;
-      }>;
-    };
-
-    expect(readFile).not.toHaveBeenCalledWith(sessionFile, "utf8");
-    expect(parsed.sessions).toEqual([
-      {
-        sessionId,
-        updatedAt: "2026-05-14T00:10:24.000Z",
-        cwd: "/tmp/codex-streaming",
-        lastMessage: "rollout fallback",
+      ].join("\n");
+      await fs.writeFile(
         sessionFile,
-        messageCount: 1,
-      },
-    ]);
-  });
+        suffix.endsWith(".zst") ? zstdCompressSync(Buffer.from(content)) : content,
+      );
+      const readFile = vi.spyOn(fs, "readFile");
+
+      const command = createCodexCliSessionNodeHostCommands().find(
+        (entry) => entry.command === CODEX_CLI_SESSIONS_LIST_COMMAND,
+      );
+      const raw = await command?.handle(JSON.stringify({ limit: 5 }));
+      const parsed = JSON.parse(raw ?? "{}") as {
+        sessions?: Array<{
+          sessionId?: string;
+          cwd?: string;
+          lastMessage?: string;
+          messageCount?: number;
+        }>;
+      };
+
+      expect(readFile).not.toHaveBeenCalledWith(sessionFile, "utf8");
+      expect(parsed.sessions).toEqual([
+        {
+          sessionId,
+          updatedAt: "2026-05-14T00:10:24.000Z",
+          cwd: "/tmp/codex-streaming",
+          lastMessage: "rollout fallback",
+          sessionFile,
+          messageCount: 1,
+        },
+      ]);
+    },
+  );
 
   it("discards partial large-file summaries and closes after a later read fails", async () => {
     const sessionId = "019e23d1-f33d-78e3-959e-0f56f30a5251";

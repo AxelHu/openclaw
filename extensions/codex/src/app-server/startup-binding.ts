@@ -14,6 +14,7 @@ import {
   root as openSafeFilesystemRoot,
 } from "openclaw/plugin-sdk/file-access-runtime";
 import { parseSqliteSessionFileMarker } from "openclaw/plugin-sdk/session-store-runtime";
+import { isJsonlFile, plainJsonlFile, visitCompressedJsonlLines } from "../jsonl-lines.js";
 import { resolveCodexAppServerHomeDir } from "./auth-bridge.js";
 import { isJsonObject, type JsonValue } from "./protocol.js";
 import type {
@@ -105,7 +106,7 @@ async function listCodexAppServerRolloutFilesForThread(
     rolloutPath &&
     rolloutRoot &&
     path.isAbsolute(rolloutPath) &&
-    path.extname(rolloutPath) === ".jsonl" &&
+    isJsonlFile(rolloutPath) &&
     path.basename(rolloutPath).includes(threadId)
   ) {
     try {
@@ -118,8 +119,15 @@ async function listCodexAppServerRolloutFilesForThread(
         maxBytes: Number.MAX_SAFE_INTEGER,
         symlinks: "reject",
       });
-      const opened = await safeRoot.open(path.relative(rolloutRoot, rolloutPath));
-      return [{ path: opened.realPath, bytes: opened.stat.size, handle: opened.handle }];
+      const plainPath = plainJsonlFile(rolloutPath);
+      for (const candidate of [plainPath, `${plainPath}.zst`]) {
+        try {
+          const opened = await safeRoot.open(path.relative(rolloutRoot, candidate));
+          return [{ path: opened.realPath, bytes: opened.stat.size, handle: opened.handle }];
+        } catch {
+          // Compression and native append can replace either representation.
+        }
+      }
     } catch {
       // Older Codex servers and moved rollouts still need root-scoped discovery.
     }
@@ -143,17 +151,35 @@ async function listCodexAppServerRolloutFilesForThread(
       } catch {
         continue;
       }
+      const plainFiles = new Set(
+        entries.filter((entry) => entry.isFile()).map((entry) => entry.name),
+      );
       for (const entry of entries) {
         const file = path.join(dir, entry.name);
         if (entry.isDirectory()) {
           stack.push(file);
           continue;
         }
-        if (!entry.isFile() || !entry.name.endsWith(".jsonl") || !entry.name.includes(threadId)) {
+        if (
+          !entry.isFile() ||
+          !isJsonlFile(entry.name) ||
+          !entry.name.includes(threadId) ||
+          (entry.name.endsWith(".jsonl.zst") && plainFiles.has(plainJsonlFile(entry.name)))
+        ) {
           continue;
         }
         try {
-          files.push({ path: file, bytes: (await fs.stat(file)).size });
+          if (file.endsWith(".jsonl.zst")) {
+            const safeRoot = await openSafeFilesystemRoot(root, {
+              hardlinks: "reject",
+              symlinks: "reject",
+              maxBytes: Number.MAX_SAFE_INTEGER,
+            });
+            const opened = await safeRoot.open(path.relative(root, file));
+            files.push({ path: opened.realPath, bytes: opened.stat.size, handle: opened.handle });
+          } else {
+            files.push({ path: file, bytes: (await fs.stat(file)).size });
+          }
         } catch {
           // Ignore rollout files that disappeared while the guard was scanning.
         }
@@ -442,6 +468,41 @@ export async function rotateOversizedCodexAppServerStartupBinding(params: {
     maxBytes !== undefined &&
     params.contextEngineActive === true &&
     hasContextEngineThreadBootstrapProjection(binding);
+  const compressedSnapshots = new Map<string, CodexAppServerRolloutTokenSnapshot>();
+  try {
+    for (const file of rolloutFiles) {
+      if (!file.path.endsWith(".jsonl.zst")) {
+        continue;
+      }
+      const snapshot: CodexAppServerRolloutTokenSnapshot = {};
+      const result = await visitCompressedJsonlLines(
+        file.path,
+        (line) => {
+          // Forward scans replace only fields present in each newer token event.
+          Object.assign(snapshot, readCodexAppServerRolloutTokenSnapshotLine(line));
+        },
+        {
+          handle: file.handle,
+          chunkBytes: CODEX_APP_SERVER_ROLLOUT_TAIL_READ_BYTES,
+          maxBytes: shouldDeferByteGuard ? undefined : maxBytes,
+        },
+      );
+      file.handle = undefined;
+      if (!result.ok) {
+        throw new Error("Cannot inspect compressed Codex rollout before resuming its thread");
+      }
+      // The byte guard measures the native transcript, not its smaller on-disk encoding.
+      file.bytes = result.bytes;
+      compressedSnapshots.set(file.path, snapshot);
+    }
+  } catch (error) {
+    await Promise.all(
+      rolloutFiles.map(async (file) => {
+        await file.handle?.close().catch(() => undefined);
+      }),
+    );
+    throw error;
+  }
   if (shouldDeferByteGuard) {
     embeddedAgentLog.debug(
       "codex app-server deferring native transcript byte guard for context-engine thread bootstrap",
@@ -476,8 +537,10 @@ export async function rotateOversizedCodexAppServerStartupBinding(params: {
     }
   }
   const nativeTokenSnapshots = await Promise.all(
-    rolloutFiles.map(async (file) =>
-      readCodexAppServerRolloutTokenSnapshot(file.path, file.handle),
+    rolloutFiles.map(
+      async (file) =>
+        compressedSnapshots.get(file.path) ??
+        readCodexAppServerRolloutTokenSnapshot(file.path, file.handle),
     ),
   );
   const nativeTokens = maxFiniteNumber(

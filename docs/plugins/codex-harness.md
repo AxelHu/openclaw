@@ -102,8 +102,8 @@ channel is the communication surface.
 
 - The official `@openclaw/codex` plugin installed. Include `codex` in
   `plugins.allow` if your config uses an allowlist.
-- Managed Codex app-server `0.155.0`. The plugin ships and manages
-  `@openai/codex` `0.155.0` by default, so a `codex` command on `PATH` does not
+- Managed Codex app-server `0.169.0`. The plugin ships and manages
+  `@openai/codex` `0.169.0` by default, so a `codex` command on `PATH` does not
   affect normal startup. Explicit custom, remote, and macOS desktop-owned
   app-servers must report a parseable semantic version of `0.149.0` or newer.
   Newer versions continue with a compatibility warning and normal runtime
@@ -118,15 +118,18 @@ For auth precedence, environment isolation, custom app-server commands,
 model discovery, and the full config field list, see
 [Codex harness reference](/plugins/codex-harness-reference).
 
-## Managed model catalog verification (2026-09-18)
+## Managed model catalog verification (2026-11-14)
 
-An authenticated `model/list` probe of managed Codex `0.155.0` returned both
-`gpt-5.6-sol` and `gpt-6-astra` with text and image input. Both advertised
-`low`, `medium`, `high`, `xhigh`, `max`, and `ultra` reasoning plus an optional
-priority service tier and multi-agent v2. The catalog marked `gpt-5.6-sol` as
-the default with default effort `low`; `gpt-6-astra` reported default effort
-`medium`. Preserve explicit agent effort settings instead of relying on catalog
-defaults, and verify the effective model on an actual turn.
+An authenticated `model/list` probe of official Codex `0.169.0` returned eight
+visible models. All advertised text and image input and an optional priority
+service tier. The default model advertised default effort `low`. Six visible
+models supported `low`, `medium`, `high`, `xhigh`, `max`, and `ultra`; the other
+two supported those levels through `max`. Query the authenticated catalog for
+the model identifiers available to the current account.
+
+This probe verified initialization, ChatGPT account authentication, and catalog
+metadata; it did not run a model turn. Preserve explicit agent effort settings
+instead of replacing them with catalog defaults.
 
 Upgrading the managed binary does not itself migrate an OpenClaw agent's
 explicit model selection. Retain each agent's existing reasoning effort and
@@ -489,10 +492,12 @@ project instructions are context, not tool authority.
 **Ring zero** is stronger and separate. It is the host-owned OpenClaw system
 agent used for setup and repair operations. The host activates it with the
 single `openclaw` tool; normal agent config cannot opt a chat into ring zero.
-Ring-zero turns keep only that host-scoped tool, replace ambient Codex
-instructions with host-authored setup instructions, disable native tools and
-MCP servers, and suppress workspace project documents, including the
-`AGENTS.md` developer-instruction carrier.
+Ring-zero turns keep only that host-scoped OpenClaw dynamic tool, replace ambient
+Codex instructions with host-authored setup instructions, apply the restricted
+native surface and disable MCP servers, and suppress workspace project documents,
+including the `AGENTS.md` developer-instruction carrier. Model-selected native
+declarations and the execution boundary are described under
+[Restricted turns](/plugins/codex-harness-reference#restricted-turns).
 
 Other narrow internal modes also suppress project documents: lightweight
 bootstrap turns, message-only source replies, and tool-disabled internal turns.

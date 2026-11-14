@@ -19,7 +19,7 @@ import type { CodexSessionCatalogControlFactory } from "./src/session-catalog-ty
 // New runtime identity uses the `openai` provider.
 const DEFAULT_CODEX_HARNESS_PROVIDER_IDS = new Set(["codex", "openai"]);
 const SHARED_CODEX_APP_SERVER_CLIENT_DISPOSER = Symbol.for("openclaw.codexAppServerClientDisposer");
-// Re-audited against @openai/codex 0.155.0. These exact OpenClaw-level denies
+// Re-audited against @openai/codex 0.169.0. These exact OpenClaw-level denies
 // either have no Codex-native equivalent or are enforced by the harness. Keep
 // the list positive and conservative: an omitted tool isolates the native surface.
 const CODEX_TOOL_POLICY_SAFE_DENY_NAMES = [
@@ -283,7 +283,7 @@ export function createCodexAppServerAgentHarness(
     },
     runIsolatedCompletion: async (params) => {
       // Keep the deprecated V1 contract on its exact host-prepared transport.
-      // V2 owns native Codex auth and zero-tool attestation above.
+      // V2 owns native Codex auth and restricted-surface attestation above.
       return runHostPreparedIsolatedCompletion({
         ...params,
         authorization: {

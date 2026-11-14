@@ -559,12 +559,12 @@ export type CodexDynamicToolCallOutputContentItem =
   | JsonObject;
 
 // Mirrors v2 ErrorNotification/TurnError (codex-rs app-server-protocol
-// notification.rs + thread_data.rs). `message` is required upstream; other
-// TurnError fields stay open because CodexErrorInfo is a wide enum.
+// notification.rs + thread_data.rs + shared.rs). `message` is required upstream;
+// Codex 0.169 also preserves unknown error variants as opaque string/object data.
 export type CodexErrorNotification = {
   error: {
     message?: string;
-    codexErrorInfo?: "misalignmentPolicyViolation" | (string & {}) | JsonObject | null;
+    codexErrorInfo?: "misalignmentPolicyViolation" | (string & {}) | Record<string, unknown> | null;
     additionalDetails?: string | null;
     [key: string]: unknown;
   };

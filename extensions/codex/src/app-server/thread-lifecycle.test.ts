@@ -407,6 +407,12 @@ describe("Codex ring-zero thread config", () => {
       expect(config?.["features.goals"]).toBe(false);
       expect(config?.["features.codex_apps_mcp_2026_07_28"]).toBe(false);
       expect(config?.["features.unified_exec_tty"]).toBe(false);
+      expect(config?.["features.sleep_tool"]).toBe(false);
+      expect(config?.["features.agent_message_board"]).toBe(false);
+      expect(config?.["features.agent_message_board_mcp"]).toBe(false);
+      expect(config?.["features.multi_env_copy_file"]).toBe(false);
+      expect(config?.["features.send_message_to_user_async"]).toBe(false);
+      expect(config?.["features.skill_mcp_dependency_install"]).toBe(false);
       expect(config?.["features.windows_sandbox_service"]).toBe(false);
       expect(config?.["features.worktrees"]).toBe(false);
       expect(config?.["orchestrator.mcp.enabled"]).toBe(false);

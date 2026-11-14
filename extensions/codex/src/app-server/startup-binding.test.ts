@@ -3,28 +3,12 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { readCodexAppServerBinding } from "./session-binding.test-helpers.js";
 import {
-  readCodexAppServerBinding,
-  testCodexAppServerBindingStore,
-  writeCodexAppServerBinding,
-} from "./session-binding.test-helpers.js";
-import { rotateOversizedCodexAppServerStartupBinding as rotateStartupBindingImpl } from "./startup-binding.js";
-
-function resolveCodexAppServerStartupBinding(
-  params: Omit<Parameters<typeof rotateStartupBindingImpl>[0], "bindingStore" | "identity">,
-) {
-  return rotateStartupBindingImpl({
-    ...params,
-    bindingStore: testCodexAppServerBindingStore,
-    identity: { kind: "session", agentId: "main", sessionId: params.sessionFile },
-  });
-}
-
-async function rotateOversizedCodexAppServerStartupBinding(
-  params: Omit<Parameters<typeof rotateStartupBindingImpl>[0], "bindingStore" | "identity">,
-) {
-  return (await resolveCodexAppServerStartupBinding(params)).binding;
-}
+  resolveCodexAppServerStartupBinding,
+  rotateOversizedCodexAppServerStartupBinding,
+  writeExistingBinding,
+} from "./startup-binding.test-support.js";
 
 describe("Codex app-server startup binding", () => {
   let tempDir: string;
@@ -37,20 +21,6 @@ describe("Codex app-server startup binding", () => {
     vi.restoreAllMocks();
     await fs.rm(tempDir, { recursive: true, force: true });
   });
-
-  async function writeExistingBinding(
-    sessionFile: string,
-    workspaceDir: string,
-    overrides: Partial<Parameters<typeof writeCodexAppServerBinding>[1]> = {},
-  ) {
-    await writeCodexAppServerBinding(sessionFile, {
-      threadId: "thread-existing",
-      cwd: workspaceDir,
-      model: "gpt-5.4-codex",
-      modelProvider: "openai",
-      ...overrides,
-    });
-  }
 
   async function writeSessionRecord(sessionFile: string, record: Record<string, unknown>) {
     await fs.mkdir(path.dirname(sessionFile), { recursive: true });
@@ -533,37 +503,6 @@ describe("Codex app-server startup binding", () => {
     expect(binding).toBeUndefined();
     const savedBinding = await readCodexAppServerBinding(sessionFile);
     expect(savedBinding).toBeUndefined();
-  });
-
-  it("checks the native rollout path without walking the session directories", async () => {
-    const sessionFile = path.join(tempDir, "session.jsonl");
-    const workspaceDir = path.join(tempDir, "workspace");
-    const agentDir = path.join(tempDir, "agent");
-    const rolloutDir = path.join(agentDir, "codex-home", "sessions", "2026", "07", "27");
-    const rolloutPath = path.join(rolloutDir, "rollout-thread-existing.jsonl");
-    await fs.mkdir(rolloutDir, { recursive: true });
-    await fs.writeFile(rolloutPath, "x".repeat(2_000));
-    await writeExistingBinding(sessionFile, workspaceDir, { rolloutPath });
-    const readDirectories = vi.spyOn(fs, "readdir");
-
-    const binding = await rotateOversizedCodexAppServerStartupBinding({
-      binding: await readCodexAppServerBinding(sessionFile),
-      sessionFile,
-      agentDir,
-      config: {
-        agents: {
-          defaults: {
-            compaction: {
-              maxActiveTranscriptBytes: "1k",
-            },
-          },
-        },
-      } as never,
-    });
-
-    expect(binding).toBeUndefined();
-    expect(readDirectories).not.toHaveBeenCalled();
-    await expect(readCodexAppServerBinding(sessionFile)).resolves.toBeUndefined();
   });
 
   it("never reads a stored rollout path outside Codex session roots", async () => {

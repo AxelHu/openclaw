@@ -176,7 +176,13 @@ describe("readCodexTurn", () => {
       items: [{ id: "item-1", type: "plan", text: "ship it" }],
     });
 
-    expect(turn?.items[0]).toEqual({ id: "item-1", type: "plan", text: "ship it" });
+    expect(turn?.items[0]).toEqual({
+      id: "item-1",
+      type: "plan",
+      text: "ship it",
+      startedAtMs: null,
+      completedAtMs: null,
+    });
   });
 
   it("accepts nullable arrays in generated dynamic tool call items", () => {

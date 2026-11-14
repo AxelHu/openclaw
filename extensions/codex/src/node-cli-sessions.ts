@@ -19,7 +19,12 @@ import {
   resolveWindowsSpawnProgram,
 } from "openclaw/plugin-sdk/windows-spawn";
 import { formatCodexDisplayText } from "./command-formatters.js";
-import { JSONL_FIRST_LINE_CHUNK_BYTES, visitJsonlLines } from "./jsonl-lines.js";
+import {
+  isJsonlFile,
+  JSONL_FIRST_LINE_CHUNK_BYTES,
+  plainJsonlFile,
+  visitJsonlLines,
+} from "./jsonl-lines.js";
 
 const CODEX_CLI_SESSIONS_LIST_COMMAND = "codex.cli.sessions.list";
 export const CODEX_CLI_SESSION_RESUME_COMMAND = "codex.cli.session.resume";
@@ -469,11 +474,16 @@ async function findSessionFiles(dir: string, maxDepth: number): Promise<string[]
     return [];
   }
   const files: string[] = [];
+  const plainFiles = new Set(entries.filter((entry) => entry.isFile()).map((entry) => entry.name));
   for (const entry of entries) {
     const entryPath = path.join(dir, entry.name);
     if (entry.isDirectory()) {
       files.push(...(await findSessionFiles(entryPath, maxDepth - 1)));
-    } else if (entry.isFile() && entry.name.endsWith(".jsonl")) {
+    } else if (
+      entry.isFile() &&
+      isJsonlFile(entry.name) &&
+      !(entry.name.endsWith(".jsonl.zst") && plainFiles.has(plainJsonlFile(entry.name)))
+    ) {
       files.push(entryPath);
     }
   }
